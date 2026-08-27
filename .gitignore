@@ -11,3 +11,7 @@ __pycache__/
 
 # Logs
 *.log
+
+#training data
+trainingdata/*.pgns
+trainingdata/*.json
