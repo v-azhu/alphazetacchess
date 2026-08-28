@@ -15,4 +15,3 @@ __pycache__/
 #training data
 trainingdata/*.pgns
 trainingdata/*.json
-

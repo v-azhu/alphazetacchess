@@ -1,53 +1,73 @@
 # AlphaZetaChess Architecture v0.1
 
-## 1. 项目概述
+## 1. Project Overview
 
-### 1.1 项目名称
+### 1.1 Project Name
 
 **AlphaZetaChess**
 
-中文名称：
+Chinese name:
 
 **AlphaZeta 中国象棋 AI 引擎**
 
 ------------------------------------------------------------------------
 
-## 1.2 项目目标
+## 1.2 Naming
 
-AlphaZetaChess 是一个自主研发的中国象棋 AI 项目。
+The name AlphaZetaChess has three meanings:
 
-目标不是简单实现一个可以下棋的软件，而是探索：
+-   **AZ** comes from the creator's initials.
+-   **AlphaZeta** is inspired by AlphaZero, representing the project's
+    ambition to explore self-learning AI.
+-   **Chess** represents the chess domain, specifically Chinese Chess
+    (Xiangqi).
 
-> 如何从零构建一个具有持续进化能力的中国象棋智能系统。
-
-最终目标：
-
--   实现完整中国象棋规则；
--   构建高性能搜索引擎；
--   实现自我对弈学习；
--   引入神经网络评价；
--   探索 AlphaZero 类训练路线；
--   达到接近顶级中国象棋 AI 的水平。
+The project name keeps the personal identity of the creator while paying
+tribute to the AlphaZero approach.
 
 ------------------------------------------------------------------------
 
-# 2. 总体技术路线
+## 1.3 Project Goal
 
-项目采用渐进式架构：
+AlphaZetaChess is an open-source Chinese Chess AI research and
+engineering project.
+
+The goal is not only to build a chess-playing program, but to explore
+how to construct an intelligent system that can continuously improve
+through:
+
+-   rule modeling;
+-   search algorithms;
+-   evaluation functions;
+-   self-play;
+-   machine learning.
+
+Long-term goals:
+
+-   Implement a complete Chinese Chess engine.
+-   Build a high-performance search engine.
+-   Develop self-play training capability.
+-   Introduce neural network evaluation.
+-   Explore AlphaZero-inspired learning methods.
+-   Gradually approach advanced Chinese Chess AI strength.
+
+------------------------------------------------------------------------
+
+# 2. Overall Technical Roadmap
+
+AlphaZetaChess follows an evolutionary architecture:
 
                      AlphaZetaChess
 
                            |
             +--------------+--------------+
             |                             |
-       Traditional Engine            Learning System
+     Traditional Engine             Learning System
             |                             |
+     Search Engine                  Neural Network
             |                             |
-      Search Engine                  Neural Network
-            |                             |
-            |                             |
-     Alpha-Beta                    Policy Network
-     MCTS                          Value Network
+     Alpha-Beta                     Policy Network
+     MCTS                           Value Network
             |
      Evaluation Function
 
@@ -60,132 +80,91 @@ AlphaZetaChess 是一个自主研发的中国象棋 AI 项目。
 
 ------------------------------------------------------------------------
 
-# 3. 系统分层架构
+# 3. System Architecture
 
-整体分为五层：
+The system is divided into five layers:
 
-    ┌─────────────────────────────┐
-    │       Interface Layer        │
-    │                              │
-    │  UCCI / GUI / CLI / API      │
-    └──────────────▲──────────────┘
-                   |
-    ┌──────────────┴──────────────┐
-    │       Game Engine Layer      │
-    │                              │
-    │ Board / Move / Rule          │
-    └──────────────▲──────────────┘
-                   |
-    ┌──────────────┴──────────────┐
-    │       Decision Layer         │
-    │                              │
-    │ Search / Evaluation          │
-    └──────────────▲──────────────┘
-                   |
-    ┌──────────────┴──────────────┐
-    │       Learning Layer         │
-    │                              │
-    │ Self Play / Training         │
-    └──────────────▲──────────────┘
-                   |
-    ┌──────────────┴──────────────┐
-    │       Data Layer             │
-    │                              │
-    │ Games / Models / Opening     │
-    └─────────────────────────────┘
+    +-----------------------------+
+    |      Interface Layer        |
+    |  UCCI / GUI / CLI / API     |
+    +-------------▲---------------+
+                  |
+    +-------------┴---------------+
+    |      Game Engine Layer      |
+    | Board / Move / Rule         |
+    +-------------▲---------------+
+                  |
+    +-------------┴---------------+
+    |      Decision Layer         |
+    | Search / Evaluation         |
+    +-------------▲---------------+
+                  |
+    +-------------┴---------------+
+    |      Learning Layer         |
+    | Self Play / Training        |
+    +-------------▲---------------+
+                  |
+    +-------------┴---------------+
+    |      Data Layer             |
+    | Games / Models / Opening    |
+    +-----------------------------+
 
 ------------------------------------------------------------------------
 
-# 4. 核心模块设计
+# 4. Core Modules
 
-## 4.1 Board Module（棋盘模块）
+## 4.1 Board Module
 
-职责：
+Responsible for managing game state.
 
-管理当前棋局状态。
+Functions:
 
-包括：
-
--   棋盘初始化；
--   棋子位置；
--   局面复制；
--   落子；
--   悔棋；
--   局面哈希。
-
-核心对象：
-
-    Board
-
-    - pieces
-    - side_to_move
-    - move_history
-    - zobrist_hash
-
-    methods:
-
-    move()
-    undo()
-    clone()
-    is_game_over()
+-   initialize board;
+-   maintain piece positions;
+-   execute moves;
+-   undo moves;
+-   copy positions;
+-   calculate position hash.
 
 ------------------------------------------------------------------------
 
-## 4.2 Move Generator（走法生成）
+## 4.2 Move Generator
 
-负责生成所有合法走法。
+Responsible for generating legal moves.
 
-支持：
+Supports:
 
--   车
--   马
--   炮
--   象
--   士
--   将
--   兵
-
-示例：
-
-``` python
-generate_moves(board)
-```
-
-返回：
-
-    [
-     Move(
-       from="a0",
-       to="a5"
-     )
-    ]
+-   rook;
+-   knight;
+-   cannon;
+-   elephant;
+-   advisor;
+-   king;
+-   pawn.
 
 ------------------------------------------------------------------------
 
-## 4.3 Rule Engine（规则引擎）
+## 4.3 Rule Engine
 
-负责：
+Responsible for:
 
--   将军判断；
--   被将军判断；
--   将死判断；
--   困毙判断；
--   重复局面判断；
--   和棋规则。
+-   check detection;
+-   checkmate detection;
+-   stalemate detection;
+-   repetition rules;
+-   draw conditions.
 
 ------------------------------------------------------------------------
 
-## 4.4 Search Engine（搜索引擎）
+## 4.4 Search Engine
 
-第一阶段核心模块。
-
-演进路线：
+Evolution path:
 
     Minimax
 
     ↓
 
-    Alpha Beta
+    Alpha-Beta
 
     ↓
 
@@ -205,15 +184,13 @@ generate_moves(board)
 
     ↓
 
-    Advanced pruning
+    Advanced Pruning
 
 ------------------------------------------------------------------------
 
-## 4.5 Evaluation Engine（局面评价）
+## 4.5 Evaluation Engine
 
-负责模拟棋感。
-
-初期：
+Initial evaluation:
 
     Score =
         Material
@@ -223,23 +200,21 @@ generate_moves(board)
       + Attack
       + Defense
 
-后期：
+Future direction:
 
     Neural Network Evaluation
 
 ------------------------------------------------------------------------
 
-## 4.6 Self Play System（自我对弈系统）
+## 4.6 Self Play System
 
-AlphaZero 路线核心。
-
-流程：
+Core of AlphaZero-inspired learning.
 
     AI
 
     ↓
 
-    Play Game
+    Play Games
 
     ↓
 
@@ -255,18 +230,7 @@ AlphaZero 路线核心。
 
 ------------------------------------------------------------------------
 
-## 4.7 Training System（训练系统）
-
-负责：
-
--   数据处理；
--   模型训练；
--   模型评估；
--   模型版本管理。
-
-------------------------------------------------------------------------
-
-# 5. 项目目录设计
+# 5. Project Structure
 
     alphazetacchess/
 
@@ -277,24 +241,9 @@ AlphaZero 路线核心。
     │
     ├── src/
     │   ├── core/
-    │   │   ├── board.py
-    │   │   ├── piece.py
-    │   │   ├── move.py
-    │   │   └── rule.py
-    │   │
     │   ├── engine/
-    │   │   ├── search.py
-    │   │   ├── evaluate.py
-    │   │   ├── tt.py
-    │   │   └── engine.py
-    │   │
     │   ├── ai/
-    │   │   ├── mcts.py
-    │   │   ├── network.py
-    │   │   └── trainer.py
-    │   │
-    │   ├── protocol/
-    │   │   └── ucci.py
+    │   └── protocol/
     │
     ├── tests/
     │
@@ -309,110 +258,81 @@ AlphaZero 路线核心。
 
 ------------------------------------------------------------------------
 
-# 6. 开发原则
+# 6. Development Principles
 
-## 原则 1：每个版本必须可运行
+## Principle 1: Every Version Must Be Runnable
 
-例如：
+Examples:
 
--   V0.1：人 vs 随机 AI
--   V0.2：人 vs 搜索 AI
--   V0.3：AI vs AI
--   V0.4：AI 自我训练
-
-------------------------------------------------------------------------
-
-## 原则 2：不要过早引入复杂技术
-
-正确路线：
-
-    规则
-
-    ↓
-
-    搜索
-
-    ↓
-
-    评价
-
-    ↓
-
-    优化
-
-    ↓
-
-    学习
-
-避免：
-
-    神经网络
-
-    ↓
-
-    不知道为什么输
-
-    ↓
-
-    调参数
+-   V0.1: Human vs Random AI
+-   V0.2: Human vs Search AI
+-   V0.3: AI vs AI
+-   V0.4: AI Self Play
 
 ------------------------------------------------------------------------
 
-## 原则 3：所有棋力提升必须可测量
+## Principle 2: Build From Simple to Complex
 
-建立测试体系：
+Correct order:
 
-    AlphaZetaChess v0.1
+    Rules
 
-    VS
+    ↓
 
-    AlphaZetaChess v0.2
+    Search
 
-    1000 games
+    ↓
 
-    统计胜率
+    Evaluation
+
+    ↓
+
+    Optimization
+
+    ↓
+
+    Learning
 
 ------------------------------------------------------------------------
 
-# 7. 第一阶段目标
+## Principle 3: Measure Every Improvement
+
+Every strength improvement should be measurable through:
+
+-   AI vs AI matches;
+-   win rate;
+-   benchmark positions;
+-   human testing.
+
+------------------------------------------------------------------------
+
+# 7. Initial Milestone
 
 ## AlphaZetaChess v0.1
 
-目标：
+Goals:
 
-完成：
+-   Complete board model.
+-   Complete chess rules.
+-   Generate legal moves.
+-   Support human vs AI.
+-   Save chess records.
 
--   棋盘模型；
--   所有棋子规则；
--   合法走法生成；
--   人机对弈；
--   棋谱保存。
+Not included:
 
-暂不包含：
-
--   AI 搜索；
--   神经网络；
--   训练系统。
+-   advanced search;
+-   neural networks;
+-   training pipeline.
 
 ------------------------------------------------------------------------
 
-# 8. 长期目标
+# 8. Long-term Vision
 
-AlphaZetaChess 最终目标：
+AlphaZetaChess aims to become:
 
-建立一个：
+> A Chinese Chess AI experimental platform evolving from rules, to
+> search, to learning, and finally to self-improvement.
 
-> 从规则 → 搜索 → 学习 → 自我进化的中国象棋 AI 实验平台。
+Version: v0.1
 
-项目不仅追求棋力提升，也关注：
-
--   可解释性；
--   工程质量；
--   技术演进过程；
--   人类棋手与 AI 思维的比较。
-
-------------------------------------------------------------------------
-
-**Version: v0.1**
-
-**Status: Initial Architecture Design**
+Status: Initial Architecture Design
