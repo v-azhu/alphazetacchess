@@ -3,6 +3,8 @@
 __pycache__/
 *.py[cod]
 
+.pytest_cache/
+
 # Environment
 .env
 
@@ -15,3 +17,5 @@ __pycache__/
 #training data
 trainingdata/*.pgns
 trainingdata/*.json
+
+tests/_pytest_cache/
