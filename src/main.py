@@ -1,12 +1,13 @@
 """
-AlphaZetaChess - v0.1 playable milestone.
+AlphaZetaChess - v0.2 playable milestone.
 
-A minimal Human (RED) vs Random AI (BLACK) command-line game, built on
-top of the Core layer (Board / MoveGenerator / Rule).
+A Human (RED) vs SearchEngine AI (BLACK) command-line game, built on
+top of the Core layer (Board / MoveGenerator / Rule) and the new
+Engine layer (Minimax + Alpha-Beta search over a basic evaluation
+function).
 """
 
 import os
-import random
 import sys
 
 # Make the "alphazetacchess" package importable when this file is run
@@ -17,10 +18,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color
 from alphazetacchess.core.rule import Rule
+from alphazetacchess.engine.search import SearchEngine
 
 
 HUMAN_COLOR = Color.RED
 AI_COLOR = Color.BLACK
+
+# Depth 2 is the sweet spot for v0.2: it reliably beats a random-move
+# opponent and stays responsive (roughly ~1s/move on average, a few
+# seconds at most in the opening). Depth 3 already finds noticeably
+# stronger moves but is currently slow (tens of seconds per move),
+# because legality-checking is re-done at every search node -- this
+# is a known, deliberately deferred cost; see docs/roadmap.md V0.3
+# (transposition table, move ordering) for the planned fix.
+AI_SEARCH_DEPTH = 2
 
 
 def print_board(board):
@@ -92,11 +103,6 @@ def get_human_move(board):
         return match
 
 
-def get_ai_move(board):
-    legal_moves = Rule.generate_legal_moves(board, AI_COLOR)
-    return random.choice(legal_moves)
-
-
 def describe_move(move):
     text = f"{move.from_pos} -> {move.to_pos}"
     if move.captured_piece is not None:
@@ -104,12 +110,28 @@ def describe_move(move):
     return text
 
 
+def describe_search_result(result):
+    """
+    Makes the AI's decision explainable (V0.2 acceptance criterion):
+    shows the move it picked, the evaluation score it expects from
+    that move (positive = good for the AI), and how many positions it
+    had to look at to decide.
+    """
+    return (
+        f"{describe_move(result.best_move)} "
+        f"| 评估分数 score={result.score} "
+        f"| 搜索深度 depth={result.depth} "
+        f"| 计算节点 nodes={result.nodes_evaluated}"
+    )
+
+
 def main():
     print("AlphaZetaChess")
-    print("Human (RED) vs Random AI (BLACK)")
+    print(f"Human (RED) vs SearchEngine AI (BLACK, depth={AI_SEARCH_DEPTH})")
     print()
 
     board = Board()
+    ai_engine = SearchEngine(depth=AI_SEARCH_DEPTH)
 
     while True:
         print_board(board)
@@ -135,8 +157,10 @@ def main():
                 print("已退出游戏。")
                 break
         else:
-            move = get_ai_move(board)
-            print(f"{color_name(AI_COLOR)} 走: {describe_move(move)}")
+            print(f"{color_name(AI_COLOR)} 正在思考...")
+            result = ai_engine.choose_move(board, AI_COLOR)
+            move = result.best_move
+            print(f"{color_name(AI_COLOR)} 走: {describe_search_result(result)}")
 
         board.move(move.from_pos, move.to_pos)
 

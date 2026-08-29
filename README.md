@@ -21,11 +21,27 @@ hybrid engine, inspired by the AlphaZero approach.
   - 卒 Pawn (过河前后规则不同)
 - [x] 合法性校验：回合规则、将军检测、飞将 (flying general) 规则
 - [x] 将死 (checkmate) / 困毙 (stalemate) 判定
-- [x] 命令行版 Human (红方) vs Random AI (黑方) 可玩对局
-- [ ] Minimax / Alpha-Beta 搜索引擎 (v0.2)
-- [ ] 迭代加深、置换表、走法排序 (v0.3)
+- [x] Minimax + Alpha-Beta 搜索引擎，基础评估函数 (material + position)，可配置搜索深度 (v0.2)
+- [x] 命令行版 Human (红方) vs SearchEngine AI (黑方) 可玩对局，AI 走法可解释 (显示评估分数与搜索节点数)
+- [x] AI vs AI 对局评测工具 (`tools/benchmark.py`)
+- [ ] 迭代加深、置换表、走法排序、Negamax/PVS、静态搜索 (Quiescence Search) (v0.3)
+- [ ] 更完善的局面评估：机动性、王/将安全、残局知识 (v0.4)
 - [ ] 自我对弈与训练数据生成 (v0.5)
 - [ ] 神经网络评估 / MCTS (v0.6+)
+
+### V0.2 验收结果 (Acceptance Evidence)
+
+按 `docs/roadmap.md` 里 V0.2 的验收标准（"AI can defeat random players" /
+"AI decisions are explainable"），用 `tools/benchmark.py` 实测：
+
+| 引擎 | 局数 | 胜 | 负 | 和 (触发步数上限) | 得分率 | 估算 Elo 差 |
+|---|---|---|---|---|---|---|
+| SearchEngine(depth=1) vs RandomEngine | 10 | 6 | 0 | 4 | 80% | +241 |
+| SearchEngine(depth=2) vs RandomEngine | 6  | 5 | 0 | 1 | 92% | +417 |
+
+两个深度下 SearchEngine 都是零败绩，depth=2 明显更强。默认 `AI_SEARCH_DEPTH = 2`
+（详见 `src/main.py` 里的取舍说明：depth=3 已验证明显更强，但目前单步耗时可达
+数十秒，优化留给 v0.3 的置换表 / 走法排序）。
 
 完整路线图见 [`docs/roadmap.md`](docs/roadmap.md)，架构设计见
 [`docs/architecture.md`](docs/architecture.md)。
@@ -71,6 +87,16 @@ pip install pytest --break-system-packages   # 如尚未安装
 python -m pytest -q
 ```
 
+### 运行 AI vs AI 评测 (Engine Benchmark)
+
+```bash
+python tools/benchmark.py                     # 默认 10 局, depth=2
+python tools/benchmark.py --games 20 --depth 1 --max-moves 150
+```
+
+按 `docs/roadmap.md` 里"Engine Benchmark"方法论：两个引擎交替执红/黑对局，
+统计胜/负/和局数与估算 Elo 差。
+
 ---
 
 ## 项目结构 (Project Structure)
@@ -85,22 +111,32 @@ alphazetacchess/
 │       ├── core-design.md
 │       └── engine-design.md
 ├── src/
-│   ├── main.py                # 命令行入口：Human vs Random AI
+│   ├── main.py                # 命令行入口：Human vs SearchEngine AI
 │   └── alphazetacchess/
-│       └── core/               # 核心层：不含任何 AI 决策逻辑
-│           ├── piece.py         # 棋子类型 / 颜色 / Piece 对象
-│           ├── board.py         # 棋盘表示、走子/悔棋、将军/飞将检测辅助
-│           ├── move.py          # Move 对象
-│           ├── move_generator.py# 七种棋子的伪合法走法生成
-│           └── rule.py          # 合法性过滤、将军/将死/困毙判定
+│       ├── core/                # 核心层：不含任何 AI 决策逻辑
+│       │   ├── piece.py          # 棋子类型 / 颜色 / Piece 对象
+│       │   ├── board.py          # 棋盘表示、走子/悔棋、将军/飞将检测辅助
+│       │   ├── move.py           # Move 对象
+│       │   ├── move_generator.py # 七种棋子的伪合法走法生成
+│       │   └── rule.py           # 合法性过滤、将军/将死/困毙判定
+│       └── engine/              # 决策层：搜索 + 评估 (V0.2 新增)
+│           ├── base.py           # ChessEngine 统一接口 + SearchResult
+│           ├── evaluation.py     # 基础评估函数 (material + position)
+│           ├── search.py         # Minimax + Alpha-Beta 搜索引擎
+│           └── random_engine.py  # V0.1 随机引擎 (现作为评测基准)
 ├── tests/                     # pytest 测试
+├── tools/
+│   └── benchmark.py           # AI vs AI 对局评测工具
 ├── trainingdata/               # 供未来监督学习 / 开局库使用的棋谱数据
 └── pyproject.toml
 ```
 
-设计上，`core/` 层只负责"规则是什么"，不掺杂任何 AI 决策逻辑；后续的
-`engine/`（搜索 + 评估）和 `ai/`（自我对弈 + 神经网络）会作为独立层挂在
-`core/` 之上，具体分层原则见 [`docs/development.md`](docs/development.md)。
+设计上，`core/` 层只负责"规则是什么"，不掺杂任何 AI 决策逻辑；`engine/`
+层负责"该走哪步"，所有引擎都实现统一的 `ChessEngine.choose_move(board,
+color)` 接口（`RandomEngine`、`SearchEngine`，未来的 `MCTSEngine` /
+`NeuralEngine` / `HybridEngine`），彼此可以互换而不影响 Core 层或游戏主循环。
+具体分层原则见 [`docs/development.md`](docs/development.md) 与
+[`docs/design/engine-design.md`](docs/design/engine-design.md)。
 
 ---
 
