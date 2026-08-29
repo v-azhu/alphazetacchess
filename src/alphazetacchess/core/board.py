@@ -1,4 +1,5 @@
 from .piece import Piece, PieceType, Color
+from .zobrist import Zobrist
 
 
 class Board:
@@ -17,15 +18,14 @@ class Board:
         self.history = []
         self.current_player = Color.RED
         self.setup()
+        self.zobrist_hash = Zobrist.board_hash(self)
 
     def setup(self):
-        # Red side
         self._place_back_rank(0, Color.RED)
         self._place_cannon(2, Color.RED)
         for x in [0, 2, 4, 6, 8]:
             self._place(Piece(PieceType.PAWN, Color.RED, x, 3))
 
-        # Black side
         self._place_back_rank(9, Color.BLACK)
         self._place_cannon(7, Color.BLACK)
         for x in [0, 2, 4, 6, 8]:
@@ -56,23 +56,12 @@ class Board:
     def get(self, x, y):
         return self.board[y][x]
 
-    # ------------------------------------------------------------------
-    # Geometry helpers
-    #
-    # These are shared between MoveGenerator (move pattern restrictions)
-    # and Rule (check / checkmate detection), so they live on Board
-    # rather than being duplicated in both places.
-    # ------------------------------------------------------------------
-
     @staticmethod
     def in_bounds(x, y):
         return 0 <= x < Board.WIDTH and 0 <= y < Board.HEIGHT
 
     @staticmethod
     def in_palace(x, y, color):
-        """
-        Advisors and Kings may never leave the 3x3 palace.
-        """
         if x not in Board.PALACE_X:
             return False
         if color == Color.RED:
@@ -81,10 +70,6 @@ class Board:
 
     @staticmethod
     def has_crossed_river(y, color):
-        """
-        Used by Elephants (may never cross) and Pawns (gain sideways
-        movement after crossing).
-        """
         if color == Color.RED:
             return y >= 5
         return y <= 4
@@ -105,18 +90,11 @@ class Board:
         return None
 
     def kings_facing(self):
-        """
-        "Flying general" rule: the two generals may never face each
-        other directly on the same file with nothing in between. This
-        is checked separately from normal attack patterns because a
-        King's own movement never "attacks" along the whole file.
-        """
         red_king = self.find_king(Color.RED)
         black_king = self.find_king(Color.BLACK)
 
         if red_king is None or black_king is None:
             return False
-
         if red_king.x != black_king.x:
             return False
 
@@ -129,10 +107,6 @@ class Board:
 
         return True
 
-    # ------------------------------------------------------------------
-    # Move execution
-    # ------------------------------------------------------------------
-
     def move(self, from_pos, to_pos):
         fx, fy = from_pos
         tx, ty = to_pos
@@ -140,11 +114,27 @@ class Board:
         piece = self.board[fy][fx]
         captured = self.board[ty][tx]
 
+        # Update Zobrist hash before mutating piece coordinates.
+        if piece is not None:
+            self.zobrist_hash ^= Zobrist.PIECE_KEYS[
+                (piece.color, piece.type, fx, fy)
+            ]
+
+        if captured is not None:
+            self.zobrist_hash ^= Zobrist.PIECE_KEYS[
+                (captured.color, captured.type, tx, ty)
+            ]
+
+        self.zobrist_hash ^= Zobrist.SIDE_KEY
+
         self.board[ty][tx] = piece
         self.board[fy][fx] = None
 
         if piece is not None:
             piece.x, piece.y = tx, ty
+            self.zobrist_hash ^= Zobrist.PIECE_KEYS[
+                (piece.color, piece.type, tx, ty)
+            ]
 
         self.history.append((from_pos, to_pos, piece, captured))
         self.current_player = self.opponent(self.current_player)
@@ -158,11 +148,27 @@ class Board:
         fx, fy = from_pos
         tx, ty = to_pos
 
+        # Reverse the exact hash operations performed by move().
+        if piece is not None:
+            self.zobrist_hash ^= Zobrist.PIECE_KEYS[
+                (piece.color, piece.type, tx, ty)
+            ]
+
+        if captured is not None:
+            self.zobrist_hash ^= Zobrist.PIECE_KEYS[
+                (captured.color, captured.type, tx, ty)
+            ]
+
+        self.zobrist_hash ^= Zobrist.SIDE_KEY
+
         self.board[fy][fx] = piece
         self.board[ty][tx] = captured
 
         if piece is not None:
             piece.x, piece.y = fx, fy
+            self.zobrist_hash ^= Zobrist.PIECE_KEYS[
+                (piece.color, piece.type, fx, fy)
+            ]
 
         self.current_player = self.opponent(self.current_player)
 

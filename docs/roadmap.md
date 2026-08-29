@@ -1,247 +1,130 @@
-# AlphaZetaChess Roadmap v0.1
+# AlphaZetaChess Roadmap v0.2
 
-## 1. Development Philosophy
+## Development Philosophy
 
-AlphaZetaChess will be developed incrementally.
+Chess Rules → Traditional Engine → Search Optimization → Evaluation → Self Play → Neural Network → Hybrid Engine
 
-The project avoids starting directly with complex deep learning methods.
+Every version must remain runnable, and every claimed improvement should be measurable.
 
-The development order is:
+## Version Status
 
-    Chess Rules
+| Version | Status | Goal |
+|---|---|---|
+| V0.1 | COMPLETE | Chess foundation |
+| V0.2 | COMPLETE | Minimax + Alpha-Beta |
+| V0.3.1 | CURRENT | Iterative deepening + move ordering |
+| V0.3.2 | PLANNED | Transposition table |
+| V0.3.3 | PLANNED | Negamax / PVS |
+| V0.3.4 | PLANNED | Quiescence search |
+| V0.3.5 | PLANNED | Benchmark / regression consolidation |
+| V0.4 | PLANNED | Advanced evaluation |
+| V0.5 | PLANNED | Self-play / training data |
+| V0.6+ | PLANNED | Neural evaluation / MCTS |
+| V0.7 | PLANNED | Hybrid engine |
+| V1.0 | PLANNED | Complete Xiangqi AI platform |
 
-    ↓
+## V0.1 — COMPLETE
 
-    Traditional Engine
+Board/piece representation, all seven piece rules, legal move generation, check/flying-general validation, checkmate/stalemate handling, CLI play and tests.
 
-    ↓
+## V0.2 — COMPLETE
 
-    Search Optimization
+Minimax, Alpha-Beta, basic material + positional evaluation, fixed depth, SearchResult, Human vs SearchEngine, AI benchmark.
 
-    ↓
+Acceptance evidence from the repository:
 
-    Evaluation Improvement
+- depth=1 vs RandomEngine: 10 games, 6 wins, 0 losses, 4 draws
+- depth=2 vs RandomEngine: 6 games, 5 wins, 0 losses, 1 draw
+- Minimax and Alpha-Beta agree on tested positions
+- Alpha-Beta does not visit more nodes than corresponding Minimax
 
-    ↓
+Current baseline: depth=2. Depth=3 is stronger but currently too slow.
 
-    Self Play
+## V0.3 — Strong Traditional Engine
 
-    ↓
+### V0.3.1 — Iterative Deepening + Move Ordering — CURRENT
 
-    Neural Network
+Goal: make deeper Alpha-Beta practical while preserving V0.2 correctness.
 
-    ↓
+Tasks:
 
-    Hybrid AI Engine
-
-------------------------------------------------------------------------
-
-# 2. Version Roadmap
-
-## V0.1 - Chess Foundation
-
-Goal:
-
-Build a complete playable Chinese Chess environment.
-
-Features:
-
--   Board representation.
--   Piece movement rules.
--   Legal move generation.
--   Check and checkmate detection.
--   Human vs random AI.
--   Chess record saving.
-
-Acceptance criteria:
-
--   All legal moves work correctly.
--   Can finish complete games.
--   Can save and replay games.
-
-------------------------------------------------------------------------
-
-## V0.2 - Basic Search Engine
-
-Goal:
-
-Make the AI capable of making reasonable decisions.
-
-Features:
-
--   Minimax.
--   Alpha-Beta pruning.
--   Basic evaluation function.
--   Search depth control.
+- [ ] Iterative deepening
+- [ ] Preserve last completed iteration as safe result
+- [ ] Root move ordering
+- [ ] Previous iteration best move first
+- [ ] Tactical moves before quiet moves
+- [ ] Search depth/node reporting
+- [ ] Regression tests
+- [ ] Benchmark against V0.2 fixed-depth search
 
 Acceptance criteria:
 
--   AI can defeat random players.
--   AI decisions are explainable.
+1. Depth N completes all shallower iterations first.
+2. The final completed iteration is usable.
+3. At the same final depth, iterative and fixed-depth search agree on score/best move.
+4. Move ordering does not alter the minimax result.
+5. Ordered search evaluates no more nodes than the corresponding unordered search on benchmark positions.
+6. Benchmarks record depth, time, nodes, NPS, score and best move.
+7. Existing tests remain green.
 
-------------------------------------------------------------------------
+Design boundary: V0.3.1 does not introduce transposition tables, PVS or quiescence search.
 
-## V0.3 - Strong Traditional Engine
+### V0.3.2 — Transposition Table — PLANNED
 
-Goal:
+Position hashing, depth-aware entries, exact/lower/upper bounds, replacement policy, correctness tests and node-reduction benchmark.
 
-Build a competitive traditional Chinese Chess engine.
+### V0.3.3 — Negamax / PVS — PLANNED
 
-Features:
+Refactor search to Negamax, add Principal Variation Search, preserve evaluation semantics and benchmark against Alpha-Beta.
 
--   Iterative deepening.
--   Negamax/PVS.
--   Transposition table.
--   Move ordering.
--   Quiescence search.
--   Opening knowledge.
+### V0.3.4 — Quiescence Search — PLANNED
 
-Target:
+Tactical move set, capture search, check extensions, horizon-effect tests and performance/strength benchmark.
 
-Reach strong amateur level.
+### V0.3.5 — Benchmark & Regression — PLANNED
 
-------------------------------------------------------------------------
+Fixed benchmark positions, reproducible seeds, NPS, strength regression and V0.3 acceptance report.
 
-## V0.4 - Advanced Evaluation System
+## V0.4 — Advanced Evaluation — PLANNED
 
-Goal:
+Mobility, piece-square tables, coordination, king safety, pawn structure, endgame knowledge and opening knowledge.
 
-Improve chess understanding.
+## V0.5 — Self Play — PLANNED
 
-Features:
+AI vs AI games, data collection, automatic evaluation and training dataset generation.
 
--   Better positional evaluation.
--   Pawn structure evaluation.
--   Piece coordination.
--   King safety.
--   Endgame knowledge.
+## V0.6+ — Neural Evaluation / MCTS — PLANNED
 
-Target:
+Policy/value network, neural evaluation and MCTS integration.
 
-Approach strong amateur / expert level.
+## V0.7 — Hybrid Engine — PLANNED
 
-------------------------------------------------------------------------
+Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine.
 
-## V0.5 - Self Play System
+## V1.0 — Complete AI Platform — PLANNED
 
-Goal:
+Human play, analysis, self improvement, UCCI, model management and strength evaluation.
 
-Create autonomous improvement capability.
+## Progress Tracking / Handoff
 
-Features:
+The repository is the source of truth. At the end of every step:
 
--   AI vs AI games.
--   Game data collection.
--   Automatic evaluation.
--   Training dataset generation.
+1. Update this roadmap.
+2. Record the completed sub-version.
+3. Record benchmark evidence.
+4. Record known limitations.
+5. State the exact next step.
 
-------------------------------------------------------------------------
+Current hand-off:
 
-## V0.6 - Neural Network Evaluation
+    V0.2 COMPLETE
+        ↓
+    V0.3.1 CURRENT
+        ↓
+    Iterative Deepening + Move Ordering
+        ↓
+    Benchmark
+        ↓
+    V0.3.2 Transposition Table
 
-Goal:
-
-Introduce AlphaZero-inspired technology.
-
-Features:
-
--   Policy network.
--   Value network.
--   Neural evaluation.
--   MCTS integration.
-
-------------------------------------------------------------------------
-
-## V0.7 - Hybrid Engine
-
-Goal:
-
-Combine traditional search and machine learning.
-
-Architecture:
-
-    Neural Network
-
-    +
-
-    MCTS / Alpha-Beta
-
-    +
-
-    Traditional Evaluation
-
-    =
-
-    AlphaZetaChess Engine
-
-------------------------------------------------------------------------
-
-## V1.0 - AlphaZetaChess AI Engine
-
-Target:
-
-A complete Chinese Chess AI platform.
-
-Capabilities:
-
--   Play against humans.
--   Analyze chess games.
--   Self improvement.
--   Support UCCI protocol.
--   Manage AI models.
--   Evaluate chess strength.
-
-------------------------------------------------------------------------
-
-# 3. Strength Evaluation Plan
-
-The project will use multiple evaluation methods:
-
-## Engine Benchmark
-
-AI vs AI:
-
-    Version A
-    vs
-    Version B
-
-    1000 games
-
-Measure:
-
--   win rate;
--   draw rate;
--   Elo estimation.
-
-------------------------------------------------------------------------
-
-## Human Testing
-
-Use selected human players:
-
--   beginner;
--   amateur;
--   advanced amateur.
-
-Special test player:
-
--   AlphaZetaChess creator (strong amateur benchmark).
-
-------------------------------------------------------------------------
-
-# 4. Future Research Directions
-
-Possible directions:
-
--   Xiangqi NNUE.
--   AlphaZero-style self play.
--   Opening database learning.
--   Endgame tablebase.
--   Explainable AI analysis.
--   Human-style playing personalities.
-
-------------------------------------------------------------------------
-
-Version: v0.1
-
-Status: Initial Development Roadmap
+Last updated: 2026-08-29

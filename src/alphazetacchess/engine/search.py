@@ -1,56 +1,105 @@
 from ..core.rule import Rule
 from .base import ChessEngine, SearchResult
 from .evaluation import evaluate
+from .transposition_table import Bound, TranspositionTable
 
 
 MATE_SCORE = 100000
 
 
 class SearchEngine(ChessEngine):
-    """
-    V0.2 Search Engine: Minimax and Alpha-Beta pruning over the
-    material + simple position evaluation, with a configurable fixed
-    search depth.
+    """V0.3.2 Alpha-Beta search with iterative deepening and TT.
 
-    Both algorithms are kept side by side (rather than only shipping
-    Alpha-Beta) so their equivalence can be verified directly: for the
-    same position and depth, both must return the same best move and
-    score, while Alpha-Beta visits fewer nodes. Iterative deepening,
-    transposition tables, and move ordering are deliberately left for
-    V0.3 (see docs/roadmap.md) to keep this version simple and easy
-    to reason about.
-
-    Note on terminal positions: unlike International Chess, having no
-    legal move is ALWAYS a loss in Xiangqi (checkmate and stalemate /
-    困毙 are both losses, never a draw) -- see Rule for details. This
-    makes the terminal-score logic below simpler than a general
-    chess-style implementation.
+    V0.3.2 adds a depth-aware transposition table while preserving the
+    V0.3.1 search semantics. The table is optional so the previous
+    implementation remains a directly comparable baseline.
     """
 
-    def __init__(self, depth=3, use_alpha_beta=True):
+    def __init__(
+        self,
+        depth=3,
+        use_alpha_beta=True,
+        iterative_deepening=True,
+        use_transposition_table=True,
+        tt_max_entries=200_000,
+    ):
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
+        self.iterative_deepening = iterative_deepening
+        self.use_transposition_table = use_transposition_table
         self.nodes_evaluated = 0
+        self.tt = TranspositionTable(tt_max_entries)
 
     def choose_move(self, board, color):
         self.nodes_evaluated = 0
+        self.tt.reset_stats()
 
         legal_moves = Rule.generate_legal_moves(board, color)
         if not legal_moves:
-            return SearchResult(None, evaluate(board, color), self.nodes_evaluated, self.depth)
+            return SearchResult(
+                None,
+                evaluate(board, color),
+                self.nodes_evaluated,
+                self.depth,
+            )
 
+        if not self.iterative_deepening:
+            return self._search_fixed_depth(
+                board, color, legal_moves, self.depth
+            )
+
+        best_result = None
+        root_moves = list(legal_moves)
+
+        for current_depth in range(1, self.depth + 1):
+            result = self._search_fixed_depth(
+                board,
+                color,
+                root_moves,
+                current_depth,
+            )
+            best_result = SearchResult(
+                result.best_move,
+                result.score,
+                self.nodes_evaluated,
+                current_depth,
+            )
+
+            if best_result.best_move is not None:
+                root_moves = self._order_root_moves(
+                    root_moves,
+                    best_result.best_move,
+                )
+
+        return best_result
+
+    def _search_fixed_depth(self, board, color, legal_moves, depth):
+        root_moves = self._order_root_moves(legal_moves, None)
         opponent = board.opponent(color)
+
         best_move = None
         best_score = float("-inf")
         alpha, beta = float("-inf"), float("inf")
 
-        for move in legal_moves:
+        for move in root_moves:
             board.move(move.from_pos, move.to_pos)
 
             if self.use_alpha_beta:
-                score = self._alphabeta(board, self.depth - 1, alpha, beta, opponent, color)
+                score = self._alphabeta(
+                    board,
+                    depth - 1,
+                    alpha,
+                    beta,
+                    opponent,
+                    color,
+                )
             else:
-                score = self._minimax(board, self.depth - 1, opponent, color)
+                score = self._minimax(
+                    board,
+                    depth - 1,
+                    opponent,
+                    color,
+                )
 
             board.undo()
 
@@ -61,20 +110,62 @@ class SearchEngine(ChessEngine):
             if self.use_alpha_beta:
                 alpha = max(alpha, best_score)
 
-        return SearchResult(best_move, best_score, self.nodes_evaluated, self.depth)
+        return SearchResult(
+            best_move,
+            best_score,
+            self.nodes_evaluated,
+            depth,
+        )
 
-    # ------------------------------------------------------------------
-    # Plain Minimax (no pruning). Kept as a reference implementation:
-    # Alpha-Beta must always agree with it on best_move and score.
-    # ------------------------------------------------------------------
+    @staticmethod
+    def _order_root_moves(moves, preferred_move):
+        ordered = list(moves)
+        if preferred_move is None:
+            return ordered
+
+        preferred = (
+            preferred_move.from_pos,
+            preferred_move.to_pos,
+        )
+
+        for index, move in enumerate(ordered):
+            if (move.from_pos, move.to_pos) == preferred:
+                return [move] + ordered[:index] + ordered[index + 1:]
+
+        return ordered
+
+    @staticmethod
+    def _order_moves(moves, preferred_move):
+        if preferred_move is None:
+            return list(moves)
+
+        preferred = (
+            preferred_move[0],
+            preferred_move[1],
+        )
+
+        for index, move in enumerate(moves):
+            if (move.from_pos, move.to_pos) == preferred:
+                return [move] + list(moves[:index]) + list(moves[index + 1:])
+
+        return list(moves)
+
+    def _tt_key(self, board, root_color):
+        # Board.zobrist_hash already contains the side to move.
+        # Root color is included because TT scores are evaluated from
+        # root_color's perspective.
+        return (board.zobrist_hash, root_color)
+
     def _minimax(self, board, depth, current_color, root_color):
         self.nodes_evaluated += 1
-
         legal_moves = Rule.generate_legal_moves(board, current_color)
 
         if not legal_moves:
-            ply_from_root = self.depth - depth
-            return self._terminal_score(current_color, root_color, ply_from_root)
+            return self._terminal_score(
+                current_color,
+                root_color,
+                self.depth - depth,
+            )
 
         if depth == 0:
             return evaluate(board, root_color)
@@ -84,71 +175,152 @@ class SearchEngine(ChessEngine):
 
         for move in legal_moves:
             board.move(move.from_pos, move.to_pos)
-            score = self._minimax(board, depth - 1, board.opponent(current_color), root_color)
+            score = self._minimax(
+                board,
+                depth - 1,
+                board.opponent(current_color),
+                root_color,
+            )
             board.undo()
 
-            if maximizing:
-                best = max(best, score)
-            else:
-                best = min(best, score)
+            best = max(best, score) if maximizing else min(best, score)
 
         return best
 
-    # ------------------------------------------------------------------
-    # Alpha-Beta pruning over the exact same tree shape as Minimax.
-    # ------------------------------------------------------------------
-    def _alphabeta(self, board, depth, alpha, beta, current_color, root_color):
+    def _alphabeta(
+        self,
+        board,
+        depth,
+        alpha,
+        beta,
+        current_color,
+        root_color,
+    ):
         self.nodes_evaluated += 1
+
+        alpha_original = alpha
+        beta_original = beta
+        key = self._tt_key(board, root_color)
+        preferred_move = None
+
+        if self.use_transposition_table:
+            cached_score, preferred_move = self.tt.probe(
+                key,
+                depth,
+                alpha,
+                beta,
+            )
+            if cached_score is not None:
+                return cached_score
 
         legal_moves = Rule.generate_legal_moves(board, current_color)
 
         if not legal_moves:
-            ply_from_root = self.depth - depth
-            return self._terminal_score(current_color, root_color, ply_from_root)
+            score = self._terminal_score(
+                current_color,
+                root_color,
+                self.depth - depth,
+            )
+            if self.use_transposition_table:
+                self.tt.store(
+                    key,
+                    depth,
+                    score,
+                    Bound.EXACT,
+                    None,
+                )
+            return score
 
         if depth == 0:
-            return evaluate(board, root_color)
+            score = evaluate(board, root_color)
+            if self.use_transposition_table:
+                self.tt.store(
+                    key,
+                    depth,
+                    score,
+                    Bound.EXACT,
+                    None,
+                )
+            return score
+
+        legal_moves = self._order_moves(
+            legal_moves,
+            preferred_move,
+        )
 
         maximizing = current_color == root_color
+        best_move = None
 
         if maximizing:
             value = float("-inf")
+
             for move in legal_moves:
                 board.move(move.from_pos, move.to_pos)
-                value = max(
-                    value,
-                    self._alphabeta(
-                        board, depth - 1, alpha, beta,
-                        board.opponent(current_color), root_color,
-                    ),
+
+                child_score = self._alphabeta(
+                    board,
+                    depth - 1,
+                    alpha,
+                    beta,
+                    board.opponent(current_color),
+                    root_color,
                 )
+
                 board.undo()
+
+                if child_score > value:
+                    value = child_score
+                    best_move = move
+
                 alpha = max(alpha, value)
+
                 if alpha >= beta:
-                    break  # beta cutoff: opponent already has a better alternative
-            return value
+                    break
+
         else:
             value = float("inf")
+
             for move in legal_moves:
                 board.move(move.from_pos, move.to_pos)
-                value = min(
-                    value,
-                    self._alphabeta(
-                        board, depth - 1, alpha, beta,
-                        board.opponent(current_color), root_color,
-                    ),
+
+                child_score = self._alphabeta(
+                    board,
+                    depth - 1,
+                    alpha,
+                    beta,
+                    board.opponent(current_color),
+                    root_color,
                 )
+
                 board.undo()
+
+                if child_score < value:
+                    value = child_score
+                    best_move = move
+
                 beta = min(beta, value)
+
                 if alpha >= beta:
-                    break  # alpha cutoff
-            return value
+                    break
+
+        if self.use_transposition_table:
+            if value <= alpha_original:
+                bound = Bound.UPPER
+            elif value >= beta_original:
+                bound = Bound.LOWER
+            else:
+                bound = Bound.EXACT
+
+            self.tt.store(
+                key,
+                depth,
+                value,
+                bound,
+                best_move,
+            )
+
+        return value
 
     def _terminal_score(self, current_color, root_color, ply_from_root):
-        # A mate found sooner (smaller ply_from_root) is preferred
-        # when winning, and avoided more strongly when losing.
         score = MATE_SCORE - ply_from_root
-
-        if current_color == root_color:
-            return -score
-        return score
+        return -score if current_color == root_color else score
