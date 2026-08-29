@@ -8,11 +8,34 @@ MATE_SCORE = 100000
 
 
 class SearchEngine(ChessEngine):
-    """V0.3.2 Alpha-Beta search with iterative deepening and TT.
+    """V0.3.3 Negamax + PVS search with iterative deepening and TT.
 
-    V0.3.2 adds a depth-aware transposition table while preserving the
-    V0.3.1 search semantics. The table is optional so the previous
-    implementation remains a directly comparable baseline.
+    V0.3.3 refactors V0.3.2's separate maximizing/minimizing Alpha-Beta
+    branches into a single Negamax recursion (valid because Xiangqi is
+    a two-player zero-sum game: what is good for one side is exactly
+    as bad for the other, so `value(node, color) == -value(node,
+    opponent)`). Principal Variation Search (PVS) is then layered on
+    top: after the first (best-ordered) move at a node, every later
+    move is first probed with a cheap null window (`alpha, alpha+1`)
+    and only re-searched with the full window if that probe suggests
+    it might actually beat the current best -- this prunes more
+    aggressively when move ordering is good, without changing the
+    result.
+
+    This refactor must be score/move-identical to V0.3.2's Alpha-Beta
+    on every position -- Negamax and PVS are restructurings of the
+    same search, not a different evaluation. See
+    tests/test_search_v033.py for the correctness gate, and
+    docs/roadmap.md V0.3.3 for the measured benchmark.
+
+    A side effect of the Negamax refactor: because every node's score
+    is now naturally expressed "from the mover's own point of view"
+    (rather than "from the root player's point of view", which the
+    old maximizing/minimizing code needed to track separately), the
+    transposition table key no longer needs to include the root
+    color -- Board.zobrist_hash alone identifies the position, which
+    also makes TT entries reusable across searches with different
+    root colors.
     """
 
     def __init__(
@@ -21,12 +44,17 @@ class SearchEngine(ChessEngine):
         use_alpha_beta=True,
         iterative_deepening=True,
         use_transposition_table=True,
+        use_pvs=True,
         tt_max_entries=200_000,
     ):
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
         self.iterative_deepening = iterative_deepening
         self.use_transposition_table = use_transposition_table
+        # PVS only makes sense on top of Alpha-Beta pruning; it is
+        # automatically disabled whenever use_alpha_beta is False (see
+        # _negamax), so the flag only matters when both are True.
+        self.use_pvs = use_pvs
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
 
@@ -75,30 +103,35 @@ class SearchEngine(ChessEngine):
 
     def _search_fixed_depth(self, board, color, legal_moves, depth):
         root_moves = self._order_root_moves(legal_moves, None)
-        opponent = board.opponent(color)
 
         best_move = None
         best_score = float("-inf")
         alpha, beta = float("-inf"), float("inf")
+        opponent = board.opponent(color)
 
-        for move in root_moves:
+        for index, move in enumerate(root_moves):
             board.move(move.from_pos, move.to_pos)
 
-            if self.use_alpha_beta:
-                score = self._alphabeta(
-                    board,
-                    depth - 1,
-                    alpha,
-                    beta,
-                    opponent,
-                    color,
+            if self.use_alpha_beta and self.use_pvs and index > 0:
+                # Same PVS pattern as _negamax's own move loop (see its
+                # docstring): the root's first (best-ordered) move gets
+                # the full window; every later root move is first
+                # probed with a null window and only re-searched with
+                # the full window if the probe suggests it might
+                # actually be better.
+                score = -self._negamax(
+                    board, depth - 1, -alpha - 1, -alpha, opponent, depth,
+                    use_pruning=True,
                 )
+                if alpha < score < beta:
+                    score = -self._negamax(
+                        board, depth - 1, -beta, -score, opponent, depth,
+                        use_pruning=True,
+                    )
             else:
-                score = self._minimax(
-                    board,
-                    depth - 1,
-                    opponent,
-                    color,
+                score = -self._negamax(
+                    board, depth - 1, -beta, -alpha, opponent, depth,
+                    use_pruning=self.use_alpha_beta,
                 )
 
             board.undo()
@@ -110,12 +143,7 @@ class SearchEngine(ChessEngine):
             if self.use_alpha_beta:
                 alpha = max(alpha, best_score)
 
-        return SearchResult(
-            best_move,
-            best_score,
-            self.nodes_evaluated,
-            depth,
-        )
+        return SearchResult(best_move, best_score, self.nodes_evaluated, depth)
 
     @staticmethod
     def _order_root_moves(moves, preferred_move):
@@ -139,10 +167,7 @@ class SearchEngine(ChessEngine):
         if preferred_move is None:
             return list(moves)
 
-        preferred = (
-            preferred_move[0],
-            preferred_move[1],
-        )
+        preferred = (preferred_move[0], preferred_move[1])
 
         for index, move in enumerate(moves):
             if (move.from_pos, move.to_pos) == preferred:
@@ -150,177 +175,106 @@ class SearchEngine(ChessEngine):
 
         return list(moves)
 
-    def _tt_key(self, board, root_color):
-        # Board.zobrist_hash already contains the side to move.
-        # Root color is included because TT scores are evaluated from
-        # root_color's perspective.
-        return (board.zobrist_hash, root_color)
-
-    def _minimax(self, board, depth, current_color, root_color):
-        self.nodes_evaluated += 1
-        legal_moves = Rule.generate_legal_moves(board, current_color)
-
-        if not legal_moves:
-            return self._terminal_score(
-                current_color,
-                root_color,
-                self.depth - depth,
-            )
-
-        if depth == 0:
-            return evaluate(board, root_color)
-
-        maximizing = current_color == root_color
-        best = float("-inf") if maximizing else float("inf")
-
-        for move in legal_moves:
-            board.move(move.from_pos, move.to_pos)
-            score = self._minimax(
-                board,
-                depth - 1,
-                board.opponent(current_color),
-                root_color,
-            )
-            board.undo()
-
-            best = max(best, score) if maximizing else min(best, score)
-
-        return best
-
-    def _alphabeta(
+    def _negamax(
         self,
         board,
         depth,
         alpha,
         beta,
         current_color,
-        root_color,
+        root_depth,
+        use_pruning,
     ):
+        """
+        Return the minimax value of `board` from `current_color`'s own
+        point of view (Negamax convention): positive means good for
+        `current_color`, negative means good for the opponent.
+
+        `use_pruning=False` reproduces a plain, exhaustive Negamax
+        search (still returns the exact minimax value, just without
+        Alpha-Beta cutoffs or PVS) -- this is the correctness baseline
+        used by test_search.py's minimax-vs-alpha-beta comparison.
+        """
         self.nodes_evaluated += 1
 
         alpha_original = alpha
-        beta_original = beta
-        key = self._tt_key(board, root_color)
+        key = board.zobrist_hash
         preferred_move = None
 
         if self.use_transposition_table:
-            cached_score, preferred_move = self.tt.probe(
-                key,
-                depth,
-                alpha,
-                beta,
-            )
-            if cached_score is not None:
+            cached_score, preferred_move = self.tt.probe(key, depth, alpha, beta)
+            if cached_score is not None and use_pruning:
                 return cached_score
 
         legal_moves = Rule.generate_legal_moves(board, current_color)
 
         if not legal_moves:
-            score = self._terminal_score(
-                current_color,
-                root_color,
-                self.depth - depth,
-            )
+            # No legal moves is always a loss for `current_color` in
+            # Xiangqi (checkmate and stalemate score identically --
+            # see Rule's module docstring). `root_depth` is THIS
+            # search call's own max depth (not self.depth), so the
+            # ply-from-root offset stays correct across iterative
+            # deepening's shallower iterations too.
+            score = -(MATE_SCORE - (root_depth - depth))
             if self.use_transposition_table:
-                self.tt.store(
-                    key,
-                    depth,
-                    score,
-                    Bound.EXACT,
-                    None,
-                )
+                self.tt.store(key, depth, score, Bound.EXACT, None)
             return score
 
         if depth == 0:
-            score = evaluate(board, root_color)
+            score = evaluate(board, current_color)
             if self.use_transposition_table:
-                self.tt.store(
-                    key,
-                    depth,
-                    score,
-                    Bound.EXACT,
-                    None,
-                )
+                self.tt.store(key, depth, score, Bound.EXACT, None)
             return score
 
-        legal_moves = self._order_moves(
-            legal_moves,
-            preferred_move,
-        )
+        legal_moves = self._order_moves(legal_moves, preferred_move)
 
-        maximizing = current_color == root_color
+        best_score = float("-inf")
         best_move = None
+        opponent = board.opponent(current_color)
 
-        if maximizing:
-            value = float("-inf")
+        for index, move in enumerate(legal_moves):
+            board.move(move.from_pos, move.to_pos)
 
-            for move in legal_moves:
-                board.move(move.from_pos, move.to_pos)
-
-                child_score = self._alphabeta(
-                    board,
-                    depth - 1,
-                    alpha,
-                    beta,
-                    board.opponent(current_color),
-                    root_color,
+            if use_pruning and self.use_pvs and index > 0:
+                # Null-window probe: cheaply check whether this move
+                # could beat what we already have.
+                score = -self._negamax(
+                    board, depth - 1, -alpha - 1, -alpha, opponent,
+                    root_depth, use_pruning,
+                )
+                if alpha < score < beta:
+                    # It might really be better than our current best
+                    # -- re-search with the full window for an exact
+                    # value. (Standard PVS re-search.)
+                    score = -self._negamax(
+                        board, depth - 1, -beta, -score, opponent,
+                        root_depth, use_pruning,
+                    )
+            else:
+                score = -self._negamax(
+                    board, depth - 1, -beta, -alpha, opponent,
+                    root_depth, use_pruning,
                 )
 
-                board.undo()
+            board.undo()
 
-                if child_score > value:
-                    value = child_score
-                    best_move = move
+            if score > best_score:
+                best_score = score
+                best_move = move
 
-                alpha = max(alpha, value)
-
+            if use_pruning:
+                alpha = max(alpha, best_score)
                 if alpha >= beta:
-                    break
-
-        else:
-            value = float("inf")
-
-            for move in legal_moves:
-                board.move(move.from_pos, move.to_pos)
-
-                child_score = self._alphabeta(
-                    board,
-                    depth - 1,
-                    alpha,
-                    beta,
-                    board.opponent(current_color),
-                    root_color,
-                )
-
-                board.undo()
-
-                if child_score < value:
-                    value = child_score
-                    best_move = move
-
-                beta = min(beta, value)
-
-                if alpha >= beta:
-                    break
+                    break  # Beta cutoff.
 
         if self.use_transposition_table:
-            if value <= alpha_original:
+            if best_score <= alpha_original:
                 bound = Bound.UPPER
-            elif value >= beta_original:
+            elif best_score >= beta:
                 bound = Bound.LOWER
             else:
                 bound = Bound.EXACT
 
-            self.tt.store(
-                key,
-                depth,
-                value,
-                bound,
-                best_move,
-            )
+            self.tt.store(key, depth, best_score, bound, best_move)
 
-        return value
-
-    def _terminal_score(self, current_color, root_color, ply_from_root):
-        score = MATE_SCORE - ply_from_root
-        return -score if current_color == root_color else score
+        return best_score

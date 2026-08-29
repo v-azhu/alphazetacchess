@@ -23,11 +23,17 @@ hybrid engine, inspired by the AlphaZero approach.
 - [x] 将死 (checkmate) / 困毙 (stalemate) 判定
 - [x] Minimax + Alpha-Beta 搜索引擎，基础评估函数 (material + position)，可配置搜索深度 (v0.2)
 - [x] 命令行版 Human (红方) vs SearchEngine AI (黑方) 可玩对局，AI 走法可解释 (显示评估分数与搜索节点数)
-- [x] AI vs AI 对局评测工具 (`tools/benchmark.py`)
-- [ ] 迭代加深、置换表、走法排序、Negamax/PVS、静态搜索 (Quiescence Search) (v0.3)
+- [x] AI vs AI 对局评测工具 (`tools/benchmark.py`, `tools/benchmark_search.py`)
+- [x] 迭代加深 + 根节点走法排序 (v0.3.1)：depth=3 从 50-100+ 秒降到 6-16 秒
+- [x] Zobrist 哈希 + 深度感知置换表 (v0.3.2)
+- [x] Negamax 重构 + PVS 主要变例搜索 (v0.3.3)：与 v0.3.2 结果逐局面校验一致
+- [ ] 静态搜索 (Quiescence Search) (v0.3.4)
 - [ ] 更完善的局面评估：机动性、王/将安全、残局知识 (v0.4)
 - [ ] 自我对弈与训练数据生成 (v0.5)
 - [ ] 神经网络评估 / MCTS (v0.6+)
+
+详细的分版本验收数据（每次性能声明都配有实测数字）见 `docs/roadmap.md` 与
+`docs/v0.3.1-benchmark.md` / `docs/v0.3.2.md` / `docs/v0.3.3.md`。
 
 ### V0.2 验收结果 (Acceptance Evidence)
 
