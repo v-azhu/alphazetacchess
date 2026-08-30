@@ -8,25 +8,27 @@ MATE_SCORE = 100000
 
 
 class SearchEngine(ChessEngine):
-    """V0.3.3 Negamax + PVS search with iterative deepening and TT.
+    """V0.3.4 Negamax + PVS + Quiescence search with iterative deepening and TT.
 
-    V0.3.3 refactors V0.3.2's separate maximizing/minimizing Alpha-Beta
+    V0.3.3 refactored V0.3.2's separate maximizing/minimizing Alpha-Beta
     branches into a single Negamax recursion (valid because Xiangqi is
     a two-player zero-sum game: what is good for one side is exactly
     as bad for the other, so `value(node, color) == -value(node,
-    opponent)`). Principal Variation Search (PVS) is then layered on
-    top: after the first (best-ordered) move at a node, every later
-    move is first probed with a cheap null window (`alpha, alpha+1`)
-    and only re-searched with the full window if that probe suggests
-    it might actually beat the current best -- this prunes more
-    aggressively when move ordering is good, without changing the
-    result.
+    opponent)`). Principal Variation Search (PVS) is layered on top:
+    after the first (best-ordered) move at a node, every later move is
+    first probed with a cheap null window (`alpha, alpha+1`) and only
+    re-searched with the full window if that probe suggests it might
+    actually beat the current best -- this prunes more aggressively
+    when move ordering is good, without changing the result.
 
-    This refactor must be score/move-identical to V0.3.2's Alpha-Beta
-    on every position -- Negamax and PVS are restructurings of the
-    same search, not a different evaluation. See
-    tests/test_search_v033.py for the correctness gate, and
-    docs/roadmap.md V0.3.3 for the measured benchmark.
+    V0.3.4 adds Quiescence Search at the leaves: instead of statically
+    evaluating a position the instant the nominal search depth runs
+    out, `_quiescence` keeps searching -- but only "noisy" moves
+    (captures, and every legal move while in check) -- until a quiet
+    position is reached. This closes the classic horizon effect, where
+    a fixed-depth search stops right after a capture that looks like a
+    material win without seeing the recapture that actually loses it.
+    See `docs/v0.3.4.md` for the full design and measured benchmark.
 
     A side effect of the Negamax refactor: because every node's score
     is now naturally expressed "from the mover's own point of view"
@@ -35,7 +37,7 @@ class SearchEngine(ChessEngine):
     transposition table key no longer needs to include the root
     color -- Board.zobrist_hash alone identifies the position, which
     also makes TT entries reusable across searches with different
-    root colors.
+    root colors, and across the main search and quiescence search.
     """
 
     def __init__(
@@ -45,6 +47,8 @@ class SearchEngine(ChessEngine):
         iterative_deepening=True,
         use_transposition_table=True,
         use_pvs=True,
+        use_quiescence=True,
+        quiescence_max_ply=8,
         tt_max_entries=200_000,
     ):
         self.depth = depth
@@ -55,6 +59,16 @@ class SearchEngine(ChessEngine):
         # automatically disabled whenever use_alpha_beta is False (see
         # _negamax), so the flag only matters when both are True.
         self.use_pvs = use_pvs
+        # Quiescence search extends the leaves regardless of
+        # use_alpha_beta/use_pvs (it is not a pruning trick, it
+        # changes what is being evaluated at the horizon), so both the
+        # pruned and unpruned Negamax paths apply it identically --
+        # this keeps them comparable for correctness testing.
+        self.use_quiescence = use_quiescence
+        # Hard safety cap on quiescence recursion depth, to guarantee
+        # termination even for a pathologically long forced-capture or
+        # forced-check sequence. See _quiescence's docstring.
+        self.quiescence_max_ply = quiescence_max_ply
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
 
@@ -221,9 +235,16 @@ class SearchEngine(ChessEngine):
             return score
 
         if depth == 0:
-            score = evaluate(board, current_color)
-            if self.use_transposition_table:
-                self.tt.store(key, depth, score, Bound.EXACT, None)
+            if self.use_quiescence:
+                # _quiescence performs its own TT probe/store (always
+                # at the depth=0 TT slot), so nothing more to do here.
+                score = self._quiescence(
+                    board, alpha, beta, current_color, root_depth, 0
+                )
+            else:
+                score = evaluate(board, current_color)
+                if self.use_transposition_table:
+                    self.tt.store(key, depth, score, Bound.EXACT, None)
             return score
 
         legal_moves = self._order_moves(legal_moves, preferred_move)
@@ -276,5 +297,111 @@ class SearchEngine(ChessEngine):
                 bound = Bound.EXACT
 
             self.tt.store(key, depth, best_score, bound, best_move)
+
+        return best_score
+
+    def _quiescence(self, board, alpha, beta, color, root_depth, qply):
+        """
+        Extend the search past the nominal depth limit along "noisy"
+        lines -- captures, and every legal move while in check -- until
+        a quiet position is reached, to avoid the horizon effect (e.g.
+        stopping the search right after a capture that looks like a
+        material win, without seeing the recapture that actually loses
+        material).
+
+        Fail-soft Negamax convention, same as `_negamax`: returns the
+        value from `color`'s own point of view.
+
+        "Check extension": a position where `color` is in check can
+        never be treated as quiet -- there is no stand-pat option, and
+        every legal move is searched as a forced evasion, even though
+        none of them may be captures. This is what forces the search
+        to actually resolve a check sequence instead of stopping mid-way
+        through it.
+        """
+        self.nodes_evaluated += 1
+
+        key = board.zobrist_hash
+        alpha_original = alpha
+
+        if self.use_transposition_table:
+            cached_score, _ = self.tt.probe(key, 0, alpha, beta)
+            if cached_score is not None:
+                return cached_score
+
+        legal_moves = Rule.generate_legal_moves(board, color)
+
+        if not legal_moves:
+            # Checkmate or stalemate reached inside quiescence. Ply is
+            # counted from the true root (root_depth, the nominal
+            # search's own ply budget, plus qply, how far quiescence
+            # has gone past it) so mate-distance scoring stays
+            # meaningful even for mates found only via the capture/
+            # check search.
+            score = -(MATE_SCORE - (root_depth + qply))
+            if self.use_transposition_table:
+                self.tt.store(key, 0, score, Bound.EXACT, None)
+            return score
+
+        if qply >= self.quiescence_max_ply:
+            # Hard safety backstop against a pathologically long
+            # forced-capture or forced-check sequence. Deliberately
+            # NOT cached: the TT key carries no notion of "how much
+            # qsearch budget was left when this was computed", so a
+            # later, differently-capped probe of the same position
+            # could otherwise reuse a value that does not correspond
+            # to its own context. See docs/v0.3.4.md.
+            return evaluate(board, color)
+
+        in_check = Rule.is_in_check(board, color)
+
+        if in_check:
+            candidates = legal_moves
+            best_score = float("-inf")
+        else:
+            stand_pat = evaluate(board, color)
+
+            if stand_pat >= beta:
+                if self.use_transposition_table:
+                    self.tt.store(key, 0, stand_pat, Bound.LOWER, None)
+                return stand_pat
+
+            alpha = max(alpha, stand_pat)
+            best_score = stand_pat
+
+            candidates = [
+                move for move in legal_moves if move.captured_piece is not None
+            ]
+
+            if not candidates:
+                if self.use_transposition_table:
+                    self.tt.store(key, 0, stand_pat, Bound.EXACT, None)
+                return stand_pat
+
+        opponent = board.opponent(color)
+
+        for move in candidates:
+            board.move(move.from_pos, move.to_pos)
+            score = -self._quiescence(
+                board, -beta, -alpha, opponent, root_depth, qply + 1
+            )
+            board.undo()
+
+            if score > best_score:
+                best_score = score
+
+            alpha = max(alpha, score)
+            if alpha >= beta:
+                break  # Beta cutoff.
+
+        if self.use_transposition_table:
+            if best_score <= alpha_original:
+                bound = Bound.UPPER
+            elif best_score >= beta:
+                bound = Bound.LOWER
+            else:
+                bound = Bound.EXACT
+
+            self.tt.store(key, 0, best_score, bound, None)
 
         return best_score

@@ -33,9 +33,18 @@ def test_iterative_deepening_matches_fixed_depth():
     # Both searches must reach the same minimax value.
     assert iterative_result.score == fixed_result.score
 
-    # Move objects are currently compared by identity rather than by
-    # from/to coordinates, so compare their actual chess moves.
-    assert _move_signature(iterative_result.best_move) ==         _move_signature(fixed_result.best_move)
+    # NOTE: the two searches are not guaranteed to return the exact
+    # same best move when several root moves are genuinely tied for
+    # best score (as happens here, at the symmetric opening position).
+    # Iterative deepening reorders root moves after each shallower
+    # iteration (see _order_root_moves) while a fixed-depth-only
+    # search does not, so which of several equally-good moves is
+    # encountered FIRST in the loop -- and therefore kept by the
+    # strict "score > best_score" comparison -- can legitimately
+    # differ between the two. The score equality assertion above
+    # already proves both moves are equally optimal; asserting move
+    # identity on top of that would be asserting a specific tie-break
+    # order that the search makes no promises about.
 
 
 def test_root_move_ordering_prefers_previous_best_move():
