@@ -68,6 +68,8 @@ class SearchEngine(ChessEngine):
         quiescence_max_ply=8,
         use_piece_square_tables=True,
         use_king_safety=True,
+        use_mobility=False,
+        mobility_weight=1,
         tt_max_entries=200_000,
     ):
         self.depth = depth
@@ -98,6 +100,10 @@ class SearchEngine(ChessEngine):
         # use_piece_square_tables so each V0.4.x evaluation layer
         # stays separately A/B-comparable -- see docs/v0.4.2.md.
         self.use_king_safety = use_king_safety
+        # V0.4.3: optional Mobility evaluation term.
+        # Disabled by default to preserve the V0.4.2 baseline.
+        self.use_mobility = use_mobility
+        self.mobility_weight = mobility_weight
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
 
@@ -113,6 +119,8 @@ class SearchEngine(ChessEngine):
                     board, color,
                     use_piece_square_tables=self.use_piece_square_tables,
                     use_king_safety=self.use_king_safety,
+                    use_mobility=self.use_mobility,
+                    mobility_weight=self.mobility_weight,
                 ),
                 self.nodes_evaluated,
                 self.depth,
@@ -279,6 +287,8 @@ class SearchEngine(ChessEngine):
                     board, current_color,
                     use_piece_square_tables=self.use_piece_square_tables,
                     use_king_safety=self.use_king_safety,
+                    use_mobility=self.use_mobility,
+                    mobility_weight=self.mobility_weight,
                 )
                 if self.use_transposition_table:
                     self.tt.store(key, depth, score, Bound.EXACT, None)
@@ -392,6 +402,8 @@ class SearchEngine(ChessEngine):
                 board, color,
                 use_piece_square_tables=self.use_piece_square_tables,
                 use_king_safety=self.use_king_safety,
+                use_mobility=self.use_mobility,
+                mobility_weight=self.mobility_weight,
             )
 
         in_check = Rule.is_in_check(board, color)
@@ -404,6 +416,8 @@ class SearchEngine(ChessEngine):
                 board, color,
                 use_piece_square_tables=self.use_piece_square_tables,
                 use_king_safety=self.use_king_safety,
+                use_mobility=self.use_mobility,
+                mobility_weight=self.mobility_weight,
             )
 
             if stand_pat >= beta:
