@@ -8,7 +8,7 @@ MATE_SCORE = 100000
 
 
 class SearchEngine(ChessEngine):
-    """V0.3.4 Negamax + PVS + Quiescence search with iterative deepening and TT.
+    """V0.4.1 Negamax + PVS + Quiescence search with iterative deepening and TT.
 
     V0.3.3 refactored V0.3.2's separate maximizing/minimizing Alpha-Beta
     branches into a single Negamax recursion (valid because Xiangqi is
@@ -38,6 +38,15 @@ class SearchEngine(ChessEngine):
     color -- Board.zobrist_hash alone identifies the position, which
     also makes TT entries reusable across searches with different
     root colors, and across the main search and quiescence search.
+
+    V0.4.1 adds Piece-Square Tables to the evaluation function used at
+    every leaf (both the plain V0.2-style leaf and inside quiescence):
+    a per-square positional bonus for Horse/Cannon/Rook/Pawn, on top
+    of the existing material value. Controlled by
+    `use_piece_square_tables` (default True); set to False to fall
+    back to the exact V0.2/V0.3 evaluation for A/B comparison. See
+    `docs/v0.4.1.md` for the rationale behind each table and the
+    measured playing-strength benchmark.
     """
 
     def __init__(
@@ -49,6 +58,7 @@ class SearchEngine(ChessEngine):
         use_pvs=True,
         use_quiescence=True,
         quiescence_max_ply=8,
+        use_piece_square_tables=True,
         tt_max_entries=200_000,
     ):
         self.depth = depth
@@ -69,6 +79,11 @@ class SearchEngine(ChessEngine):
         # termination even for a pathologically long forced-capture or
         # forced-check sequence. See _quiescence's docstring.
         self.quiescence_max_ply = quiescence_max_ply
+        # V0.4.1: piece-square tables in the evaluation function. Kept
+        # toggleable so the current material+mobility baseline (V0.2/
+        # V0.3) stays available as the A/B comparison point -- see
+        # docs/v0.4.1.md.
+        self.use_piece_square_tables = use_piece_square_tables
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
 
@@ -80,7 +95,10 @@ class SearchEngine(ChessEngine):
         if not legal_moves:
             return SearchResult(
                 None,
-                evaluate(board, color),
+                evaluate(
+                    board, color,
+                    use_piece_square_tables=self.use_piece_square_tables,
+                ),
                 self.nodes_evaluated,
                 self.depth,
             )
@@ -242,7 +260,10 @@ class SearchEngine(ChessEngine):
                     board, alpha, beta, current_color, root_depth, 0
                 )
             else:
-                score = evaluate(board, current_color)
+                score = evaluate(
+                    board, current_color,
+                    use_piece_square_tables=self.use_piece_square_tables,
+                )
                 if self.use_transposition_table:
                     self.tt.store(key, depth, score, Bound.EXACT, None)
             return score
@@ -351,7 +372,10 @@ class SearchEngine(ChessEngine):
             # later, differently-capped probe of the same position
             # could otherwise reuse a value that does not correspond
             # to its own context. See docs/v0.3.4.md.
-            return evaluate(board, color)
+            return evaluate(
+                board, color,
+                use_piece_square_tables=self.use_piece_square_tables,
+            )
 
         in_check = Rule.is_in_check(board, color)
 
@@ -359,7 +383,10 @@ class SearchEngine(ChessEngine):
             candidates = legal_moves
             best_score = float("-inf")
         else:
-            stand_pat = evaluate(board, color)
+            stand_pat = evaluate(
+                board, color,
+                use_piece_square_tables=self.use_piece_square_tables,
+            )
 
             if stand_pat >= beta:
                 if self.use_transposition_table:

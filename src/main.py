@@ -1,10 +1,11 @@
 """
-AlphaZetaChess - playable CLI (V0.1-V0.3.3).
+AlphaZetaChess - playable CLI (V0.1-V0.3.5).
 
 A Human (RED) vs SearchEngine AI (BLACK) command-line game, built on
 top of the Core layer (Board / MoveGenerator / Rule) and the Engine
-layer (Negamax + Alpha-Beta + PVS search with iterative deepening,
-root/TT move ordering, and a Zobrist-hashed transposition table).
+layer (Negamax + Alpha-Beta + PVS + Quiescence Search with iterative
+deepening, root/TT move ordering, and a Zobrist-hashed transposition
+table).
 """
 
 import os
@@ -24,15 +25,17 @@ from alphazetacchess.engine.search import SearchEngine
 HUMAN_COLOR = Color.RED
 AI_COLOR = Color.BLACK
 
-# Measured on 2026-08-29 (see docs/roadmap.md V0.3.1/V0.3.2 sections):
-#   depth=2: ~0.6-3s per move
-#   depth=3: ~7-16s per move (now practical since V0.3.1 iterative
-#            deepening + move ordering and V0.3.2's transposition
-#            table -- previously 50s-100s+ per move under plain
-#            fixed-depth V0.2 search)
+# Measured on 2026-08-30 (see docs/v0.3.4.md for the full table):
+#   depth=2: ~0.5-5s per move (Quiescence Search adds ~75-85% time on
+#            tactically active positions; roughly free to slightly
+#            faster on quiet ones)
+#   depth=3: ~9-31s per move -- much more variable than before V0.3.4,
+#            since Quiescence Search's cost depends heavily on how many
+#            open capture lines exist at the horizon (opening positions
+#            are the expensive case)
 #   depth=4: still >55s from the opening position, not yet practical
 # Kept at 2 by default for a snappy CLI experience; bump to 3 for a
-# noticeably stronger (but slower-thinking) opponent.
+# noticeably stronger (but slower and less predictably-timed) opponent.
 AI_SEARCH_DEPTH = 2
 
 
