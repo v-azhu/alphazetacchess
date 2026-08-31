@@ -154,7 +154,100 @@ def _piece_score(piece, use_piece_square_tables):
     return score
 
 
-def evaluate(board, perspective_color, use_piece_square_tables=True):
+# ---------------------------------------------------------------------------
+# V0.4.2 -- King Safety
+#
+# Two independent, additive terms, kept intentionally simple and cheap
+# to compute (this runs at every leaf, just like material and PST):
+#
+# 1. Guard integrity: a flat bonus for every Advisor/Elephant of the
+#    king's own color still on the board. Advisors get a slightly
+#    higher bonus than Elephants since they are confined to (and so
+#    always guard) the palace itself, immediately next to the king;
+#    Elephants are more general-purpose blockers on the friendly half
+#    of the board and can never enter the palace at all. This term
+#    does NOT check exact squares (V0.4.1's PST already rewards good
+#    Horse/Cannon/Rook/Pawn placement) -- it only checks survival,
+#    which is what actually correlates with "can this king still be
+#    defended by its escort" in Xiangqi.
+# 2. Open-file exposure: scans straight out from the king along its
+#    own file (the classic Xiangqi danger line -- a king's mobility is
+#    already confined to the palace, so a clear file toward it is a
+#    real, well-known threat even before any piece is actually
+#    delivering check). The first piece encountered ends the scan;
+#    if it is an enemy Rook, that is a serious threat (an open lane
+#    for a piece that can reach the king in one clean move) and scores
+#    a real penalty; an enemy Cannon is a smaller but real threat
+#    (it needs a screen to actually capture, but any piece landing
+#    between them creates one). Any other piece -- friendly or enemy,
+#    including the enemy Rook/Cannon's own screen if one already
+#    exists further down the file -- blocks the line and scores
+#    nothing from this term.
+#
+# Rank-based exposure, and more detailed "attacker proximity" scoring,
+# are deliberately out of scope here -- see docs/v0.4.2.md "Next step".
+# ---------------------------------------------------------------------------
+
+ADVISOR_ALIVE_BONUS = 20
+ELEPHANT_ALIVE_BONUS = 12
+OPEN_FILE_ROOK_PENALTY = -40
+OPEN_FILE_CANNON_PENALTY = -25
+
+
+def _guard_integrity_score(board, color):
+    score = 0
+
+    for row in board.board:
+        for piece in row:
+            if piece is None or piece.color != color:
+                continue
+            if piece.type == PieceType.ADVISOR:
+                score += ADVISOR_ALIVE_BONUS
+            elif piece.type == PieceType.ELEPHANT:
+                score += ELEPHANT_ALIVE_BONUS
+
+    return score
+
+
+def _open_file_exposure_score(board, king):
+    # Scan outward from the king toward the opponent's back rank.
+    direction = 1 if king.color == Color.RED else -1
+    y = king.y + direction
+
+    while 0 <= y <= Board.HEIGHT - 1:
+        piece = board.get(king.x, y)
+
+        if piece is not None:
+            if piece.color != king.color:
+                if piece.type == PieceType.ROOK:
+                    return OPEN_FILE_ROOK_PENALTY
+                if piece.type == PieceType.CANNON:
+                    return OPEN_FILE_CANNON_PENALTY
+            return 0  # blocked by some other piece: no exposure from this term
+
+        y += direction
+
+    return 0  # reached the board edge without finding anything
+
+
+def _king_safety_score(board, color):
+    king = board.find_king(color)
+    if king is None:
+        # Should not occur in a real game (the game ends via
+        # checkmate/stalemate before a king is ever actually
+        # captured), but evaluation must not crash on a malformed
+        # or test-constructed position missing a king.
+        return 0
+
+    return _guard_integrity_score(board, color) + _open_file_exposure_score(board, king)
+
+
+def evaluate(
+    board,
+    perspective_color,
+    use_piece_square_tables=True,
+    use_king_safety=True,
+):
     """
     Score the current position from `perspective_color`'s point of
     view: positive means `perspective_color` is better, negative
@@ -166,6 +259,13 @@ def evaluate(board, perspective_color, use_piece_square_tables=True):
     + crossed-river pawn bonus + a flat centre-file bonus for
     Horse/Cannon/Rook), which is kept as the regression/comparison
     baseline -- see docs/v0.4.1.md.
+
+    `use_king_safety` defaults to True (the V0.4.2 behavior): adds
+    Guard Integrity (surviving Advisor/Elephant count) and Open-File
+    Exposure (a clear file toward the king with an enemy Rook/Cannon
+    on it) for both sides, added as perspective_color's own king
+    safety minus the opponent's. Passing False omits this term
+    entirely, for A/B comparison against V0.4.1 -- see docs/v0.4.2.md.
     """
     score = 0
 
@@ -180,5 +280,10 @@ def evaluate(board, perspective_color, use_piece_square_tables=True):
                 score += piece_score
             else:
                 score -= piece_score
+
+    if use_king_safety:
+        opponent_color = Board.opponent(perspective_color)
+        score += _king_safety_score(board, perspective_color)
+        score -= _king_safety_score(board, opponent_color)
 
     return score

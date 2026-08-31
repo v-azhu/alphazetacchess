@@ -8,7 +8,7 @@ MATE_SCORE = 100000
 
 
 class SearchEngine(ChessEngine):
-    """V0.4.1 Negamax + PVS + Quiescence search with iterative deepening and TT.
+    """V0.4.2 Negamax + PVS + Quiescence search with iterative deepening and TT.
 
     V0.3.3 refactored V0.3.2's separate maximizing/minimizing Alpha-Beta
     branches into a single Negamax recursion (valid because Xiangqi is
@@ -47,6 +47,14 @@ class SearchEngine(ChessEngine):
     back to the exact V0.2/V0.3 evaluation for A/B comparison. See
     `docs/v0.4.1.md` for the rationale behind each table and the
     measured playing-strength benchmark.
+
+    V0.4.2 adds King Safety: a Guard Integrity term (a bonus for each
+    surviving Advisor/Elephant of a king's own color) and an Open-File
+    Exposure term (a penalty when a clear file runs straight from a
+    king to an enemy Rook or Cannon). Controlled by `use_king_safety`
+    (default True), independently of `use_piece_square_tables`, so
+    each V0.4.x evaluation layer stays separately A/B-comparable. See
+    `docs/v0.4.2.md`.
     """
 
     def __init__(
@@ -59,6 +67,7 @@ class SearchEngine(ChessEngine):
         use_quiescence=True,
         quiescence_max_ply=8,
         use_piece_square_tables=True,
+        use_king_safety=True,
         tt_max_entries=200_000,
     ):
         self.depth = depth
@@ -84,6 +93,11 @@ class SearchEngine(ChessEngine):
         # V0.3) stays available as the A/B comparison point -- see
         # docs/v0.4.1.md.
         self.use_piece_square_tables = use_piece_square_tables
+        # V0.4.2: king safety (guard integrity + open-file exposure)
+        # in the evaluation function. Independently toggleable from
+        # use_piece_square_tables so each V0.4.x evaluation layer
+        # stays separately A/B-comparable -- see docs/v0.4.2.md.
+        self.use_king_safety = use_king_safety
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
 
@@ -98,6 +112,7 @@ class SearchEngine(ChessEngine):
                 evaluate(
                     board, color,
                     use_piece_square_tables=self.use_piece_square_tables,
+                    use_king_safety=self.use_king_safety,
                 ),
                 self.nodes_evaluated,
                 self.depth,
@@ -263,6 +278,7 @@ class SearchEngine(ChessEngine):
                 score = evaluate(
                     board, current_color,
                     use_piece_square_tables=self.use_piece_square_tables,
+                    use_king_safety=self.use_king_safety,
                 )
                 if self.use_transposition_table:
                     self.tt.store(key, depth, score, Bound.EXACT, None)
@@ -375,6 +391,7 @@ class SearchEngine(ChessEngine):
             return evaluate(
                 board, color,
                 use_piece_square_tables=self.use_piece_square_tables,
+                use_king_safety=self.use_king_safety,
             )
 
         in_check = Rule.is_in_check(board, color)
@@ -386,6 +403,7 @@ class SearchEngine(ChessEngine):
             stand_pat = evaluate(
                 board, color,
                 use_piece_square_tables=self.use_piece_square_tables,
+                use_king_safety=self.use_king_safety,
             )
 
             if stand_pat >= beta:

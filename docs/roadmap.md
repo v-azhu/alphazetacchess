@@ -213,11 +213,31 @@ directly) stand as the real acceptance evidence for this sub-version; a statisti
 meaningful win-rate benchmark is deferred until either search performance improves or an
 opening book adds game variety.
 
-### V0.4.2 — King Safety — CURRENT
+### V0.4.2 — King Safety — IMPLEMENTATION COMPLETE, LOCAL VALIDATION PENDING
 
-Next Advanced Evaluation term. King Safety is Xiangqi-specific (palace structure,
-advisor/elephant screen integrity) rather than a generic PST technique, so it needs its
-own design rather than reusing V0.4.1's approach. Not yet started.
+Two additive evaluation terms added to `engine/evaluation.py`: Guard Integrity (a bonus
+per surviving Advisor/Elephant of the king's own color) and Open-File Exposure (a penalty
+when a clear file runs from the king to an enemy Rook or Cannon). Both independently
+toggleable from `use_piece_square_tables` via a new `use_king_safety` flag, threaded
+through `SearchEngine` the same way V0.4.1's flag was. Full design rationale and scope
+boundaries (rank-based exposure and attacker-proximity scoring deliberately deferred) are
+in `docs/v0.4.2.md`.
+
+10 new correctness tests (`tests/test_evaluation_v042.py`) confirmed green in isolation
+this session (0.03s). **The full pytest suite has not been run this session** — per the
+current workflow, long-running test/benchmark commands are being run locally instead of
+in the sandbox that writes the code, to avoid spending session time/usage on them. Awaiting
+that local confirmation before marking this sub-version COMPLETE.
+
+**One test-fixture subtlety found and fixed while writing the wiring test** (a new
+category, not a repeat of the "kings on the same file" pitfall from V0.3.3-3.5): a
+position built to test Open-File Exposure using an enemy Rook on a fully open file turned
+out to also be an actual, immediate check under `Rule.is_in_check` (nothing at all blocks
+a Rook's line of sight), which correctly made Quiescence Search's "no stand-pat while in
+check" rule (V0.3.4) take over instead of returning a plain evaluation — expected,
+correct behavior, but the wrong fixture for isolating evaluation *wiring*. Fixed by using
+a Cannon instead (a real King Safety threat that is not itself an immediate check, since
+a Cannon needs a screen to capture). Full writeup in `docs/v0.4.2.md`.
 
 ## V0.5 — Self Play — PLANNED
 
@@ -247,25 +267,21 @@ The repository is the source of truth. At the end of every step:
 
 Current hand-off:
 
-    V0.3.5 COMPLETE (regression framework + tactical positions, 45/45 green,
-    full V0.3 acceptance summary written)
-        ↓
     V0.4.1 COMPLETE (piece-square tables for Horse/Cannon/Rook/Pawn, 6 new
     correctness tests, 51/51 green; playing-strength self-play benchmark
     attempted and honestly recorded as inconclusive at practical depths --
     see docs/v0.4.1.md)
         ↓
-    V0.4.2 CURRENT
+    V0.4.2 IMPLEMENTATION COMPLETE, LOCAL VALIDATION PENDING (king safety:
+    guard integrity + open-file exposure, 10 new correctness tests green
+    in isolation this session; full suite NOT run this session -- see
+    "exactly what to run locally" in docs/v0.4.2.md)
         ↓
-    King Safety: Xiangqi-specific term (palace structure, advisor/elephant
-    screen integrity), needs its own design, not a PST reuse
+    Run locally: pytest -q (full suite), report pass/fail count
         ↓
-    Keep material+mobility (V0.2) and PST (V0.4.1) both toggleable as
-    regression baselines
+    If green: mark docs/v0.4.2.md and this roadmap entry COMPLETE
         ↓
-    Benchmark: correctness gates first (cheap, precise), playing-strength
-    self-play second if it's practical at the depth being used -- V0.4.1
-    showed this isn't guaranteed to produce decisive results, and that's
-    fine to report honestly rather than force
+    V0.4.3: pick next item from V0.4's list (pawn structure, piece
+    coordination, or rank-based king exposure as a direct follow-on)
 
 Last updated: 2026-08-31
