@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>AlphaZetaChess</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page">
+    <h1>AlphaZetaChess</h1>
+    <p class="subtitle">人类 (红方) vs SearchEngine AI (黑方)</p>
+
+    <div class="layout">
+      <div class="board-wrap">
+        <svg id="board" viewBox="0 0 560 620" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+
+      <div class="panel">
+        <div class="panel-section">
+          <button id="new-game-btn">新局 New Game</button>
+          <label class="depth-label">
+            AI 搜索深度
+            <select id="depth-select">
+              <option value="1">1 (快)</option>
+              <option value="2" selected>2 (默认)</option>
+              <option value="3">3 (慢，更强)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="panel-section">
+          <div id="status" class="status">加载中...</div>
+        </div>
+
+        <div class="panel-section">
+          <h3>走法记录</h3>
+          <div id="log" class="log"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="board.js"></script>
+</body>
+</html>

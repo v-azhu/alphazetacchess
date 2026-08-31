@@ -213,7 +213,7 @@ directly) stand as the real acceptance evidence for this sub-version; a statisti
 meaningful win-rate benchmark is deferred until either search performance improves or an
 opening book adds game variety.
 
-### V0.4.2 — King Safety — IMPLEMENTATION COMPLETE, LOCAL VALIDATION PENDING
+### V0.4.2 — King Safety — COMPLETE
 
 Two additive evaluation terms added to `engine/evaluation.py`: Guard Integrity (a bonus
 per surviving Advisor/Elephant of the king's own color) and Open-File Exposure (a penalty
@@ -224,10 +224,8 @@ boundaries (rank-based exposure and attacker-proximity scoring deliberately defe
 in `docs/v0.4.2.md`.
 
 10 new correctness tests (`tests/test_evaluation_v042.py`) confirmed green in isolation
-this session (0.03s). **The full pytest suite has not been run this session** — per the
-current workflow, long-running test/benchmark commands are being run locally instead of
-in the sandbox that writes the code, to avoid spending session time/usage on them. Awaiting
-that local confirmation before marking this sub-version COMPLETE.
+in-session (0.03s). **Full pytest suite confirmed green by local run (2026-08-31):** all
+tests passing, no failures reported.
 
 **One test-fixture subtlety found and fixed while writing the wiring test** (a new
 category, not a repeat of the "kings on the same file" pitfall from V0.3.3-3.5): a
@@ -254,6 +252,39 @@ Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engin
 ## V1.0 — Complete AI Platform — PLANNED
 
 Human play, analysis, self improvement, UCCI, model management and strength evaluation.
+
+## Tooling — Web UI — TWO BUGS FOUND & FIXED, RE-VERIFICATION PENDING
+
+Not a numbered engine-strength version (it doesn't change `Board`/`Rule`/`SearchEngine`
+at all), but tracked here since it directly enables human-vs-engine testing going forward.
+`web/server.py` (Flask) + `web/static/` (SVG board, click-to-move) provide a real graphical
+board in the browser, replacing the CLI's coordinate-typing interface for interactive
+testing purposes. It calls the exact same Core/Engine classes as the CLI and test suite —
+no game logic is duplicated. Full design and a "what to check locally" list are in
+`docs/ui.md`.
+
+**Bug 1 (found via real-browser check, fixed):** clicking a piece did nothing at all —
+piece circles were drawn on top of the invisible click-handling layer without
+`pointer-events: none`, silently swallowing every click aimed at a piece. Fixed in
+`web/static/style.css`. Confirmed by the user as working after this fix.
+
+**Bug 2 (found via real-browser check after Bug 1's fix, fixed):** Red's piece didn't
+visibly move until Black's (AI) reply had also finished computing — both moves appeared to
+happen at once, several seconds after the human's click. Root cause: the original
+`POST /api/move` endpoint applied both the human's move AND the AI's reply before
+responding at all, and the frontend only rendered once, after that whole exchange
+resolved. Fixed by splitting move application into two endpoints —
+`POST /api/move` (human's move only, responds immediately) and a new `POST /api/ai_move`
+(AI's reply, triggered as a separate follow-up call) — so the frontend can render Red's
+move the instant it's confirmed, show a "🤔 AI 正在思考..." indicator, then render again
+once the AI's move resolves. Both endpoints' turn-guards (`not your turn` /
+`not AI's turn`) verified directly with curl. **Needs a real-browser re-check** to confirm
+the human's move now visibly updates immediately — verified via curl/backend inspection
+only, not by watching it happen in an actual browser.
+
+Drag-to-move was never implemented in this first version (click origin, then click
+destination, is the only supported interaction) — this is a known scope limitation
+documented in `docs/ui.md`, not a bug.
 
 ## Progress Tracking / Handoff
 

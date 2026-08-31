@@ -1,0 +1,241 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #2b2f36;
+  color: #e8e8e8;
+  margin: 0;
+  padding: 24px;
+}
+
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+h1 {
+  margin: 0 0 4px 0;
+  font-size: 24px;
+}
+
+.subtitle {
+  margin: 0 0 20px 0;
+  color: #a0a5ad;
+  font-size: 14px;
+}
+
+.layout {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.board-wrap {
+  background: #d8b877;
+  border-radius: 6px;
+  padding: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  flex: 0 0 auto;
+}
+
+#board {
+  width: 100%;
+  max-width: 560px;
+  display: block;
+}
+
+.panel {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.panel-section {
+  background: #363b44;
+  border-radius: 6px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+button {
+  background: #4a7c59;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+button:hover {
+  background: #58916a;
+}
+
+button:disabled {
+  background: #555;
+  cursor: not-allowed;
+}
+
+.depth-label {
+  display: inline-block;
+  margin-left: 12px;
+  font-size: 13px;
+  color: #c8ccd2;
+}
+
+select {
+  margin-left: 6px;
+  background: #2b2f36;
+  color: #e8e8e8;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.status {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.status .turn-red {
+  color: #e05c5c;
+  font-weight: bold;
+}
+
+.status .turn-black {
+  color: #6ca0e0;
+  font-weight: bold;
+}
+
+.status .warning {
+  color: #f0a04b;
+  font-weight: bold;
+}
+
+.status .game-over {
+  color: #f0a04b;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+h3 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: #a0a5ad;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.log {
+  font-size: 13px;
+  line-height: 1.7;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.log-entry {
+  border-bottom: 1px solid #444a54;
+  padding: 4px 0;
+}
+
+.log-entry .who-red {
+  color: #e05c5c;
+}
+
+.log-entry .who-black {
+  color: #6ca0e0;
+}
+
+.log-entry .meta {
+  color: #888e97;
+  font-size: 11px;
+  display: block;
+}
+
+/* Board pieces / cells (JS sets these classes on generated elements) */
+
+.grid-line {
+  stroke: #5b4a2f;
+  stroke-width: 1.5;
+}
+
+.palace-line {
+  stroke: #5b4a2f;
+  stroke-width: 1.5;
+}
+
+.river-text {
+  fill: #8a7040;
+  font-size: 24px;
+  font-weight: bold;
+  text-anchor: middle;
+  user-select: none;
+}
+
+.point {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.piece-group {
+  /* All click handling lives on the invisible .point circles drawn
+     underneath (see board.js's buildStaticGrid comment) -- pieces are
+     purely visual and must let clicks pass straight through to the
+     point layer, or every square that has a piece on it becomes
+     unclickable (which is exactly what happened before this rule
+     existed: pieces sit on top of the point layer in SVG stacking
+     order, and being opaque with no pointer-events rule, they
+     silently swallowed every click aimed at a piece). */
+  pointer-events: none;
+}
+
+.piece-circle-red {
+  fill: #f4e4c1;
+  stroke: #b5341f;
+  stroke-width: 2.5;
+}
+
+.piece-circle-black {
+  fill: #f4e4c1;
+  stroke: #2b2b2b;
+  stroke-width: 2.5;
+}
+
+.piece-text-red {
+  fill: #b5341f;
+  font-size: 26px;
+  font-weight: bold;
+  text-anchor: middle;
+  dominant-baseline: central;
+  user-select: none;
+  pointer-events: none;
+}
+
+.piece-text-black {
+  fill: #2b2b2b;
+  font-size: 26px;
+  font-weight: bold;
+  text-anchor: middle;
+  dominant-baseline: central;
+  user-select: none;
+  pointer-events: none;
+}
+
+.piece-selected {
+  stroke: #f0c040;
+  stroke-width: 4;
+}
+
+.move-hint {
+  fill: rgba(80, 200, 120, 0.55);
+  pointer-events: none;
+}
+
+.last-move-marker {
+  fill: none;
+  stroke: #f0c040;
+  stroke-width: 3;
+  pointer-events: none;
+}

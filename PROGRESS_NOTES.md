@@ -1,102 +1,69 @@
-# AlphaZetaChess Progress Snapshot — V0.4.2 code+tests written, awaiting local validation
+# AlphaZetaChess Progress Snapshot — UI two-step move fix, awaiting browser re-check
 
 Snapshot date: 2026-08-31
 
-## Repository state verified
+## Status
 
-Latest main commit at start of this checkpoint: `f492bd6` — "v035 beta submitted"
-(V0.4.1 and V0.4.2 work in this checkpoint are uncommitted local changes on top
-of that commit; see the delivered zip for exact files to apply.)
+1. **V0.4.2 (King Safety): COMPLETE.** Confirmed by your local `pytest -q`
+   run (all green). Done, no action needed.
+2. **Web UI: two bugs found via your real-browser testing, both now fixed
+   in-session.** First bug (clicking did nothing) confirmed fixed by you.
+   Second bug (Red's piece didn't visually move until Black had also
+   moved) just fixed, needs your re-check.
 
-## Workflow change starting this checkpoint
+## Bug 2, in one line
 
-To avoid burning session time/usage on long-running test and benchmark
-commands (which caused interruptions in the previous two checkpoints), the
-current approach is: write code + tests + docs in-session, do only fast/cheap
-sanity checks here (compiling, running a single new test file in isolation --
-these take well under a second), and hand off the **full pytest suite** and
-any **playing-strength self-play benchmark** to be run locally. Report the
-results back and this file / the relevant docs/v0.4.x.md get updated to
-COMPLETE from there.
+`POST /api/move` used to apply the human's move AND the AI's reply before
+responding at all, so the frontend's one-and-only `render()` call for the
+whole exchange only happened after both moves were already done —
+nothing to show on screen until the AI (which can take several seconds)
+had finished thinking.
 
-## What this checkpoint changed
+## What was fixed
 
-- `src/alphazetacchess/engine/evaluation.py`: added King Safety, two additive
-  terms -- Guard Integrity (bonus per surviving Advisor/Elephant) and
-  Open-File Exposure (penalty for a clear file from the king to an enemy
-  Rook/Cannon). `evaluate()` gained `use_king_safety=True` (default),
-  independent of `use_piece_square_tables`.
-- `src/alphazetacchess/engine/search.py`: `SearchEngine` gained a matching
-  `use_king_safety` constructor flag, threaded through all four internal
-  `evaluate()` call sites.
-- `tests/test_evaluation_v042.py` (new, 10 tests): guard integrity exact
-  deltas, open-file exposure for Rook and Cannon, blocked-file cancellation,
-  relative (not absolute) scoring, PST/king-safety independence, and a
-  SearchEngine wiring check.
-- `docs/v0.4.2.md` (new): full design rationale, scope boundaries (rank
-  exposure and attacker-proximity scoring deliberately deferred), and an
-  interesting interaction with Quiescence Search discovered while writing the
-  wiring test (see below).
-- `docs/roadmap.md`: V0.4.2 status set to "IMPLEMENTATION COMPLETE, LOCAL
-  VALIDATION PENDING" (deliberately NOT marked COMPLETE yet -- the full suite
-  has not been run this session), hand-off diagram updated with the exact
-  local command to run next.
+Split move application into two endpoints:
+- `POST /api/move` — human's move only, responds immediately.
+- `POST /api/ai_move` (new) — AI's reply, separate follow-up call.
 
-## Verified in-session (fast checks only)
+`board.js`'s `playMove()` now: calls `/api/move`, renders immediately
+(Red's piece updates on screen right away), shows a "🤔 AI 正在思考..."
+status message, calls `/api/ai_move`, then renders again once that
+resolves.
 
-```
-pytest tests/test_evaluation_v042.py tests/test_evaluation_v041.py -q
-16 passed in 0.03s
+Verified in-session (server + curl, not a real browser):
+- `node --check web/static/board.js` — syntax OK.
+- Full two-step exchange via curl: `/api/move` returns immediately with
+  only the human's move (no `ai_move` key at all now), current_player
+  correctly flips to BLACK; a repeat call to `/api/move` at that point
+  correctly fails with "not your turn"; `/api/ai_move` correctly computes
+  and applies the AI's reply, current_player flips back to RED; a repeat
+  call to `/api/ai_move` at that point correctly fails with "not AI's
+  turn".
 
-python -m py_compile src/alphazetacchess/engine/evaluation.py src/alphazetacchess/engine/search.py
-compile OK
-```
-
-**The full pytest suite (all ~61 tests together) has NOT been run this
-session.** Please run it locally and report the pass/fail count (and full
-output if anything fails).
-
-## A worthwhile bug-shaped finding while writing the tests
-
-The first draft of the SearchEngine wiring test used an enemy Rook on a fully
-open file to the king. That position turned out to also be an *actual,
-immediate check* (nothing blocks a Rook's line of sight), so
-`SearchEngine._quiescence` correctly took its "in check, must resolve, no
-stand-pat" branch (V0.3.4 behavior) instead of returning a plain evaluation --
-which made it diverge from a direct `evaluate()` call. Not a bug in the
-production code; the fixture was testing the wrong thing. Fixed by switching
-to a Cannon (a real King Safety threat that isn't itself an immediate check,
-since a Cannon needs a screen to capture). Full writeup in `docs/v0.4.2.md`.
-
-## Not yet started
-
-- V0.4.2's playing-strength self-play benchmark (deliberately not attempted
-  this session, unlike V0.4.1 -- see docs/v0.4.2.md for a suggested command
-  to try locally if desired; V0.4.1 already found this tends to be
-  inconclusive at practical depths, so it's optional, not blocking).
-- V0.4.3 (rank-based king exposure, pawn structure, or piece coordination --
-  not yet decided, no code exists).
+**Not verified this session:** actually watching it happen in a browser
+(Red's piece should now visibly move the instant you click a destination,
+before the AI's reply comes in a few seconds later).
 
 ## Exact next step
 
-1. **You, locally:** run `pytest -q` (full suite) and report the result.
-2. If green: I'll mark `docs/v0.4.2.md` and the `docs/roadmap.md` V0.4.2 entry
-   COMPLETE, and we move on to V0.4.3.
-3. If anything fails: paste the failure output and I'll fix it -- given the
-   isolated test file already passes and the wiring test specifically
-   exercises the SearchEngine integration, a full-suite-only failure would
-   most likely be an interaction with some other existing test's fixture
-   (e.g. a position that happens to combine with King Safety in an
-   unexpected way), which the existing "kings on the same file" and
-   "accidental check" pitfall notes in `docs/v0.4.2.md` and `docs/roadmap.md`
-   V0.3.3-3.5 are good places to check first.
+1. **You, locally:** refresh the browser (or restart `python
+   web/server.py` if needed) and make a move. Confirm Red's piece moves
+   immediately, then a "🤔 AI 正在思考..." message appears, then Black's
+   piece moves once the AI replies.
+2. If that's all correct: go through the rest of `docs/ui.md`'s "What to
+   check locally" list if you haven't already (legal-move highlighting,
+   check/checkmate messages, New Game + depth dropdown), then this can be
+   marked COMPLETE and we move on to V0.4.3.
+3. If anything's still off, describe what you see and I'll keep going —
+   `docs/ui.md` has a running "Bug history" section tracking each issue
+   found and fixed so far, in case it's useful context.
 
 ## Handoff rule (unchanged, repeated for visibility)
 
 At the next interruption, update this file with:
 1. latest commit;
 2. pytest count/result;
-3. benchmark result (or honest non-result);
+3. UI/benchmark result (or honest non-result);
 4. remaining checklist;
 5. one exact next command.
 
