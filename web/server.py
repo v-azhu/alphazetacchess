@@ -41,20 +41,48 @@ HUMAN_COLOR = Color.RED
 AI_COLOR = Color.BLACK
 DEFAULT_AI_DEPTH = 2
 
+# V0.4.1-4.5 evaluation terms, each independently toggleable on
+# SearchEngine. Keys here are exactly the SearchEngine constructor
+# kwarg names, which keeps new_game()'s **eval_flags pass-through
+# trivial -- adding a future V0.4.x term only means adding one line
+# here (and one checkbox in web/static/index.html).
+DEFAULT_EVAL_FLAGS = {
+    "use_piece_square_tables": True,   # V0.4.1
+    "use_king_safety": True,           # V0.4.2
+    "use_mobility": False,             # V0.4.3 (beta-4: pseudo-legal, cheap)
+    "use_pawn_structure": False,       # V0.4.4
+    "use_piece_coordination": False,   # V0.4.5
+}
+
 # Single global game (see module docstring: this is a local,
 # single-user tool, not a multi-session server).
 game = {
     "board": None,
     "ai_engine": None,
     "ai_depth": DEFAULT_AI_DEPTH,
+    "eval_flags": dict(DEFAULT_EVAL_FLAGS),
 }
 
 
-def new_game(ai_depth=None):
+def new_game(ai_depth=None, eval_flags=None):
     if ai_depth is not None:
         game["ai_depth"] = ai_depth
+
+    if eval_flags is not None:
+        # Only accept known flags, and coerce to bool -- request JSON
+        # is untrusted input, and SearchEngine's constructor has no
+        # reason to see anything but real booleans for these kwargs.
+        game["eval_flags"] = {
+            key: bool(eval_flags[key])
+            for key in DEFAULT_EVAL_FLAGS
+            if key in eval_flags
+        }
+        # Fill in defaults for any flag the request didn't mention.
+        for key, default in DEFAULT_EVAL_FLAGS.items():
+            game["eval_flags"].setdefault(key, default)
+
     game["board"] = Board()
-    game["ai_engine"] = SearchEngine(depth=game["ai_depth"])
+    game["ai_engine"] = SearchEngine(depth=game["ai_depth"], **game["eval_flags"])
 
 
 new_game()
@@ -98,6 +126,7 @@ def state_payload(extra=None):
         "human_color": HUMAN_COLOR.name,
         "ai_color": AI_COLOR.name,
         "ai_depth": game["ai_depth"],
+        "eval_flags": game["eval_flags"],
         "in_check": Rule.is_in_check(board, current),
         "game_over": game_over,
         "is_checkmate": is_checkmate,
@@ -125,7 +154,8 @@ def api_state():
 def api_new_game():
     data = request.get_json(silent=True) or {}
     ai_depth = data.get("ai_depth")
-    new_game(ai_depth=ai_depth)
+    eval_flags = data.get("eval_flags")
+    new_game(ai_depth=ai_depth, eval_flags=eval_flags)
     return jsonify(state_payload())
 
 

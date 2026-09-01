@@ -51,6 +51,20 @@ move log on the right. "新局 New Game" starts over, and the depth dropdown
 `AI_SEARCH_DEPTH` in the CLI, with the same depth/time tradeoffs documented
 in `docs/v0.3.4.md` and `src/main.py`).
 
+**Evaluation term checkboxes (added alongside V0.4.5):** five checkboxes —
+Piece-Square Tables and King Safety (both on by default, matching
+`SearchEngine`'s own defaults), Mobility, Pawn Structure, and Piece
+Coordination (all off by default) — let you try any combination of the
+V0.4.1-4.5 evaluation terms without editing any code. Checked state is read
+when you click "New Game" (changes apply to the *next* game, not
+mid-game), and the checkboxes sync back to whatever the server reports on
+page load, so refreshing always shows the truth. This is the actual reason
+V0.4.3-4.5 were built before moving on: there's now something concrete to
+sit down and feel the difference of, e.g. try `use_mobility` +
+`use_pawn_structure` + `use_piece_coordination` all on at once versus the
+default, or turn everything off to compare against the plain V0.2 material
+baseline.
+
 Stop the server with Ctrl+C.
 
 ## Architecture
@@ -69,8 +83,10 @@ local, single-browser-tab tool, not a multi-session server — see its module
 docstring). Five endpoints:
 
 - `GET /api/state` — current board + status, for the initial page load.
-- `POST /api/new_game {ai_depth}` — reset the game, optionally at a
-  different AI search depth.
+- `POST /api/new_game {ai_depth, eval_flags}` — reset the game, optionally
+  at a different AI search depth and/or evaluation term configuration
+  (`eval_flags` is a dict of the five `use_*` booleans; any flag omitted
+  keeps its default — see `DEFAULT_EVAL_FLAGS` in `web/server.py`).
 - `POST /api/legal_moves {x, y}` — legal destinations for the piece at
   `(x, y)`, if it belongs to the side to move. Used to highlight squares
   after a click.

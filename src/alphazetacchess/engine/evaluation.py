@@ -2,6 +2,7 @@ from ..core.piece import PieceType, Color
 from ..core.board import Board
 from .mobility import mobility_balance
 from .pawn_structure import pawn_structure_balance
+from .piece_coordination import piece_coordination_balance
 
 
 MATERIAL_VALUES = {
@@ -133,6 +134,7 @@ def evaluate(
     use_mobility=False,
     mobility_weight=1,
     use_pawn_structure=False,
+    use_piece_coordination=False,
 ):
     """Evaluate a position from perspective_color's point of view.
 
@@ -144,6 +146,10 @@ def evaluate(
     V0.4.4 adds optional pawn structure (Connected Pawns) as another
     independent term, also disabled by default for the same reason.
     See docs/v0.4.4.md.
+
+    V0.4.5 adds optional piece coordination (Doubled Rooks, Rook-Cannon
+    Battery) as another independent term, also disabled by default.
+    See docs/v0.4.5.md.
     """
     score = 0
 
@@ -169,5 +175,8 @@ def evaluate(
 
     if use_pawn_structure:
         score += pawn_structure_balance(board, perspective_color)
+
+    if use_piece_coordination:
+        score += piece_coordination_balance(board, perspective_color)
 
     return score

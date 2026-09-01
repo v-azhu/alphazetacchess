@@ -308,6 +308,35 @@ and the same honest-non-result situation `docs/v0.4.1.md` already documented for
 class of signal — a real answer needs self-play or human-vs-engine games, not a cost
 benchmark).
 
+### V0.4.5 — Piece Coordination — COMPLETE
+
+Two classical Rook/Cannon file-sharing patterns: Doubled Rooks (双车) and Rook-Cannon
+Battery (车炮连环). `engine/piece_coordination.py`: `piece_coordination_balance()`, wired
+into `evaluate()` and `SearchEngine` behind `use_piece_coordination=False` (default),
+independent of and additive with all four other V0.4.x terms. Full design and scope
+boundaries (no line-of-sight requirement between the pieces, Horse-Cannon screening and
+rank-based coordination both deliberately deferred) are in `docs/v0.4.5.md`.
+
+11 new correctness tests (`tests/test_piece_coordination_v045.py`). Combined with every
+other V0.4.x targeted test file: **46/46 green, 0.35s.** Depth-2 cost check: 4.95s (OFF)
+vs 5.30s (ON) on the initial position — cheap, same order of magnitude as V0.4.4's pawn
+structure term, not the kind of cost V0.4.3's mobility term needed a rewrite to avoid.
+
+**This completes V0.4's original five-term list** (mobility, piece-square tables,
+coordination, king safety, pawn structure). Endgame/opening knowledge — qualitatively
+different from the other five (evaluation-phase switching and a move-selection book,
+respectively, not simple additive scoring terms) — remains an open decision: become
+V0.4.6+, or fold into V0.5's self-play scope, since opening books are often built FROM
+self-play data. Not decided yet, not blocking anything.
+
+**Web UI updated alongside this:** `web/server.py`'s `new_game()` now accepts an
+`eval_flags` dict (all five `use_*` booleans, unknown keys ignored, missing keys default),
+and `index.html`/`board.js` expose this as five checkboxes next to the depth selector —
+so any combination of the V0.4.1-4.5 evaluation terms can be tried directly from the
+browser without editing code. This was the actual point of building V0.4.3-4.5 before
+moving further: there's now something concrete to sit down and play against. See
+`docs/ui.md`.
+
 ## V0.5 — Self Play — PLANNED
 
 AI vs AI games, data collection, automatic evaluation and training dataset generation.
@@ -361,22 +390,24 @@ The repository is the source of truth. At the end of every step:
 
 Current hand-off:
 
-    V0.4.3-beta-4 COMPLETE (mobility switched to pseudo-legal counting,
-    cost multiplier dropped from 2.6x-3.2x to 1.13x-1.43x, same search
-    behavior confirmed via identical node counts/chosen moves -- see
-    docs/v0.4.3_beta4.md). use_mobility still defaults to False (cost
-    fixed; playing-strength not yet established).
-        ↓
     V0.4.4 COMPLETE (pawn structure / Connected Pawns, essentially free
     -- no rewrite needed, cheap from the start -- see docs/v0.4.4.md).
     use_pawn_structure still defaults to False, same reasoning.
         ↓
-    Two independent options, not mutually exclusive:
+    V0.4.5 COMPLETE (piece coordination / Doubled Rooks + Rook-Cannon
+    Battery, cheap -- see docs/v0.4.5.md). use_piece_coordination still
+    defaults to False. This completes V0.4's original five-term list.
         ↓
-    (a) Try use_mobility=True and/or use_pawn_structure=True via the
-        now-working web UI for a qualitative playing-strength read
+    Web UI now exposes all five V0.4.1-4.5 evaluation terms as
+    checkboxes (New Game panel), so any combination can be tried
+    directly from the browser -- see docs/ui.md.
         ↓
-    (b) Move to the last remaining V0.4 item, piece coordination, and
-        leave both mobility and pawn structure available-but-off
+    Next: sit down and actually play some games with different
+    combinations of the checkboxes to get a qualitative read on whether
+    any of the off-by-default terms (mobility, pawn structure, piece
+    coordination) feel like they help. No further engine code changes
+    planned until that produces a signal one way or the other, OR a
+    decision is made to move to endgame/opening knowledge (V0.4.6+ or
+    fold into V0.5) without waiting for that signal.
 
 Last updated: 2026-09-01

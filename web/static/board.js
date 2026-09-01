@@ -14,6 +14,34 @@ const logEl = document.getElementById("log");
 const newGameBtn = document.getElementById("new-game-btn");
 const depthSelect = document.getElementById("depth-select");
 
+// V0.4.1-4.5 evaluation term checkboxes. Keys match the SearchEngine
+// constructor kwarg names exactly (see web/server.py's
+// DEFAULT_EVAL_FLAGS), so this map is the only place that needs to
+// know about a new evaluation term's checkbox -- everything else
+// (reading, sending, syncing from server state) is generic.
+const EVAL_FLAG_CHECKBOXES = {
+  use_piece_square_tables: document.getElementById("flag-pst"),
+  use_king_safety: document.getElementById("flag-king-safety"),
+  use_mobility: document.getElementById("flag-mobility"),
+  use_pawn_structure: document.getElementById("flag-pawn-structure"),
+  use_piece_coordination: document.getElementById("flag-piece-coordination"),
+};
+
+function readEvalFlags() {
+  const flags = {};
+  for (const [key, checkbox] of Object.entries(EVAL_FLAG_CHECKBOXES)) {
+    flags[key] = checkbox.checked;
+  }
+  return flags;
+}
+
+function syncEvalFlagCheckboxes(flags) {
+  if (!flags) return;
+  for (const [key, checkbox] of Object.entries(EVAL_FLAG_CHECKBOXES)) {
+    if (key in flags) checkbox.checked = Boolean(flags[key]);
+  }
+}
+
 let boardState = null;
 let selected = null;      // {x, y} of the currently selected piece, or null
 let legalTargets = [];    // [{x, y}, ...] for the current selection
@@ -337,12 +365,14 @@ async function startNewGame() {
   logEl.innerHTML = "";
 
   const aiDepth = parseInt(depthSelect.value, 10);
+  const evalFlags = readEvalFlags();
   const res = await fetch("/api/new_game", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ai_depth: aiDepth }),
+    body: JSON.stringify({ ai_depth: aiDepth, eval_flags: evalFlags }),
   });
   boardState = await res.json();
+  syncEvalFlagCheckboxes(boardState.eval_flags);
   render();
   setBusy(false);
 }
@@ -351,6 +381,7 @@ async function loadInitialState() {
   const res = await fetch("/api/state");
   boardState = await res.json();
   if (boardState.ai_depth) depthSelect.value = String(boardState.ai_depth);
+  syncEvalFlagCheckboxes(boardState.eval_flags);
   render();
 }
 
