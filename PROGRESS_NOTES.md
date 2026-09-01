@@ -1,70 +1,106 @@
-# AlphaZetaChess Progress Snapshot — UI two-step move fix, awaiting browser re-check
+# AlphaZetaChess Progress Snapshot — V0.4.3-beta-3 benchmarked, mobility redesign recommended
 
 Snapshot date: 2026-08-31
 
-## Status
+## Repository state verified
 
-1. **V0.4.2 (King Safety): COMPLETE.** Confirmed by your local `pytest -q`
-   run (all green). Done, no action needed.
-2. **Web UI: two bugs found via your real-browser testing, both now fixed
-   in-session.** First bug (clicking did nothing) confirmed fixed by you.
-   Second bug (Red's piece didn't visually move until Black had also
-   moved) just fixed, needs your re-check.
+Latest GitHub commit checked: `23bbb77` — "v0.4.3beta3 submitted". Reviewed
+everything since `1404dab` (V0.4.2 + web UI): V0.4.3 beta-1 (mobility
+evaluation, disabled by default), beta-2 (SearchEngine wiring), beta-3
+(A/B benchmark tooling).
 
-## Bug 2, in one line
+## What's confirmed done
 
-`POST /api/move` used to apply the human's move AND the AI's reply before
-responding at all, so the frontend's one-and-only `render()` call for the
-whole exchange only happened after both moves were already done —
-nothing to show on screen until the AI (which can take several seconds)
-had finished thinking.
+1. **V0.4.2 (King Safety): COMPLETE.** Confirmed by your local full
+   `pytest -q` run (all green) in an earlier checkpoint.
+2. **Web UI: core functional, confirmed by you in a real browser.** Two
+   real bugs found and fixed (click-through CSS bug, move-render-timing
+   bug). Further UI polish intentionally deferred, per your own call to
+   pause here and return later.
+3. **V0.4.3 beta-1/beta-2 (mobility, disabled by default): wired in and
+   tested.** `pytest tests/test_mobility_v043.py tests/test_evaluation_v043.py
+   tests/test_search_v043_beta2.py -q` → 9 passed in 0.36s (fast, confirmed
+   this session).
 
-## What was fixed
+## This checkpoint's work: V0.4.3-beta-3 benchmark
 
-Split move application into two endpoints:
-- `POST /api/move` — human's move only, responds immediately.
-- `POST /api/ai_move` (new) — AI's reply, separate follow-up call.
+Ran the A/B comparison your own `docs/PROGRESS_v043_beta3.md` asked for
+(mobility OFF vs ON), but **deliberately limited to depth 1-2 on the
+initial position only** — full reasoning in the new
+`docs/v0.4.3_beta3-results.md`, short version: extrapolating from the
+depth-2 cost multiplier, depth-3 could plausibly take anywhere from ~20s
+to several minutes per position, and running the full 3-position sweep
+at both depths risked a long-running command that isn't a good idea to
+attempt in a single response given your usage-limit concern.
 
-`board.js`'s `playMove()` now: calls `/api/move`, renders immediately
-(Red's piece updates on screen right away), shows a "🤔 AI 正在思考..."
-status message, calls `/api/ai_move`, then renders again once that
-resolves.
+**Result:** mobility costs ~2.6x (depth 1) to ~3.2x (depth 2) wall-clock
+time, for a much smaller 1.14x-1.35x node-count increase — i.e. the cost
+is mostly per-leaf evaluation overhead (`mobility_balance()` calls the
+expensive, fully-legal `Rule.generate_legal_moves()` for both colors at
+every leaf), not the search tree getting bigger. Full table in
+`docs/v0.4.3_beta3-results.md`.
 
-Verified in-session (server + curl, not a real browser):
-- `node --check web/static/board.js` — syntax OK.
-- Full two-step exchange via curl: `/api/move` returns immediately with
-  only the human's move (no `ai_move` key at all now), current_player
-  correctly flips to BLACK; a repeat call to `/api/move` at that point
-  correctly fails with "not your turn"; `/api/ai_move` correctly computes
-  and applies the AI's reply, current_player flips back to RED; a repeat
-  call to `/api/ai_move` at that point correctly fails with "not AI's
-  turn".
+## Recommendation (not yet implemented)
 
-**Not verified this session:** actually watching it happen in a browser
-(Red's piece should now visibly move the instant you click a destination,
-before the AI's reply comes in a few seconds later).
+Rather than tuning `mobility_weight` on top of the current expensive
+implementation, or running deeper benchmarks to characterize it further,
+the more valuable next step is likely: **rewrite `mobility_balance()` to
+use pseudo-legal move counts** (via `MoveGenerator` directly, no
+check-simulation) instead of `Rule.generate_legal_moves()`. Mobility only
+needs to be a cheap, approximate positional signal — it doesn't need
+exact legal-move counts — so this should eliminate most of the measured
+cost. If an A/B benchmark confirms that (similar score signal, much
+lower cost), it should replace the current implementation rather than
+get tuned on top of it. `use_mobility` stays `False` by default either
+way until this is resolved.
+
+## What this checkpoint changed
+
+- `docs/v0.4.3_beta3-results.md` (new): full benchmark table, cost
+  analysis, and the pseudo-legal-mobility recommendation above.
+- `docs/roadmap.md`: added a proper `### V0.4.3 — Mobility` sub-section
+  (previously only existed as standalone docs, not reflected in the
+  structured roadmap), updated the Web UI section to reflect your
+  confirmation that it works, and updated the hand-off diagram.
+
+No source code was changed this checkpoint — this was benchmarking +
+documentation only, consistent with not wanting to make design changes
+(like switching to pseudo-legal mobility) without first confirming via a
+quick benchmark that they're actually worth it.
 
 ## Exact next step
 
-1. **You, locally:** refresh the browser (or restart `python
-   web/server.py` if needed) and make a move. Confirm Red's piece moves
-   immediately, then a "🤔 AI 正在思考..." message appears, then Black's
-   piece moves once the AI replies.
-2. If that's all correct: go through the rest of `docs/ui.md`'s "What to
-   check locally" list if you haven't already (legal-move highlighting,
-   check/checkmate messages, New Game + depth dropdown), then this can be
-   marked COMPLETE and we move on to V0.4.3.
-3. If anything's still off, describe what you see and I'll keep going —
-   `docs/ui.md` has a running "Bug history" section tracking each issue
-   found and fixed so far, in case it's useful context.
+**Option A (recommended, small & fast):** implement a pseudo-legal
+version of `mobility_balance()` and A/B-benchmark it against the current
+one, same methodology as beta-3. This is a small, self-contained change
+(one function in `mobility.py`) with a clear, cheap way to validate it
+(same benchmark script, or a quick inline timing check like this
+checkpoint did) before deciding whether to adopt it.
+
+**Option B, if you'd rather not touch mobility right now:** leave
+`use_mobility=False` as-is (already the default, zero risk to current
+play) and move to a different V0.4 item instead — pawn structure or
+piece coordination are the remaining items from `docs/roadmap.md`'s V0.4
+list.
+
+**If you want the deeper benchmark data instead:** run locally —
+```powershell
+python tools/benchmark_v043_beta3.py --depths 2
+python tools/benchmark_v043_beta3.py --depths 3
+```
+and paste back the output; no need to interpret it yourself.
 
 ## Handoff rule (unchanged, repeated for visibility)
 
 At the next interruption, update this file with:
 1. latest commit;
 2. pytest count/result;
-3. UI/benchmark result (or honest non-result);
+3. benchmark result (or honest non-result, or "deliberately not attempted
+   and why", as this checkpoint's depth-3 decision shows is sometimes the
+   right call);
 4. remaining checklist;
 5. one exact next command.
 
-This keeps the project resumable without relying on conversation memory.
+This keeps the project resumable without relying on conversation memory,
+and — given the free-tier usage-limit concern — keeps each individual
+checkpoint's own work small enough to finish within a single response.

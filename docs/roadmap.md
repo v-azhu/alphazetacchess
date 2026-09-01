@@ -237,6 +237,37 @@ correct behavior, but the wrong fixture for isolating evaluation *wiring*. Fixed
 a Cannon instead (a real King Safety threat that is not itself an immediate check, since
 a Cannon needs a screen to capture). Full writeup in `docs/v0.4.2.md`.
 
+### V0.4.3 — Mobility — BETA-3, WEIGHT TUNING NOT YET STARTED
+
+Weighted legal-move-count mobility (`engine/mobility.py`: `mobility_balance()`, per-piece
+weights favoring Horse/Cannon/Rook over King/Advisor/Elephant/Pawn), wired into
+`evaluate()` and `SearchEngine` behind `use_mobility=False` (default) / `mobility_weight=1`,
+following the same toggleable-layer pattern as V0.4.1/V0.4.2. Full history across beta-1
+(evaluation-only), beta-2 (SearchEngine wiring), and beta-3 (A/B benchmark) is in
+`docs/v0.4.3.md`, `docs/v0.4.3_beta2.md`, and `docs/PROGRESS_v043_beta3.md`.
+
+9 focused tests (`tests/test_mobility_v043.py`, `tests/test_evaluation_v043.py`,
+`tests/test_search_v043_beta2.py`) green (0.36s).
+
+**Beta-3 A/B benchmark (initial position, depth 1-2 only — see
+`docs/v0.4.3_beta3-results.md` for the full table and reasoning):** mobility adds
+~2.6x (depth 1) to ~3.2x (depth 2) wall-clock time for a comparatively small 1.14x-1.35x
+node-count increase — i.e. most of the cost is per-leaf evaluation overhead, not a bigger
+search tree. Root cause: `mobility_balance()` calls the expensive, fully-legal
+`Rule.generate_legal_moves()` for both colors at every leaf, the same check-simulation
+bottleneck that has been the established cost driver since the V0.2 review. Depth-3 and
+the other two reference positions were deliberately not benchmarked this session, to avoid
+a long-running command; extrapolating from the depth-2 multiplier, depth-3 could plausibly
+range from ~20s to several minutes per position depending on which one.
+
+**Recommendation, not yet acted on:** rather than tuning `mobility_weight` on top of the
+current expensive implementation, first benchmark a pseudo-legal-move-count version of
+mobility (via `MoveGenerator` directly, no check-simulation) against the current
+fully-legal one — this is very likely to eliminate most of the measured cost, since
+mobility only needs to be a cheap approximate signal, not an exact legal-move count. If
+that holds up, it should replace the current implementation rather than be tuned on top
+of it. `use_mobility` stays `False` by default until this is resolved.
+
 ## V0.5 — Self Play — PLANNED
 
 AI vs AI games, data collection, automatic evaluation and training dataset generation.
@@ -253,34 +284,26 @@ Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engin
 
 Human play, analysis, self improvement, UCCI, model management and strength evaluation.
 
-## Tooling — Web UI — TWO BUGS FOUND & FIXED, RE-VERIFICATION PENDING
+## Tooling — Web UI — CORE FUNCTIONAL, POLISH DEFERRED
 
 Not a numbered engine-strength version (it doesn't change `Board`/`Rule`/`SearchEngine`
 at all), but tracked here since it directly enables human-vs-engine testing going forward.
 `web/server.py` (Flask) + `web/static/` (SVG board, click-to-move) provide a real graphical
 board in the browser, replacing the CLI's coordinate-typing interface for interactive
 testing purposes. It calls the exact same Core/Engine classes as the CLI and test suite —
-no game logic is duplicated. Full design and a "what to check locally" list are in
-`docs/ui.md`.
+no game logic is duplicated. Full design, bug history, and a "what to check locally" list
+are in `docs/ui.md`.
 
-**Bug 1 (found via real-browser check, fixed):** clicking a piece did nothing at all —
-piece circles were drawn on top of the invisible click-handling layer without
-`pointer-events: none`, silently swallowing every click aimed at a piece. Fixed in
-`web/static/style.css`. Confirmed by the user as working after this fix.
-
-**Bug 2 (found via real-browser check after Bug 1's fix, fixed):** Red's piece didn't
-visibly move until Black's (AI) reply had also finished computing — both moves appeared to
-happen at once, several seconds after the human's click. Root cause: the original
-`POST /api/move` endpoint applied both the human's move AND the AI's reply before
-responding at all, and the frontend only rendered once, after that whole exchange
-resolved. Fixed by splitting move application into two endpoints —
-`POST /api/move` (human's move only, responds immediately) and a new `POST /api/ai_move`
-(AI's reply, triggered as a separate follow-up call) — so the frontend can render Red's
-move the instant it's confirmed, show a "🤔 AI 正在思考..." indicator, then render again
-once the AI's move resolves. Both endpoints' turn-guards (`not your turn` /
-`not AI's turn`) verified directly with curl. **Needs a real-browser re-check** to confirm
-the human's move now visibly updates immediately — verified via curl/backend inspection
-only, not by watching it happen in an actual browser.
+Two real bugs found via real-browser testing and fixed: (1) piece circles blocked clicks
+from reaching the invisible click-handling layer beneath them (`pointer-events: none`
+fix), and (2) Red's own move didn't render until the AI's reply had also finished
+computing, because both moves were applied server-side before any response went back
+(fixed by splitting into two endpoints, `POST /api/move` + `POST /api/ai_move`, so the
+frontend can render after each side's move independently). **Both confirmed working by
+the user in a real browser.** Core click-to-move gameplay loop is functional and
+confirmed; further polish (side-switching, move undo, captured-piece tray, animation) is
+intentionally deferred — see `docs/ui.md`'s "Known limitations" — to return to once the
+engine-strength track (V0.4.3+) has more to show for it.
 
 Drag-to-move was never implemented in this first version (click origin, then click
 destination, is the only supported interaction) — this is a known scope limitation
@@ -298,21 +321,27 @@ The repository is the source of truth. At the end of every step:
 
 Current hand-off:
 
-    V0.4.1 COMPLETE (piece-square tables for Horse/Cannon/Rook/Pawn, 6 new
-    correctness tests, 51/51 green; playing-strength self-play benchmark
-    attempted and honestly recorded as inconclusive at practical depths --
-    see docs/v0.4.1.md)
+    V0.4.2 COMPLETE (king safety: guard integrity + open-file exposure,
+    full suite confirmed green by local run)
         ↓
-    V0.4.2 IMPLEMENTATION COMPLETE, LOCAL VALIDATION PENDING (king safety:
-    guard integrity + open-file exposure, 10 new correctness tests green
-    in isolation this session; full suite NOT run this session -- see
-    "exactly what to run locally" in docs/v0.4.2.md)
+    Web UI: two real bugs found via real-browser testing, both fixed and
+    confirmed working (click-through bug, move-timing bug) -- core
+    gameplay loop functional, further polish deferred
         ↓
-    Run locally: pytest -q (full suite), report pass/fail count
+    V0.4.3-beta-3 (mobility): benchmarked depth 1-2 on the initial
+    position only (see docs/v0.4.3_beta3-results.md) -- ~2.6-3.2x wall
+    time cost for a much smaller node-count increase, i.e. the cost is
+    per-leaf evaluation overhead (Rule.generate_legal_moves called twice,
+    fully-legal, at every leaf), not search-tree growth. Recommendation:
+    try a pseudo-legal-move-count version before tuning the weight or
+    running deeper/broader benchmarks -- likely to remove most of the
+    cost, since mobility only needs to be a cheap approximate signal.
         ↓
-    If green: mark docs/v0.4.2.md and this roadmap entry COMPLETE
-        ↓
-    V0.4.3: pick next item from V0.4's list (pawn structure, piece
-    coordination, or rank-based king exposure as a direct follow-on)
+    Next step: implement + A/B-benchmark pseudo-legal mobility against
+    the current fully-legal version (small, focused change, same
+    methodology as beta-3). If it's meaningfully cheaper with a similar
+    score signal, it replaces the current implementation rather than
+    getting tuned on top of it. Keep use_mobility=False as the default
+    and the regression baseline throughout.
 
 Last updated: 2026-08-31
