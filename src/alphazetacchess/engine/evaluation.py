@@ -1,6 +1,7 @@
 from ..core.piece import PieceType, Color
 from ..core.board import Board
 from .mobility import mobility_balance
+from .pawn_structure import pawn_structure_balance
 
 
 MATERIAL_VALUES = {
@@ -131,6 +132,7 @@ def evaluate(
     use_king_safety=True,
     use_mobility=False,
     mobility_weight=1,
+    use_pawn_structure=False,
 ):
     """Evaluate a position from perspective_color's point of view.
 
@@ -138,6 +140,10 @@ def evaluate(
     It is disabled by default so the V0.4.2 evaluation remains the
     compatibility baseline. mobility_weight is exposed for A/B
     experiments and later tuning.
+
+    V0.4.4 adds optional pawn structure (Connected Pawns) as another
+    independent term, also disabled by default for the same reason.
+    See docs/v0.4.4.md.
     """
     score = 0
 
@@ -160,5 +166,8 @@ def evaluate(
 
     if use_mobility:
         score += mobility_weight * mobility_balance(board, perspective_color)
+
+    if use_pawn_structure:
+        score += pawn_structure_balance(board, perspective_color)
 
     return score

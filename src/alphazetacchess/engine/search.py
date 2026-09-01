@@ -70,6 +70,7 @@ class SearchEngine(ChessEngine):
         use_king_safety=True,
         use_mobility=False,
         mobility_weight=1,
+        use_pawn_structure=False,
         tt_max_entries=200_000,
     ):
         self.depth = depth
@@ -104,6 +105,9 @@ class SearchEngine(ChessEngine):
         # Disabled by default to preserve the V0.4.2 baseline.
         self.use_mobility = use_mobility
         self.mobility_weight = mobility_weight
+        # V0.4.4: optional Pawn Structure (Connected Pawns) evaluation
+        # term. Also disabled by default, same reasoning.
+        self.use_pawn_structure = use_pawn_structure
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
 
@@ -121,6 +125,7 @@ class SearchEngine(ChessEngine):
                     use_king_safety=self.use_king_safety,
                     use_mobility=self.use_mobility,
                     mobility_weight=self.mobility_weight,
+                    use_pawn_structure=self.use_pawn_structure,
                 ),
                 self.nodes_evaluated,
                 self.depth,
@@ -289,6 +294,7 @@ class SearchEngine(ChessEngine):
                     use_king_safety=self.use_king_safety,
                     use_mobility=self.use_mobility,
                     mobility_weight=self.mobility_weight,
+                    use_pawn_structure=self.use_pawn_structure,
                 )
                 if self.use_transposition_table:
                     self.tt.store(key, depth, score, Bound.EXACT, None)
@@ -404,6 +410,7 @@ class SearchEngine(ChessEngine):
                 use_king_safety=self.use_king_safety,
                 use_mobility=self.use_mobility,
                 mobility_weight=self.mobility_weight,
+                use_pawn_structure=self.use_pawn_structure,
             )
 
         in_check = Rule.is_in_check(board, color)
@@ -418,6 +425,7 @@ class SearchEngine(ChessEngine):
                 use_king_safety=self.use_king_safety,
                 use_mobility=self.use_mobility,
                 mobility_weight=self.mobility_weight,
+                use_pawn_structure=self.use_pawn_structure,
             )
 
             if stand_pat >= beta:

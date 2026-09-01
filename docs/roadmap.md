@@ -237,7 +237,7 @@ correct behavior, but the wrong fixture for isolating evaluation *wiring*. Fixed
 a Cannon instead (a real King Safety threat that is not itself an immediate check, since
 a Cannon needs a screen to capture). Full writeup in `docs/v0.4.2.md`.
 
-### V0.4.3 — Mobility — BETA-3, WEIGHT TUNING NOT YET STARTED
+### V0.4.3 — Mobility — BETA-4 COMPLETE (cost fixed; not yet enabled by default)
 
 Weighted legal-move-count mobility (`engine/mobility.py`: `mobility_balance()`, per-piece
 weights favoring Horse/Cannon/Rook over King/Advisor/Elephant/Pawn), wired into
@@ -267,6 +267,46 @@ fully-legal one — this is very likely to eliminate most of the measured cost, 
 mobility only needs to be a cheap approximate signal, not an exact legal-move count. If
 that holds up, it should replace the current implementation rather than be tuned on top
 of it. `use_mobility` stays `False` by default until this is resolved.
+
+**Beta-4: implemented and confirmed.** Switched `mobility_score`/`mobility_balance` to
+pseudo-legal counting via `MoveGenerator` (old fully-legal version kept as
+`_mobility_score_legal_reference` for comparison only). Cost multiplier dropped from
+2.6x-3.2x (beta-3) to **1.13x-1.43x** (beta-4) at depth 1-2 on the initial position, with
+identical node counts and chosen moves at both depths — same search behavior, much less
+overhead. Full table in `docs/v0.4.3_beta4.md`. `use_mobility` still defaults to `False`
+(this fixes the cost of enabling it, doesn't yet establish it should be default-on — that
+needs a playing-strength signal, not just a cost benchmark). Next step: try it via the now-
+working web UI for a qualitative playing-strength read, or move on to the next V0.4 item
+(pawn structure / piece coordination) and leave mobility available-but-off.
+
+### V0.4.4 — Pawn Structure (Connected Pawns) — COMPLETE
+
+One well-defined Xiangqi-specific concept: Connected Pawns (联兵) — pawns on adjacent
+files at the same rank can mutually support each other after crossing the river (sideways
+movement). `engine/pawn_structure.py`: `pawn_structure_balance()`, a base bonus per
+connected pawn plus an extra bonus if that pawn has also crossed the river. Wired into
+`evaluate()` and `SearchEngine` behind `use_pawn_structure=False` (default), independent
+of `use_piece_square_tables`/`use_king_safety`/`use_mobility` — all four terms stack
+additively and can be toggled in any combination. Full design, scope boundaries (isolated-
+pawn penalty, doubled pawns, and passed-pawn-equivalents all deliberately deferred/skipped
+with Xiangqi-specific reasoning for each) and benchmark are in `docs/v0.4.4.md`.
+
+10 new correctness tests (`tests/test_pawn_structure_v044.py`) green. Combined with the
+existing V0.4.1-4.3 targeted test files: **35/35 green, 0.39s total.** No "kings on the
+same file" fixture pitfall this time — every test position either doesn't involve king
+adjacency at all, or places the kings on different files from the start, consistent with
+the standing lesson from V0.3.3/V0.3.4/V0.4.2.
+
+**Benchmark: essentially free.** Depth-2 cost check on the initial position: 5.57s (OFF)
+vs 5.43s (ON), identical node count (1916) and chosen move — within normal run-to-run
+noise. Unlike V0.4.3's mobility term (which needed a pseudo-legal rewrite in beta-4 to
+become cheap), pawn structure was cheap from the start: a simple O(pieces-on-board) scan,
+no move generation involved.
+
+No playing-strength benchmark attempted (consistent with keeping this checkpoint small,
+and the same honest-non-result situation `docs/v0.4.1.md` already documented for this
+class of signal — a real answer needs self-play or human-vs-engine games, not a cost
+benchmark).
 
 ## V0.5 — Self Play — PLANNED
 
@@ -321,27 +361,22 @@ The repository is the source of truth. At the end of every step:
 
 Current hand-off:
 
-    V0.4.2 COMPLETE (king safety: guard integrity + open-file exposure,
-    full suite confirmed green by local run)
+    V0.4.3-beta-4 COMPLETE (mobility switched to pseudo-legal counting,
+    cost multiplier dropped from 2.6x-3.2x to 1.13x-1.43x, same search
+    behavior confirmed via identical node counts/chosen moves -- see
+    docs/v0.4.3_beta4.md). use_mobility still defaults to False (cost
+    fixed; playing-strength not yet established).
         ↓
-    Web UI: two real bugs found via real-browser testing, both fixed and
-    confirmed working (click-through bug, move-timing bug) -- core
-    gameplay loop functional, further polish deferred
+    V0.4.4 COMPLETE (pawn structure / Connected Pawns, essentially free
+    -- no rewrite needed, cheap from the start -- see docs/v0.4.4.md).
+    use_pawn_structure still defaults to False, same reasoning.
         ↓
-    V0.4.3-beta-3 (mobility): benchmarked depth 1-2 on the initial
-    position only (see docs/v0.4.3_beta3-results.md) -- ~2.6-3.2x wall
-    time cost for a much smaller node-count increase, i.e. the cost is
-    per-leaf evaluation overhead (Rule.generate_legal_moves called twice,
-    fully-legal, at every leaf), not search-tree growth. Recommendation:
-    try a pseudo-legal-move-count version before tuning the weight or
-    running deeper/broader benchmarks -- likely to remove most of the
-    cost, since mobility only needs to be a cheap approximate signal.
+    Two independent options, not mutually exclusive:
         ↓
-    Next step: implement + A/B-benchmark pseudo-legal mobility against
-    the current fully-legal version (small, focused change, same
-    methodology as beta-3). If it's meaningfully cheaper with a similar
-    score signal, it replaces the current implementation rather than
-    getting tuned on top of it. Keep use_mobility=False as the default
-    and the regression baseline throughout.
+    (a) Try use_mobility=True and/or use_pawn_structure=True via the
+        now-working web UI for a qualitative playing-strength read
+        ↓
+    (b) Move to the last remaining V0.4 item, piece coordination, and
+        leave both mobility and pawn structure available-but-off
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
