@@ -382,6 +382,31 @@ every other genuinely slow operation in this project.
 `data/` (gitignored `*.jsonl`, with a `README.md` explaining the directory) is where
 `tools/self_play.py` writes by default.
 
+### V0.5.2 — Opening Book from Self-Play — COMPLETE (mechanism); needs a real corpus
+
+`src/alphazetacchess/selfplay/opening_book.py`: books are keyed by (Zobrist hash, color to
+move) rather than move sequence, so transpositions share statistics instead of being
+tracked separately. `build_book_from_records()` replays V0.5.1 records through a fresh
+`Board` and accumulates per-position, per-move win/draw/loss/games counts for the first
+`max_ply` half-moves; `select_book_move()` picks the best win-rate move meeting a
+`min_games` threshold (deliberately simple frequentist scoring, no confidence interval or
+exploration bonus — not worth the sophistication against a small corpus yet).
+`tools/build_opening_book.py` is the CLI glue from `tools/self_play.py`'s output to a
+saved book file. `SearchEngine` gained `use_opening_book`/`opening_book`/
+`opening_book_min_games`; `choose_move()` checks the book first and returns immediately
+(search never runs) when there's a confident entry, validated against actual current legal
+moves before being trusted. `SearchResult` gained a defaulted `from_book: bool = False`
+field so callers can tell a book move from a searched one. Full design and a known
+limitation (a fully-deterministic low-depth self-play corpus has no real move diversity to
+learn from) are in `docs/v0.5.2.md`.
+
+9 new correctness tests (`tests/test_opening_book_v052.py`). Combined with every other
+targeted V0.4.x/V0.5.x test file: **60/60 green, 1.42s.** Smoke-tested end to end
+(self-play → book → book-driven `SearchEngine` move) this session with a small,
+fully-deterministic sample — confirms the mechanism works, but **no book has been built
+from a real, larger self-play corpus yet**, since that depends on V0.5.1's own "run
+locally" step having actually been run at a useful scale.
+
 ## V0.6+ — Neural Evaluation / MCTS — PLANNED
 
 Policy/value network, neural evaluation and MCTS integration.
@@ -445,11 +470,23 @@ Current hand-off:
     batch run yet -- depth=2 games are a local, long-running task by
     design, same treatment as every other slow operation in this project.
         ↓
-    Next: run a real self-play batch locally
-    (`python tools/self_play.py --games 20 --depth 2`), which can happen
-    in parallel with / independent of further engine work here, since it
-    doesn't block anything -- once there's real data, V0.5.2 (a simple
-    opening book from move win-rates) is the natural next increment, and
-    doesn't need a huge data set to prototype the mechanism against.
+    V0.5.2 COMPLETE as a mechanism (opening book from self-play records,
+    Zobrist-keyed for transposition sharing, wired into SearchEngine as
+    use_opening_book -- see docs/v0.5.2.md). 9 tests green, smoke-tested
+    end to end. Still needs a REAL corpus -- current data is a small
+    deterministic smoke test with no real move diversity to learn from.
+        ↓
+    Next: run a real self-play batch locally, THEN rebuild the book from
+    it --
+        python tools/self_play.py --games 20 --depth 2
+        python tools/build_opening_book.py
+    This can happen independently of further work here. Once there's a
+    real book, worth deciding: is depth=2 self-play diverse enough on its
+    own, or does move selection during data collection need intentional
+    randomization (see docs/v0.5.2.md "Known limitation")?
+        ↓
+    Independent next increment either way: V0.5.3, endgame heuristics
+    from self-play data (the other half of the V0.4-deferred scope) --
+    doesn't depend on V0.5.2 being "finished" with real data first.
 
-Last updated: 2026-09-01
+Last updated: 2026-09-02

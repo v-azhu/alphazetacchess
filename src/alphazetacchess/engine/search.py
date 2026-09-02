@@ -2,6 +2,7 @@ from ..core.rule import Rule
 from .base import ChessEngine, SearchResult
 from .evaluation import evaluate
 from .transposition_table import Bound, TranspositionTable
+from ..selfplay.opening_book import select_book_move
 
 
 MATE_SCORE = 100000
@@ -72,6 +73,9 @@ class SearchEngine(ChessEngine):
         mobility_weight=1,
         use_pawn_structure=False,
         use_piece_coordination=False,
+        use_opening_book=False,
+        opening_book=None,
+        opening_book_min_games=3,
         tt_max_entries=200_000,
     ):
         self.depth = depth
@@ -113,12 +117,26 @@ class SearchEngine(ChessEngine):
         # Cannon Battery) evaluation term. Also disabled by default,
         # same reasoning.
         self.use_piece_coordination = use_piece_coordination
+        # V0.5.2: optional opening book, built from V0.5.1 self-play
+        # records (see selfplay/opening_book.py). `opening_book` is
+        # the loaded book dict (selfplay.opening_book.load_book(path)),
+        # not a path -- SearchEngine doesn't do file I/O itself, so the
+        # same loaded book can be reused across many SearchEngine
+        # instances without re-reading it from disk each time.
+        self.use_opening_book = use_opening_book
+        self.opening_book = opening_book
+        self.opening_book_min_games = opening_book_min_games
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
 
     def choose_move(self, board, color):
         self.nodes_evaluated = 0
         self.tt.reset_stats()
+
+        if self.use_opening_book and self.opening_book:
+            book_move = self._book_move(board, color)
+            if book_move is not None:
+                return book_move
 
         legal_moves = Rule.generate_legal_moves(board, color)
         if not legal_moves:
@@ -166,6 +184,35 @@ class SearchEngine(ChessEngine):
                 )
 
         return best_result
+
+    def _book_move(self, board, color):
+        """
+        Return a SearchResult built from the opening book if a
+        confident entry exists for this position, otherwise None (in
+        which case choose_move falls through to normal search).
+
+        Book entries are validated against the actual current legal
+        moves before being trusted -- defensive against a book built
+        against a different rule-engine version, or any other reason
+        the recorded move might not be legal in the exact position
+        it's being looked up in.
+        """
+        book_move = select_book_move(
+            self.opening_book, board, color, min_games=self.opening_book_min_games
+        )
+        if book_move is None:
+            return None
+
+        from_pos, to_pos = book_move
+        legal_moves = Rule.generate_legal_moves(board, color)
+        matching = next(
+            (m for m in legal_moves if m.from_pos == from_pos and m.to_pos == to_pos),
+            None,
+        )
+        if matching is None:
+            return None
+
+        return SearchResult(matching, None, 0, 0, from_book=True)
 
     def _search_fixed_depth(self, board, color, legal_moves, depth):
         root_moves = self._order_root_moves(legal_moves, None)

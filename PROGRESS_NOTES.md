@@ -1,98 +1,101 @@
-# AlphaZetaChess Progress Snapshot — V0.5.1 (Self-Play Recording) COMPLETE
+# AlphaZetaChess Progress Snapshot — V0.5.2 (Opening Book) mechanism COMPLETE
 
-Snapshot date: 2026-09-01
+Snapshot date: 2026-09-02
 
 ## Recovery note
 
-This checkpoint resumed directly from a mid-work interruption: the
-sandbox survived, `docs/v0.5.1.md` had already been fully written, but
-`docs/roadmap.md`'s V0.5 section and this file hadn't been updated yet.
-Picked up exactly there.
-
-## Scope decision recorded
-
-Per your call: Endgame Knowledge and Opening Knowledge (the two V0.4
-items left undone after V0.4.5) will be learned from self-play data
-rather than hand-coded, folded into V0.5 rather than becoming a
-V0.4.6/V0.4.7. `docs/roadmap.md` now reflects this — V0.4 marked
-COMPLETE (five of five original additive-scoring terms), V0.5 marked
-CURRENT.
+Resumed from a mid-work interruption: sandbox survived. Exact break
+point: `opening_book.py`, `tools/build_opening_book.py`, and
+`SearchResult.from_book` had already been written, but `SearchEngine`
+didn't have the book wired in yet. Picked up exactly there. (Also fixed
+a self-inflicted syntax error from an earlier no-op edit that had
+accidentally merged two lines in `search.py` — caught immediately by
+the compile check, not by you.)
 
 ## What this checkpoint did
 
-Built V0.5.1: self-play game **recording** infrastructure (not yet
-analysis — that's V0.5.2+). This is the foundation everything else in
-V0.5 depends on: an opening book or endgame heuristic both need
-recorded games to derive from.
+Built V0.5.2: an opening book derived from V0.5.1's self-play records,
+wired into `SearchEngine` as an opt-in fast path that skips search
+entirely when there's a confident book entry.
 
 ## What was verified this checkpoint
 
 ```
-python -m py_compile src/alphazetacchess/selfplay/recorder.py tools/self_play.py
+python -m py_compile src/alphazetacchess/engine/search.py \
+                      src/alphazetacchess/engine/base.py \
+                      src/alphazetacchess/selfplay/opening_book.py \
+                      tools/build_opening_book.py
 → OK
 
-pytest tests/test_selfplay_recorder_v051.py tests/test_mobility_v043.py \
-       tests/test_evaluation_v043.py tests/test_search_v043_beta2.py \
-       tests/test_evaluation_v041.py tests/test_evaluation_v042.py \
-       tests/test_pawn_structure_v044.py tests/test_piece_coordination_v045.py -q
-51 passed in 0.42s
+pytest tests/ -q -k "v041 or v042 or v043 or v044 or v045 or v051 or v052"
+60 passed, 45 deselected in 1.42s
 ```
 
-Smoke test (from an earlier point in this session, files since cleaned
-up): `python tools/self_play.py --games 2 --depth 1 --max-moves 20` ran
-end to end in 22s, output file verified well-formed (correct keys,
-correct move sequences, correct config dict).
+Smoke test, self-play → book → book-driven move, full pipeline:
+```
+python tools/self_play.py --games 3 --depth 1 --max-moves 10 --output /tmp/smoke_selfplay.jsonl
+python tools/build_opening_book.py --input /tmp/smoke_selfplay.jsonl --output /tmp/smoke_book.json --max-ply 4
+→ 4 positions, correct per-move win/draw/loss/games stats
+```
+(temp files cleaned up after, not left in the repo).
 
-**Not run this checkpoint (kept small deliberately):** any real
-data-collection batch at `depth=2` (the realistic setting) — individual
-games there have historically taken 1-3+ minutes, so a data set large
-enough to be useful is a local, long-running task by design.
+**Not run this checkpoint:** any book built from a real, larger self-play
+corpus (this session's data was a small deterministic smoke test only —
+see "Known limitation" below), and no web UI wiring for loading/using a
+book yet (deliberately deferred to keep this checkpoint focused on the
+core mechanism).
 
 ## What changed
 
-- `src/alphazetacchess/selfplay/__init__.py`, `recorder.py` (new):
-  `play_recorded_game()` (full move-by-move game recording, built on
-  the same primitives `tools/benchmark.py`'s win-rate-only `play_game`
-  uses), `append_record()`/`load_records()` (JSON-lines I/O,
-  append-only).
-- `tools/self_play.py` (new): CLI wrapper, `--games`/`--depth`/`--output`
-  plus flags matching `SearchEngine`'s V0.4.1-4.5 toggles.
-- `tests/test_selfplay_recorder_v051.py` (new, 5 tests) — including a
-  fully deterministic decisive-game test that caught and fixed a real
-  bug: `recorder.py`'s first draft read `.from_pos` directly off
-  `choose_move()`'s return value, but every engine's `choose_move()`
-  returns a uniform `SearchResult` wrapper (see `engine/base.py`), not
-  a bare `Move`. Fixed to match how `tools/benchmark.py` already did
-  it correctly.
-- `data/README.md` (new), `.gitignore` updated to exclude `data/*.jsonl`
-  — also fixed an unrelated pre-existing bug while touching this file:
-  the original `.gitignore` had no trailing newline, so a naive append
-  would have silently merged onto its last line; reconstructed the
-  whole file explicitly instead.
-- `docs/v0.5.1.md` (new): full design, record format, and reasoning.
-- `docs/roadmap.md`: V0.4 → COMPLETE, V0.5 → CURRENT, V0.5.1 section
-  added, hand-off diagram updated.
+- `src/alphazetacchess/engine/base.py`: `SearchResult` gained
+  `from_book: bool = False` (defaulted, doesn't break any existing
+  construction call).
+- `src/alphazetacchess/selfplay/opening_book.py` (new):
+  `build_book_from_records()`, `select_book_move()`, `save_book()`/
+  `load_book()`. Keyed by (Zobrist hash, color) for transposition
+  sharing.
+- `tools/build_opening_book.py` (new): CLI to build a book file from
+  `tools/self_play.py`'s output.
+- `src/alphazetacchess/engine/search.py`: `use_opening_book`/
+  `opening_book`/`opening_book_min_games` constructor params;
+  `choose_move()` checks the book first via a new `_book_move()`
+  helper, falls through to normal search unchanged when there's no
+  confident entry.
+- `tests/test_opening_book_v052.py` (new, 9 tests).
+- `docs/v0.5.2.md` (new): full design, known limitation, next steps.
+- `docs/roadmap.md`: V0.5.2 section added, hand-off diagram updated.
+
+## Known limitation (important, read before running a big self-play batch)
+
+A fully-deterministic `SearchEngine` playing itself at low depth always
+makes the same moves — so a book built from that kind of data has
+exactly one candidate move per position, no real diversity to choose
+between. This isn't a bug in V0.5.2's mechanism (the 9 tests confirm it
+works correctly on whatever data it's given), it's a property of the
+*data*. Before investing in a big `--games 100+` run, worth deciding
+whether depth=2 self-play naturally diverges enough (material trades
+create different branches) or whether intentional randomization during
+data collection is needed. Full reasoning in `docs/v0.5.2.md`.
 
 ## Exact next step
 
-**Locally, whenever convenient (not blocking anything else):**
+**Locally, whenever convenient:**
 ```bash
-python tools/self_play.py --games 20 --depth 2 --output data/selfplay.jsonl
+python tools/self_play.py --games 20 --depth 2
+python tools/build_opening_book.py
 ```
-Records accumulate across runs, so this can be run in small batches
-over time rather than one long sitting. Re-run with `--use-mobility` /
-`--use-pawn-structure` / `--use-piece-coordination` if you want data
-specific to a particular evaluation configuration, or leave them off
-for the default-configuration baseline.
+Then look at `data/opening_book.json` — if most positions still only
+have one candidate move despite real games being played, that confirms
+the diversity concern above and randomized move sampling becomes the
+right next fix; if there's genuine variety, the book is already usable
+as-is.
 
-**Here, independent of that:** V0.5.2 (a simple opening book — analyze
-recorded move-1/move-2/... win rates, use the book for early moves
-instead of searching) is the natural next increment, and the mechanism
-can be built and tested even against a small data set (the earlier
-smoke-test file, or a fresh small batch), with book quality simply
-improving as more real data accumulates over time. I can start on this
-now, or wait for you to run a real batch first — your call, since
-neither blocks the other.
+**Here, independent of that:** V0.5.3 (endgame heuristics from
+self-play data — the other half of the scope originally deferred from
+V0.4) doesn't depend on V0.5.2 having real data first. I can start
+there next, or pick up web UI wiring for loading/using a book — happy
+to take direction if you have a preference when you're back, otherwise
+I'll use judgment on which is more valuable to do first.
 
 ## Handoff rule (unchanged, repeated for visibility)
 

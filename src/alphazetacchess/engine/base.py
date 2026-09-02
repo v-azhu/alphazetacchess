@@ -13,6 +13,12 @@ class SearchResult:
     score: float
     nodes_evaluated: int
     depth: int
+    # V0.5.2: True when the move came from the opening book instead of
+    # search (score/nodes_evaluated/depth are meaningless in that case
+    # -- search never ran). Defaults to False so every existing
+    # positional SearchResult(...) construction across the codebase
+    # keeps working unchanged.
+    from_book: bool = False
 
 
 class ChessEngine:
