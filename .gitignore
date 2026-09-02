@@ -19,3 +19,6 @@ trainingdata/*.pgns
 trainingdata/*.json
 
 tests/_pytest_cache/
+
+# V0.5.1 self-play data (generated, regenerable via tools/self_play.py)
+data/*.jsonl

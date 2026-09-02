@@ -17,8 +17,8 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.3.3 | COMPLETE | Negamax / PVS |
 | V0.3.4 | COMPLETE | Quiescence search |
 | V0.3.5 | COMPLETE | Benchmark / regression consolidation |
-| V0.4 | CURRENT | Advanced evaluation |
-| V0.5 | PLANNED | Self-play / training data |
+| V0.4 | COMPLETE | Advanced evaluation |
+| V0.5 | CURRENT | Self-play / training data |
 | V0.6+ | PLANNED | Neural evaluation / MCTS |
 | V0.7 | PLANNED | Hybrid engine |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
@@ -186,7 +186,7 @@ positions (`tests/test_search_v035_beta.py`: forced capture, forced check resolu
 Quiescence recapture) — 45/45 tests green. Full V0.3 phase acceptance summary, covering
 V0.3.1 through V0.3.5 with evidence pointers for each, is in `docs/v0.3.5.md`.
 
-## V0.4 — Advanced Evaluation — CURRENT
+## V0.4 — Advanced Evaluation — COMPLETE (five of five original terms; Endgame/Opening Knowledge moved to V0.5)
 
 Mobility, piece-square tables, coordination, king safety, pawn structure, endgame knowledge and opening knowledge.
 
@@ -337,9 +337,50 @@ browser without editing code. This was the actual point of building V0.4.3-4.5 b
 moving further: there's now something concrete to sit down and play against. See
 `docs/ui.md`.
 
-## V0.5 — Self Play — PLANNED
+## V0.5 — Self Play — V0.5.1 COMPLETE
 
 AI vs AI games, data collection, automatic evaluation and training dataset generation.
+
+**Scope decision (2026-09-01):** V0.4's original list included Endgame Knowledge and
+Opening Knowledge, both left undone when V0.4.5 completed the other five terms. Decision:
+learn these from self-play data rather than hand-coding them, and fold them into V0.5
+rather than adding a V0.4.6/V0.4.7 — an opening book and endgame heuristics both need
+recorded self-play data to derive from in the first place, which is exactly what V0.5 was
+already going to produce.
+
+### V0.5.1 — Self-Play Game Recording — COMPLETE
+
+`src/alphazetacchess/selfplay/recorder.py`: `play_recorded_game()` plays one full game
+move-by-move (built on the same `Rule.is_game_over`/`SearchEngine.choose_move`/`Board.move`
+calls `tools/benchmark.py`'s win-rate-only `play_game` already used) and returns a
+JSON-serializable record with the full move sequence, result, and both sides' engine
+configuration. `append_record()`/`load_records()` provide append-only JSON-lines file I/O,
+so repeated runs accumulate data across sessions rather than overwriting.
+`tools/self_play.py` is the CLI wrapper (`--games`, `--depth`, `--output`, plus
+`--use-mobility`/`--use-pawn-structure`/`--use-piece-coordination` matching
+`SearchEngine`'s own toggles), appending each game's record as soon as it finishes so an
+interrupted long run still leaves usable partial data. Full design, record format, and
+reasoning in `docs/v0.5.1.md`.
+
+5 new correctness tests (`tests/test_selfplay_recorder_v051.py`), including a fully
+deterministic decisive-game test (added `board=` as an optional parameter to
+`play_recorded_game` specifically to let tests start one ply from a forced mate instead of
+waiting on a real game) that caught a genuine bug while being written: `recorder.py`'s
+first draft read `.from_pos` directly off `SearchEngine.choose_move()`'s return value, but
+every engine's `choose_move()` returns a uniform `SearchResult` (see `engine/base.py`), not
+a bare `Move` — `tools/benchmark.py`'s existing `play_game` already had this right
+(`result.best_move.from_pos`); fixed `recorder.py` to match. Combined with every other
+targeted V0.4.x test file: **51/51 green, 0.42s.**
+
+Smoke-tested end to end this session (`--games 2 --depth 1 --max-moves 20`, 22s total,
+output file verified well-formed) — **no real data-collection run was attempted**, since
+at the realistic `depth=2` configuration individual games have historically taken 1-3+
+minutes (see `docs/v0.3.4.md`, `docs/v0.4.3_beta3-results.md`), making a data set large
+enough to be useful for V0.5.2 a local, long-running task by design, same treatment as
+every other genuinely slow operation in this project.
+
+`data/` (gitignored `*.jsonl`, with a `README.md` explaining the directory) is where
+`tools/self_play.py` writes by default.
 
 ## V0.6+ — Neural Evaluation / MCTS — PLANNED
 
@@ -390,24 +431,25 @@ The repository is the source of truth. At the end of every step:
 
 Current hand-off:
 
-    V0.4.4 COMPLETE (pawn structure / Connected Pawns, essentially free
-    -- no rewrite needed, cheap from the start -- see docs/v0.4.4.md).
-    use_pawn_structure still defaults to False, same reasoning.
+    V0.4.5 COMPLETE -- V0.4's original five-term list fully done
+    (piece-square tables, king safety, mobility, pawn structure, piece
+    coordination), web UI exposes all five as checkboxes for real
+    human-vs-engine testing.
         ↓
-    V0.4.5 COMPLETE (piece coordination / Doubled Rooks + Rook-Cannon
-    Battery, cheap -- see docs/v0.4.5.md). use_piece_coordination still
-    defaults to False. This completes V0.4's original five-term list.
+    Decision: Endgame/Opening Knowledge learned from self-play data
+    rather than hand-coded -- folded into V0.5, no V0.4.6/4.7.
         ↓
-    Web UI now exposes all five V0.4.1-4.5 evaluation terms as
-    checkboxes (New Game panel), so any combination can be tried
-    directly from the browser -- see docs/ui.md.
+    V0.5.1 COMPLETE (self-play game recording: engine/selfplay/recorder.py
+    + tools/self_play.py, JSON-lines format, append-only, 5 tests green,
+    smoke-tested end to end -- see docs/v0.5.1.md). No real data-collection
+    batch run yet -- depth=2 games are a local, long-running task by
+    design, same treatment as every other slow operation in this project.
         ↓
-    Next: sit down and actually play some games with different
-    combinations of the checkboxes to get a qualitative read on whether
-    any of the off-by-default terms (mobility, pawn structure, piece
-    coordination) feel like they help. No further engine code changes
-    planned until that produces a signal one way or the other, OR a
-    decision is made to move to endgame/opening knowledge (V0.4.6+ or
-    fold into V0.5) without waiting for that signal.
+    Next: run a real self-play batch locally
+    (`python tools/self_play.py --games 20 --depth 2`), which can happen
+    in parallel with / independent of further engine work here, since it
+    doesn't block anything -- once there's real data, V0.5.2 (a simple
+    opening book from move win-rates) is the natural next increment, and
+    doesn't need a huge data set to prototype the mechanism against.
 
 Last updated: 2026-09-01
