@@ -337,7 +337,7 @@ browser without editing code. This was the actual point of building V0.4.3-4.5 b
 moving further: there's now something concrete to sit down and play against. See
 `docs/ui.md`.
 
-## V0.5 — Self Play — V0.5.3 COMPLETE (mechanism); real corpus + V0.5.4 next
+## V0.5 — Self Play — V0.5.4 COMPLETE (all mechanisms); real local runs next
 
 AI vs AI games, data collection, automatic evaluation and training dataset generation.
 
@@ -458,6 +458,30 @@ the phase threshold's placement is reasonable (depth=1, 40-move-capped games ess
 never reach it; a 100-move-capped game did, at ply 70). Full design, exact test list, and
 known limitations in `docs/v0.5.3.md`.
 
+### V0.5.4 — Automated Strength Comparison — COMPLETE (mechanism); needs a real comparison
+
+`src/alphazetacchess/selfplay/strength_comparison.py`: `run_comparison_match()` plays N
+games between two independently configurable engine setups, alternating colors, and
+reports win/draw/loss + a standard log-odds Elo-difference estimate. Reuses V0.5.1's
+`play_recorded_game` directly rather than a separate play loop, so every comparison-match
+game is automatically a valid, complete self-play record — a comparison run and a
+data-collection run can be the same run, `--output` pointed at the same
+`data/selfplay.jsonl` V0.5.2's opening book and V0.5.3's endgame analysis already consume.
+`tools/benchmark.py`'s existing SearchEngine-vs-RandomEngine sanity check is untouched
+(different job: RandomEngine has no configuration to compare).
+
+`tools/compare_engines.py`: CLI exposing `--a-*`/`--b-*` flags for both sides' depth and
+V0.4.x/V0.5.3 evaluation-term toggles, mirroring `tools/self_play.py`'s flag conventions.
+
+8 new tests (`tests/test_strength_comparison_v054.py`), most notably one that starts two
+games from the same forced-mate fixture with the winning color swapped between games,
+specifically to catch a "credited the win to whoever played Red" bug rather than "credited
+the win to the correct configuration" — the exact mistake a naive generalization of
+`tools/benchmark.py`'s alternation logic could introduce. Combined with every other
+targeted test file: **130/130 green.** Smoke-tested end to end (small real matches, plus
+confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
+design and known limitations in `docs/v0.5.4.md`.
+
 ## V0.6+ — Neural Evaluation / MCTS — PLANNED
 
 Policy/value network, neural evaluation and MCTS integration.
@@ -543,19 +567,32 @@ Current hand-off:
     decision to enable use_endgame_heuristics by default) can be
     trusted -- see docs/v0.5.3.md.
         ↓
-    Next: run a real self-play batch locally (deeper search, longer
-    max-moves, more games than any smoke test so far) --
-        python tools/self_play.py --games 30 --depth 2 --max-moves 150
+    V0.5.4 COMPLETE as a mechanism (run_comparison_match() +
+    tools/compare_engines.py: two independently configurable
+    SearchEngine setups play each other, alternating colors, win/draw/
+    loss + Elo-difference estimate reported. Reuses V0.5.1's
+    play_recorded_game directly, so --output is the same
+    data/selfplay.jsonl corpus every other V0.5.x tool already reads/
+    writes -- a comparison run and a data-collection run can be the
+    same run). 8 new tests, 130/130 total, smoke-tested end to end
+    (including confirming --output records are directly consumable by
+    tools/analyze_endgame.py). See docs/v0.5.4.md.
+        ↓
+    Next: run real, statistically meaningful local matches --
+        python tools/compare_engines.py --a-depth 2 --a-use-endgame-heuristics \
+            --b-depth 2 --games 20 --output data/selfplay.jsonl
+        python tools/compare_engines.py --a-depth 3 --b-depth 2 \
+            --games 20 --output data/selfplay.jsonl
         python tools/build_opening_book.py
         python tools/analyze_endgame.py
-    Can happen independently of further work here -- both V0.5.2's book
-    and V0.5.3's endgame heuristic are waiting on the same underlying
-    "run a real batch" step.
+    One local session now answers V0.5.2's book-quality question,
+    V0.5.3's endgame-constant question, AND V0.5.4's own "which
+    configuration is actually stronger" question, since all three tools
+    read/write the same corpus.
         ↓
-    Next increment either way: V0.5.4, automated SearchEngine-vs-
-    SearchEngine strength comparison (Elo-style), extending
-    tools/benchmark.py's RandomEngine-only matches now that V0.5.1's
-    win/loss/draw recording already exists -- doesn't depend on a real
-    corpus existing first.
+    Here: with V0.5.1-V0.5.4 all in place as mechanisms, the V0.5 line's
+    remaining work is almost entirely "run real data through what
+    already exists" rather than new code -- a natural pause point, or
+    proceed to V0.6+ (neural evaluation / MCTS) if continuing here.
 
 Last updated: 2026-09-04

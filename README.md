@@ -33,11 +33,12 @@ hybrid engine, inspired by the AlphaZero approach.
 - [x] 自我对弈数据记录 (v0.5.1)：`tools/self_play.py`，JSON-lines 格式，可断点续跑
 - [x] 开局库机制 (v0.5.2)：由自我对弈数据构建，按 Zobrist 哈希去重，`use_opening_book` 可开关；开局随机化 (v0.5.2b) 修复了确定性引擎自对弈缺乏多样性的问题
 - [x] 残局启发式机制 (v0.5.3)：车/炮在残局阶段的价值调整（"车赛全局，炮怕残棋"），`use_endgame_heuristics` 可开关，并配有从自我对弈数据验证假设的分析工具 (`tools/analyze_endgame.py`)
-- [ ] 大规模自我对弈数据收集 + 基于真实数据的开局库/残局启发式验证、Elo 强度对比 (v0.5.4)
+- [x] 自动化强度对比 (v0.5.4)：任意两组引擎配置互相对局，胜/负/和 + Elo 差值估计 (`tools/compare_engines.py`)，复用 v0.5.1 的对局记录格式，产出可直接被开局库/残局分析工具消费
+- [ ] 基于真实规模本地对局数据的开局库/残局启发式验证、强度对比结论 (需要本地运行，机制均已就绪)
 - [ ] 神经网络评估 / MCTS (v0.6+)
 
-上述开局库与残局启发式目前都是"机制已完成，但常量/是否默认启用仍需真实数据验证"的状态——两者默认均为关闭，详见
-`docs/v0.5.2.md` 与 `docs/v0.5.3.md`。
+上述开局库、残局启发式与强度对比目前都是"机制已完成，但结论/常量/是否默认启用仍需真实规模数据验证"的状态——三者共用同一份自我对弈数据格式，一次本地长时间运行即可同时回答三个问题，详见
+`docs/v0.5.2.md` / `docs/v0.5.3.md` / `docs/v0.5.4.md`。
 
 详细的分版本验收数据（每次性能声明都配有实测数字）见 `docs/roadmap.md`（完整版本历史与验收记录）
 与各版本单独文档，如 `docs/v0.3.1-benchmark.md` / `docs/v0.4.5.md` / `docs/v0.5.1.md` /
@@ -144,20 +145,22 @@ alphazetacchess/
 │       │   ├── piece_coordination.py # 子力协调 (V0.4.5)
 │       │   ├── endgame.py        # 残局阶段车/炮价值调整 (V0.5.3)
 │       │   └── random_engine.py  # V0.1 随机引擎 (现作为评测基准)
-│       └── selfplay/             # 自我对弈数据记录、开局库、残局分析 (V0.5)
+│       └── selfplay/             # 自我对弈数据记录、开局库、残局分析、强度对比 (V0.5)
 │           ├── recorder.py           # 对弈记录（JSON-lines）
 │           ├── opening_randomization.py # 开局阶段随机化（数据多样性）
 │           ├── opening_book.py       # 从记录构建开局库
-│           └── endgame_analysis.py   # 从记录验证残局启发式假设
+│           ├── endgame_analysis.py   # 从记录验证残局启发式假设
+│           └── strength_comparison.py # 两组引擎配置对局 + Elo 差值估计
 ├── web/                        # 本地图形化对弈 Web UI (Flask + SVG)
 │   ├── server.py
 │   └── static/
 ├── tests/                     # pytest 测试（每个版本一个测试文件）
 ├── tools/
-│   ├── benchmark.py            # AI vs AI 对局评测工具
+│   ├── benchmark.py            # AI vs AI 对局评测工具 (vs RandomEngine 基准)
 │   ├── self_play.py            # 自我对弈数据收集 CLI
 │   ├── build_opening_book.py   # 从自我对弈数据构建开局库 CLI
-│   └── analyze_endgame.py      # 从自我对弈数据验证残局启发式 CLI
+│   ├── analyze_endgame.py      # 从自我对弈数据验证残局启发式 CLI
+│   └── compare_engines.py      # 两组引擎配置强度对比 CLI
 ├── data/                       # 自我对弈数据（默认不入库，见 data/README.md）
 ├── trainingdata/               # 供未来监督学习 / 开局库使用的历史棋谱数据
 └── pyproject.toml
