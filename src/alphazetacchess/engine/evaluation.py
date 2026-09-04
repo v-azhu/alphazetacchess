@@ -3,6 +3,7 @@ from ..core.board import Board
 from .mobility import mobility_balance
 from .pawn_structure import pawn_structure_balance
 from .piece_coordination import piece_coordination_balance
+from .endgame import endgame_balance
 
 
 MATERIAL_VALUES = {
@@ -135,6 +136,7 @@ def evaluate(
     mobility_weight=1,
     use_pawn_structure=False,
     use_piece_coordination=False,
+    use_endgame_heuristics=False,
 ):
     """Evaluate a position from perspective_color's point of view.
 
@@ -150,6 +152,10 @@ def evaluate(
     V0.4.5 adds optional piece coordination (Doubled Rooks, Rook-Cannon
     Battery) as another independent term, also disabled by default.
     See docs/v0.4.5.md.
+
+    V0.5.3 adds optional endgame-phase heuristics (Rook/Cannon value
+    shift once major material has dropped low -- "车赛全局，炮怕残棋"),
+    also disabled by default. See docs/v0.5.3.md.
     """
     score = 0
 
@@ -178,5 +184,8 @@ def evaluate(
 
     if use_piece_coordination:
         score += piece_coordination_balance(board, perspective_color)
+
+    if use_endgame_heuristics:
+        score += endgame_balance(board, perspective_color)
 
     return score

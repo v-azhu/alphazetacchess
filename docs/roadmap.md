@@ -337,7 +337,7 @@ browser without editing code. This was the actual point of building V0.4.3-4.5 b
 moving further: there's now something concrete to sit down and play against. See
 `docs/ui.md`.
 
-## V0.5 — Self Play — V0.5.1 COMPLETE
+## V0.5 — Self Play — V0.5.3 COMPLETE (mechanism); real corpus + V0.5.4 next
 
 AI vs AI games, data collection, automatic evaluation and training dataset generation.
 
@@ -429,6 +429,35 @@ combined with every other targeted test file: **64/64 green.** Real CLI smoke te
 (`--games 4 --depth 1`, default randomization on) confirmed 4 genuinely different games,
 unlike the original uploaded batch.
 
+### V0.5.3 — Endgame Heuristics from Self-Play Data — COMPLETE (mechanism); needs a real corpus
+
+`src/alphazetacchess/engine/endgame.py`: a new optional evaluation term grounded in a
+well-known Xiangqi endgame principle — 车赛全局，炮怕残棋 (Rook power holds up into the
+endgame, Cannon power declines as screening pieces are traded off). `is_endgame(board)`
+classifies phase by combined Rook+Cannon+Horse material (both sides) dropping to ≤2600;
+`endgame_balance()` applies a flat +40-per-Rook / −40-per-Cannon adjustment, but only
+inside that phase — zero effect everywhere else. Deliberately does **not** add a
+king-activity term (a natural-looking companion in Western chess): the Xiangqi King can
+never leave its palace at any phase, so that heuristic simply doesn't translate. Wired into
+`evaluate()`/`SearchEngine` as `use_endgame_heuristics` (disabled by default, same pattern
+as every other V0.4.x/V0.5.x term).
+
+`src/alphazetacchess/selfplay/endgame_analysis.py` + `tools/analyze_endgame.py`: mines
+V0.5.1 self-play records for the actual hypothesis test — among games that reach the
+endgame phase with a non-tied Rook/Cannon edge (weighted by this module's own constants),
+does the favored side actually win more often? Mirrors V0.5.2's opening-book approach:
+build and test the mechanism now, keep "trusting the specific constants" as a clearly
+separate, re-runnable step once a larger corpus exists.
+
+13 new tests (`tests/test_endgame_v053.py`), including a hand-built, capture-heavy
+synthetic move sequence (verified independently against a real `Board()`) that exercises
+`find_endgame_onset()` without needing a full search-generated game. Combined with every
+other targeted V0.4.x/V0.5.x test file: **122/122 green.** Smoke-tested end to end this
+session (self-play → onset detection → edge-vs-outcome summary); incidentally confirmed
+the phase threshold's placement is reasonable (depth=1, 40-move-capped games essentially
+never reach it; a 100-move-capped game did, at ply 70). Full design, exact test list, and
+known limitations in `docs/v0.5.3.md`.
+
 ## V0.6+ — Neural Evaluation / MCTS — PLANNED
 
 Policy/value network, neural evaluation and MCTS integration.
@@ -505,14 +534,28 @@ Current hand-off:
     64/64 total, smoke-tested -- confirmed games now actually diverge.
     See docs/v0.5.3-data-check.md.
         ↓
-    Next: run a real self-play batch locally with the fix in place (no
-    extra flags needed, randomization is now the default) --
-        python tools/self_play.py --games 20 --depth 2
-        python tools/build_opening_book.py
-    Can happen independently of further work here.
+    V0.5.3 COMPLETE as a mechanism (endgame-phase Rook bonus / Cannon
+    penalty, grounded in real Xiangqi endgame theory -- see
+    engine/endgame.py -- plus selfplay/endgame_analysis.py +
+    tools/analyze_endgame.py to test the hypothesis against recorded
+    data). 13 new tests, 122/122 total, smoke-tested end to end. Still
+    needs a REAL, larger corpus before the +40/-40 constants (or the
+    decision to enable use_endgame_heuristics by default) can be
+    trusted -- see docs/v0.5.3.md.
         ↓
-    Proceeding here to V0.5.3, endgame heuristics from self-play data --
-    doesn't need a huge or even real corpus yet to build the mechanism
-    against, same reasoning as V0.5.2.
+    Next: run a real self-play batch locally (deeper search, longer
+    max-moves, more games than any smoke test so far) --
+        python tools/self_play.py --games 30 --depth 2 --max-moves 150
+        python tools/build_opening_book.py
+        python tools/analyze_endgame.py
+    Can happen independently of further work here -- both V0.5.2's book
+    and V0.5.3's endgame heuristic are waiting on the same underlying
+    "run a real batch" step.
+        ↓
+    Next increment either way: V0.5.4, automated SearchEngine-vs-
+    SearchEngine strength comparison (Elo-style), extending
+    tools/benchmark.py's RandomEngine-only matches now that V0.5.1's
+    win/loss/draw recording already exists -- doesn't depend on a real
+    corpus existing first.
 
-Last updated: 2026-09-02
+Last updated: 2026-09-04

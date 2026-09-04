@@ -73,6 +73,7 @@ class SearchEngine(ChessEngine):
         mobility_weight=1,
         use_pawn_structure=False,
         use_piece_coordination=False,
+        use_endgame_heuristics=False,
         use_opening_book=False,
         opening_book=None,
         opening_book_min_games=3,
@@ -117,6 +118,11 @@ class SearchEngine(ChessEngine):
         # Cannon Battery) evaluation term. Also disabled by default,
         # same reasoning.
         self.use_piece_coordination = use_piece_coordination
+        # V0.5.3: optional endgame-phase heuristics (Rook/Cannon value
+        # shift once major material is low -- see engine/endgame.py).
+        # Also disabled by default, same reasoning as every other
+        # V0.4.x/V0.5.x evaluation term.
+        self.use_endgame_heuristics = use_endgame_heuristics
         # V0.5.2: optional opening book, built from V0.5.1 self-play
         # records (see selfplay/opening_book.py). `opening_book` is
         # the loaded book dict (selfplay.opening_book.load_book(path)),
@@ -150,6 +156,7 @@ class SearchEngine(ChessEngine):
                     mobility_weight=self.mobility_weight,
                     use_pawn_structure=self.use_pawn_structure,
                     use_piece_coordination=self.use_piece_coordination,
+                    use_endgame_heuristics=self.use_endgame_heuristics,
                 ),
                 self.nodes_evaluated,
                 self.depth,
@@ -349,6 +356,7 @@ class SearchEngine(ChessEngine):
                     mobility_weight=self.mobility_weight,
                     use_pawn_structure=self.use_pawn_structure,
                     use_piece_coordination=self.use_piece_coordination,
+                    use_endgame_heuristics=self.use_endgame_heuristics,
                 )
                 if self.use_transposition_table:
                     self.tt.store(key, depth, score, Bound.EXACT, None)
@@ -466,6 +474,7 @@ class SearchEngine(ChessEngine):
                 mobility_weight=self.mobility_weight,
                 use_pawn_structure=self.use_pawn_structure,
                 use_piece_coordination=self.use_piece_coordination,
+                use_endgame_heuristics=self.use_endgame_heuristics,
             )
 
         in_check = Rule.is_in_check(board, color)
@@ -482,6 +491,7 @@ class SearchEngine(ChessEngine):
                 mobility_weight=self.mobility_weight,
                 use_pawn_structure=self.use_pawn_structure,
                 use_piece_coordination=self.use_piece_coordination,
+                use_endgame_heuristics=self.use_endgame_heuristics,
             )
 
             if stand_pat >= beta:

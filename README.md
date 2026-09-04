@@ -27,13 +27,21 @@ hybrid engine, inspired by the AlphaZero approach.
 - [x] 迭代加深 + 根节点走法排序 (v0.3.1)：depth=3 从 50-100+ 秒降到 6-16 秒
 - [x] Zobrist 哈希 + 深度感知置换表 (v0.3.2)
 - [x] Negamax 重构 + PVS 主要变例搜索 (v0.3.3)：与 v0.3.2 结果逐局面校验一致
-- [ ] 静态搜索 (Quiescence Search) (v0.3.4)
-- [ ] 更完善的局面评估：机动性、王/将安全、残局知识 (v0.4)
-- [ ] 自我对弈与训练数据生成 (v0.5)
+- [x] 静态搜索 (Quiescence Search) (v0.3.4)
+- [x] 更完善的局面评估：棋子位置表、王的安全性、机动性、兵形结构、子力协调 (v0.4.1-4.5，五项评估全部完成)
+- [x] Web UI：可视化棋盘、点击走子、评估项开关 (`web/`，见 `docs/ui.md`)
+- [x] 自我对弈数据记录 (v0.5.1)：`tools/self_play.py`，JSON-lines 格式，可断点续跑
+- [x] 开局库机制 (v0.5.2)：由自我对弈数据构建，按 Zobrist 哈希去重，`use_opening_book` 可开关；开局随机化 (v0.5.2b) 修复了确定性引擎自对弈缺乏多样性的问题
+- [x] 残局启发式机制 (v0.5.3)：车/炮在残局阶段的价值调整（"车赛全局，炮怕残棋"），`use_endgame_heuristics` 可开关，并配有从自我对弈数据验证假设的分析工具 (`tools/analyze_endgame.py`)
+- [ ] 大规模自我对弈数据收集 + 基于真实数据的开局库/残局启发式验证、Elo 强度对比 (v0.5.4)
 - [ ] 神经网络评估 / MCTS (v0.6+)
 
-详细的分版本验收数据（每次性能声明都配有实测数字）见 `docs/roadmap.md` 与
-`docs/v0.3.1-benchmark.md` / `docs/v0.3.2.md` / `docs/v0.3.3.md`。
+上述开局库与残局启发式目前都是"机制已完成，但常量/是否默认启用仍需真实数据验证"的状态——两者默认均为关闭，详见
+`docs/v0.5.2.md` 与 `docs/v0.5.3.md`。
+
+详细的分版本验收数据（每次性能声明都配有实测数字）见 `docs/roadmap.md`（完整版本历史与验收记录）
+与各版本单独文档，如 `docs/v0.3.1-benchmark.md` / `docs/v0.4.5.md` / `docs/v0.5.1.md` /
+`docs/v0.5.2.md` / `docs/v0.5.3.md`。
 
 ### V0.2 验收结果 (Acceptance Evidence)
 
@@ -109,10 +117,11 @@ python tools/benchmark.py --games 20 --depth 1 --max-moves 150
 
 ```
 alphazetacchess/
-├── docs/                     # 架构 / 设计 / 路线图文档
+├── docs/                     # 架构 / 设计 / 路线图文档，以及每个版本的验收记录
 │   ├── architecture.md
-│   ├── roadmap.md
+│   ├── roadmap.md             # 完整版本历史、验收数据与开发路线图（最新）
 │   ├── development.md
+│   ├── ui.md                  # Web UI 设计与已知问题
 │   └── design/
 │       ├── core-design.md
 │       └── engine-design.md
@@ -124,23 +133,42 @@ alphazetacchess/
 │       │   ├── board.py          # 棋盘表示、走子/悔棋、将军/飞将检测辅助
 │       │   ├── move.py           # Move 对象
 │       │   ├── move_generator.py # 七种棋子的伪合法走法生成
-│       │   └── rule.py           # 合法性过滤、将军/将死/困毙判定
-│       └── engine/              # 决策层：搜索 + 评估 (V0.2 新增)
-│           ├── base.py           # ChessEngine 统一接口 + SearchResult
-│           ├── evaluation.py     # 基础评估函数 (material + position)
-│           ├── search.py         # Minimax + Alpha-Beta 搜索引擎
-│           └── random_engine.py  # V0.1 随机引擎 (现作为评测基准)
-├── tests/                     # pytest 测试
+│       │   ├── rule.py           # 合法性过滤、将军/将死/困毙判定
+│       │   └── zobrist.py        # Zobrist 哈希（置换表 / 开局库键）
+│       ├── engine/              # 决策层：搜索 + 评估
+│       │   ├── base.py           # ChessEngine 统一接口 + SearchResult
+│       │   ├── evaluation.py     # 评估函数（材料 + 可开关的评估项组合）
+│       │   ├── search.py         # Negamax + Alpha-Beta + PVS + 静态搜索 + TT
+│       │   ├── mobility.py       # 机动性 (V0.4.3)
+│       │   ├── pawn_structure.py # 兵形结构 / 联兵 (V0.4.4)
+│       │   ├── piece_coordination.py # 子力协调 (V0.4.5)
+│       │   ├── endgame.py        # 残局阶段车/炮价值调整 (V0.5.3)
+│       │   └── random_engine.py  # V0.1 随机引擎 (现作为评测基准)
+│       └── selfplay/             # 自我对弈数据记录、开局库、残局分析 (V0.5)
+│           ├── recorder.py           # 对弈记录（JSON-lines）
+│           ├── opening_randomization.py # 开局阶段随机化（数据多样性）
+│           ├── opening_book.py       # 从记录构建开局库
+│           └── endgame_analysis.py   # 从记录验证残局启发式假设
+├── web/                        # 本地图形化对弈 Web UI (Flask + SVG)
+│   ├── server.py
+│   └── static/
+├── tests/                     # pytest 测试（每个版本一个测试文件）
 ├── tools/
-│   └── benchmark.py           # AI vs AI 对局评测工具
-├── trainingdata/               # 供未来监督学习 / 开局库使用的棋谱数据
+│   ├── benchmark.py            # AI vs AI 对局评测工具
+│   ├── self_play.py            # 自我对弈数据收集 CLI
+│   ├── build_opening_book.py   # 从自我对弈数据构建开局库 CLI
+│   └── analyze_endgame.py      # 从自我对弈数据验证残局启发式 CLI
+├── data/                       # 自我对弈数据（默认不入库，见 data/README.md）
+├── trainingdata/               # 供未来监督学习 / 开局库使用的历史棋谱数据
 └── pyproject.toml
 ```
 
 设计上，`core/` 层只负责"规则是什么"，不掺杂任何 AI 决策逻辑；`engine/`
 层负责"该走哪步"，所有引擎都实现统一的 `ChessEngine.choose_move(board,
 color)` 接口（`RandomEngine`、`SearchEngine`，未来的 `MCTSEngine` /
-`NeuralEngine` / `HybridEngine`），彼此可以互换而不影响 Core 层或游戏主循环。
+`NeuralEngine` / `HybridEngine`），彼此可以互换而不影响 Core 层或游戏主循环；
+`selfplay/` 层消费 `engine/` 产出的对局数据，反过来又可以为 `engine/` 提供
+可选的评估项（开局库、残局启发式），二者边界单向、不循环依赖。
 具体分层原则见 [`docs/development.md`](docs/development.md) 与
 [`docs/design/engine-design.md`](docs/design/engine-design.md)。
 
