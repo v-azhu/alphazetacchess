@@ -590,9 +590,29 @@ Current hand-off:
     configuration is actually stronger" question, since all three tools
     read/write the same corpus.
         ↓
-    Here: with V0.5.1-V0.5.4 all in place as mechanisms, the V0.5 line's
-    remaining work is almost entirely "run real data through what
-    already exists" rather than new code -- a natural pause point, or
-    proceed to V0.6+ (neural evaluation / MCTS) if continuing here.
+    First real (if small) installment of that data collected here: 12
+    real games (10 self-play + 2 compare_engines) run one at a time due
+    to this sandbox not keeping background processes alive between
+    commands -- data/selfplay.jsonl + data/opening_book.json committed
+    deliberately as a reference point. analyze_endgame found 4 decided
+    Rook/Cannon-edge positions (3/4 favored side won) -- directionally
+    consistent with engine/endgame.py's hypothesis but explicitly NOT
+    enough to trust; the 2-game use_endgame_heuristics on/off comparison
+    (1 loss, 1 draw for "on") points the other way, which is itself a
+    reminder that small samples are noisy in either direction. use_
+    endgame_heuristics and the opening book both remain off by default.
+    See docs/v0.5-real-data-checkpoint.md for the full breakdown.
+        ↓
+    Still next: a MUCH larger batch (30-50+ games) from an environment
+    where a real background/long-running process is practical --
+    data/selfplay.jsonl already has 12 real games in it, so
+    `tools/self_play.py --output data/selfplay.jsonl` (append, not
+    overwrite) extends this checkpoint's data rather than replacing it.
+        ↓
+    Here: with V0.5.1-V0.5.4 all in place as mechanisms, and a real (if
+    small) first data checkpoint now on record, the V0.5 line's
+    remaining work is almost entirely "collect a larger real corpus"
+    rather than new code -- a natural pause point, or proceed to V0.6+
+    (neural evaluation / MCTS) if continuing here.
 
 Last updated: 2026-09-04

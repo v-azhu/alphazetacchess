@@ -1,104 +1,80 @@
-# AlphaZetaChess Progress Snapshot — V0.5 line's mechanisms all complete (V0.5.4)
+# AlphaZetaChess Progress Snapshot — First real data checkpoint (post-V0.5.4)
 
 Snapshot date: 2026-09-04
 
 ## What happened this checkpoint
 
-Per the hand-off left at the end of V0.5.3 ("Next increment either
-way: V0.5.4, automated SearchEngine-vs-SearchEngine strength
-comparison"), built V0.5.4:
+Every V0.5.x doc through V0.5.4 ended with "mechanism complete, real
+corpus still needed." This checkpoint is the first (small) real
+installment of that corpus, not another mechanism.
 
-`src/alphazetacchess/selfplay/strength_comparison.py`:
-`run_comparison_match()` plays N games between two independently
-configurable engine setups, alternating colors so neither has a
-systematic first-move advantage, and reports win/draw/loss plus a
-standard log-odds Elo-difference estimate. Reuses V0.5.1's
-`play_recorded_game` directly (rather than a separate play loop), so
-every comparison-match game is automatically a complete, valid
-self-play record — `--output` can point at the exact same
-`data/selfplay.jsonl` corpus `tools/self_play.py`,
-`tools/build_opening_book.py`, and `tools/analyze_endgame.py` already
-read/write. A strength-comparison run and a data-collection run don't
-have to compete for separate local time budgets; they can be the same
-run.
+Discovered the originally planned approach ("kick off a background
+batch, keep working, check back later") doesn't work in this sandbox
+-- a `nohup ... &` background process was gone by the next tool call.
+Switched to running `tools/self_play.py --games 1` synchronously, one
+game at a time with a `timeout` guard (depth=2 games take 70-250s
+here; a few attempts hit the time limit mid-game and produced no
+record, since `append_record` only writes after a game completes).
 
-`tools/compare_engines.py`: CLI exposing `--a-*`/`--b-*` flags for
-both sides' depth and evaluation-term toggles (including V0.5.3's
-`use_endgame_heuristics`), mirroring `tools/self_play.py`'s flag
-style. `tools/benchmark.py` (the existing SearchEngine-vs-RandomEngine
-sanity check) is untouched — different job, doesn't need generalizing.
+Collected 12 real games this way:
+- 10 via `tools/self_play.py` (depth=2, no optional eval terms,
+  random opening): 6 draws, 2 RED wins, 2 BLACK wins.
+- 2 via `tools/compare_engines.py` (`--a-use-endgame-heuristics` vs
+  plain depth=2): 1 loss and 1 draw for the heuristic-on side.
+
+Ran the existing tools against this real corpus for the first time:
+- `tools/build_opening_book.py`: 213 unique positions, 224
+  position-move entries, saved to `data/opening_book.json`.
+- `tools/analyze_endgame.py`: 8/12 games reached the endgame phase
+  (average onset ply 67.2), 4 decided Rook/Cannon-edge positions (3/4
+  favored side won) -- directionally consistent with
+  `engine/endgame.py`'s hypothesis, but the tool's own "sample too
+  small" caveat is exactly right and was NOT overridden or soft-pedaled.
 
 ## What was verified this checkpoint
 
-```
-pytest tests/test_strength_comparison_v054.py -q
-8 passed in 0.16s
-
-pytest -q   (full suite)
-130 passed in 159.24s
-```
-
-Real CLI smoke tests:
-```
-python tools/compare_engines.py --a-depth 1 --b-depth 1 --a-use-mobility --games 4 --max-moves 30
-  → 4/4 draws (move limit), A score rate 50%, Elo diff +0
-
-python tools/compare_engines.py --a-depth 1 --b-depth 1 --games 2 --max-moves 10 --output /tmp/smoke_compare.jsonl
-  → then: python tools/analyze_endgame.py --input /tmp/smoke_compare.jsonl
-  → loaded both records cleanly, confirming cross-tool compatibility
-    (compare_engines.py's output is directly readable by
-    analyze_endgame.py, same JSON-lines format) isn't just a claim in
-    the docstring -- actually tested it.
-```
-Temp files cleaned up, not left in the repo. Both smoke runs used
-shallow depth/short move limits deliberately, purely to confirm the
-pipeline works end to end without spending session time on a slow real
-comparison — see docs/v0.5.4.md's Known Limitation for what this does
-and doesn't establish.
-
-**Not run this checkpoint:** any comparison at a depth/game-count
-large enough to draw a real conclusion about which configuration is
-actually stronger (need dozens of games at depth≥2 for that) — same
-"local, long-running task" treatment every other real data-collection
-run in this project gets.
+Both `tools/build_opening_book.py` and `tools/analyze_endgame.py` ran
+correctly end-to-end against real (not synthetic/smoke-test) data for
+the first time -- this is itself a meaningful confirmation, separate
+from whatever the small-sample numbers say. No new pytest tests added
+this checkpoint (pure data-collection + doc-writing checkpoint, no
+code changed); full suite last confirmed green at 130/130 in the
+V0.5.4 checkpoint and nothing in `src/` changed since.
 
 ## What changed
 
-- `src/alphazetacchess/selfplay/strength_comparison.py` (new):
-  `run_comparison_match`, `estimate_elo_diff`.
-- `tools/compare_engines.py` (new): CLI for the above.
-- `tests/test_strength_comparison_v054.py` (new, 8 tests).
-- `docs/v0.5.4.md` (new): full design writeup.
-- `docs/roadmap.md`: V0.5.4 section added, hand-off diagram updated,
-  V0.5 header bumped to "V0.5.4 COMPLETE (all mechanisms); real local
-  runs next".
-
-`tools/benchmark.py`, `engine/*.py`, `core/*.py` — all untouched this
-checkpoint. This was a pure-addition checkpoint (new files + doc
-updates only), same shape as V0.5.1/V0.5.2/V0.5.3.
+- `data/selfplay.jsonl` (12 real game records) -- committed
+  deliberately, overriding the default `.gitignore` rule, per
+  `data/README.md`'s own stated exception for preserving a specific
+  corpus. This is the first non-empty real corpus the project has had.
+- `data/opening_book.json` (213 positions, built from the above) --
+  committed alongside it.
+- `docs/v0.5-real-data-checkpoint.md` (new): full breakdown of what
+  was run and what it does/doesn't show.
+- `docs/roadmap.md`: hand-off section updated with this checkpoint's
+  real numbers.
 
 ## Exact next step
 
-**Locally, whenever convenient (no rush, not blocking anything) —**
-one session now covers all three open V0.5.x validation questions at
-once, since every tool reads/writes the same corpus:
+A much larger batch (30-50+ games) is still needed before any of
+V0.5.2's book quality, V0.5.3's endgame constants, or V0.5.4's
+strength-comparison questions can be trusted. `data/selfplay.jsonl`
+already has 12 real games in it -- `tools/self_play.py --output
+data/selfplay.jsonl` appends rather than overwrites, so this
+checkpoint's data extends forward rather than needing to be redone:
+
 ```bash
+python tools/self_play.py --games 40 --depth 2 --max-moves 150 --output data/selfplay.jsonl
+python tools/build_opening_book.py --input data/selfplay.jsonl --output data/opening_book.json
+python tools/analyze_endgame.py --input data/selfplay.jsonl
 python tools/compare_engines.py --a-depth 2 --a-use-endgame-heuristics --b-depth 2 --games 20 --output data/selfplay.jsonl
-python tools/compare_engines.py --a-depth 3 --b-depth 2 --games 20 --output data/selfplay.jsonl
-python tools/build_opening_book.py
-python tools/analyze_endgame.py
 ```
 
-**Here:** with V0.5.1 (recording) through V0.5.4 (strength comparison)
-all in place as mechanisms, the V0.5 line's remaining work is almost
-entirely "run real data through the tools that already exist" rather
-than new code. Reasonable next options at the next checkpoint:
-(a) pause new feature work here and prioritize a real local run of the
-commands above, since three separate validation questions are now
-blocked on exactly the same missing input; or (b) if continuing
-feature work regardless, move to `docs/roadmap.md`'s V0.6+ section
-(neural evaluation / MCTS), the next planned major line. Will
-checkpoint again once one of those has actually happened.
+Best run from an environment where a real background/long-running
+process is practical (a real local machine), not a sandboxed session
+that loses background processes between commands -- that constraint is
+exactly what kept this checkpoint's corpus small (12 games rather than
+the 20-40+ that would make analyze_endgame's numbers trustworthy).
 
 ## Handoff rule (unchanged, repeated for visibility)
 
