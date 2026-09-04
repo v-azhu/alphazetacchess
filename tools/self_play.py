@@ -10,11 +10,25 @@ V0.5.4's planned strength comparison between configurations.
 Usage:
     python tools/self_play.py --games 20 --depth 2 --output data/selfplay.jsonl
     python tools/self_play.py --games 10 --depth 2 --use-mobility --use-pawn-structure
+    python tools/self_play.py --games 20 --depth 2 --random-opening-prob 0  # no randomization
 
 Each line of the output file is one game record (see
 alphazetacchess.selfplay.recorder for the exact format). The file is
 appended to, not overwritten, so multiple runs accumulate data over
 time -- this is meant to be run repeatedly, including across sessions.
+
+Opening randomization is ON by default (see
+alphazetacchess.selfplay.opening_randomization): a fully deterministic
+SearchEngine playing itself always makes identical moves from
+identical positions, so naive self-play from the fixed starting
+position produces byte-for-byte identical games every time -- confirmed
+directly from a real 10-game batch, see docs/v0.5.3-data-check.md. For
+the first --random-opening-plies plies, each side has
+--random-opening-prob probability of playing a uniformly random legal
+move instead of the engine's own choice, so games actually diverge.
+Pass --random-opening-prob 0 to disable and get pure, fully
+deterministic self-play instead (useful for reproducing/debugging a
+specific line, not for building a diverse data set).
 
 Performance note: at depth 2, a single game commonly takes 1-3 minutes
 depending on how decisive it is (see docs/v0.3.4.md and
@@ -36,15 +50,25 @@ sys.path.insert(
 
 from alphazetacchess.engine.search import SearchEngine
 from alphazetacchess.selfplay.recorder import play_recorded_game, append_record
+from alphazetacchess.selfplay.opening_randomization import RandomizedOpeningEngine
 
 
 def build_engine(config):
-    return SearchEngine(
+    engine = SearchEngine(
         depth=config["depth"],
         use_mobility=config["use_mobility"],
         use_pawn_structure=config["use_pawn_structure"],
         use_piece_coordination=config["use_piece_coordination"],
     )
+
+    if config["random_opening_plies"] > 0 and config["random_opening_prob"] > 0:
+        engine = RandomizedOpeningEngine(
+            engine,
+            random_plies=config["random_opening_plies"],
+            random_prob=config["random_opening_prob"],
+        )
+
+    return engine
 
 
 def main():
@@ -60,6 +84,14 @@ def main():
     parser.add_argument("--use-mobility", action="store_true")
     parser.add_argument("--use-pawn-structure", action="store_true")
     parser.add_argument("--use-piece-coordination", action="store_true")
+    parser.add_argument(
+        "--random-opening-plies", type=int, default=10,
+        help="number of leading plies eligible for a random move (0 disables)",
+    )
+    parser.add_argument(
+        "--random-opening-prob", type=float, default=0.3,
+        help="probability of a random move on each eligible ply (0 disables)",
+    )
     args = parser.parse_args()
 
     output_dir = os.path.dirname(args.output)
@@ -71,6 +103,8 @@ def main():
         "use_mobility": args.use_mobility,
         "use_pawn_structure": args.use_pawn_structure,
         "use_piece_coordination": args.use_piece_coordination,
+        "random_opening_plies": args.random_opening_plies,
+        "random_opening_prob": args.random_opening_prob,
     }
 
     print(f"AlphaZetaChess self-play: {args.games} games, config={config}")

@@ -407,6 +407,28 @@ fully-deterministic sample — confirms the mechanism works, but **no book has b
 from a real, larger self-play corpus yet**, since that depends on V0.5.1's own "run
 locally" step having actually been run at a useful scale.
 
+### V0.5.2b — Opening Randomization — COMPLETE (confirmed necessary with real data)
+
+A real 10-game self-play batch (`depth=2`, both sides identical config) was shared and
+inspected: **all 10 games were byte-for-byte identical** — same 82-move length, same
+result, every move matching. Confirmed the exact concern predicted in V0.5.2's "Known
+limitation": `SearchEngine` is fully deterministic, so naive self-play from a fixed start
+always replays the same game. Full diagnosis in `docs/v0.5.3-data-check.md`.
+
+Fix: `src/alphazetacchess/selfplay/opening_randomization.py`'s `RandomizedOpeningEngine`
+wraps any `ChessEngine` and, for the first N plies, has a configurable probability of
+playing a uniformly random legal move instead of deferring to the wrapped engine
+(standard "epsilon-greedy exploration"). Kept as an external wrapper, not built into
+`SearchEngine`, since this is purely a data-collection concern. `tools/self_play.py` now
+uses this **by default** (`--random-opening-plies 10 --random-opening-prob 0.3`,
+`--random-opening-prob 0` to disable).
+
+4 new tests (`tests/test_opening_randomization_v052b.py`), including one that directly
+reproduces the original issue (two randomized games with different seeds must differ) —
+combined with every other targeted test file: **64/64 green.** Real CLI smoke test
+(`--games 4 --depth 1`, default randomization on) confirmed 4 genuinely different games,
+unlike the original uploaded batch.
+
 ## V0.6+ — Neural Evaluation / MCTS — PLANNED
 
 Policy/value network, neural evaluation and MCTS integration.
@@ -476,17 +498,21 @@ Current hand-off:
     end to end. Still needs a REAL corpus -- current data is a small
     deterministic smoke test with no real move diversity to learn from.
         ↓
-    Next: run a real self-play batch locally, THEN rebuild the book from
-    it --
+    Real 10-game batch shared and inspected: all 10 games byte-identical
+    (confirmed the predicted diversity problem with real data, not just
+    prediction). Fixed: RandomizedOpeningEngine (epsilon-greedy opening
+    randomization), now ON by default in tools/self_play.py. 4 new tests,
+    64/64 total, smoke-tested -- confirmed games now actually diverge.
+    See docs/v0.5.3-data-check.md.
+        ↓
+    Next: run a real self-play batch locally with the fix in place (no
+    extra flags needed, randomization is now the default) --
         python tools/self_play.py --games 20 --depth 2
         python tools/build_opening_book.py
-    This can happen independently of further work here. Once there's a
-    real book, worth deciding: is depth=2 self-play diverse enough on its
-    own, or does move selection during data collection need intentional
-    randomization (see docs/v0.5.2.md "Known limitation")?
+    Can happen independently of further work here.
         ↓
-    Independent next increment either way: V0.5.3, endgame heuristics
-    from self-play data (the other half of the V0.4-deferred scope) --
-    doesn't depend on V0.5.2 being "finished" with real data first.
+    Proceeding here to V0.5.3, endgame heuristics from self-play data --
+    doesn't need a huge or even real corpus yet to build the mechanism
+    against, same reasoning as V0.5.2.
 
 Last updated: 2026-09-02
