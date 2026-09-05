@@ -34,9 +34,10 @@ hybrid engine, inspired by the AlphaZero approach.
 - [x] 开局库机制 (v0.5.2)：由自我对弈数据构建，按 Zobrist 哈希去重，`use_opening_book` 可开关；开局随机化 (v0.5.2b) 修复了确定性引擎自对弈缺乏多样性的问题
 - [x] 残局启发式机制 (v0.5.3)：车/炮在残局阶段的价值调整（"车赛全局，炮怕残棋"），`use_endgame_heuristics` 可开关，并配有从自我对弈数据验证假设的分析工具 (`tools/analyze_endgame.py`)
 - [x] 自动化强度对比 (v0.5.4)：任意两组引擎配置互相对局，胜/负/和 + Elo 差值估计 (`tools/compare_engines.py`)，复用 v0.5.1 的对局记录格式，产出可直接被开局库/残局分析工具消费；支持 `--use-opening-book` 用于开局库质量对比
-- [x] 首份真实规模数据验证：63 局真实对局（`data/selfplay.jsonl`），重建出 1057 个局面的真实开局库并验证可正常调用；`use_endgame_heuristics` 开/关对比 25 局得到 50% 胜率（Elo 差值 0）的真实零结果，默认仍关闭——结论与后续更大样本详见 `docs/v0.5-real-data-checkpoint-2.md`
-- [ ] 开局库实际强度对比、更深搜索下的残局启发式效果、depth=3 vs depth=2 等仍需真实数据验证的问题
-- [ ] 神经网络评估 / MCTS (v0.6+)
+- [x] 首份真实规模数据验证：63→99 局真实对局（`data/selfplay.jsonl`），重建出 1330 个局面的真实开局库并验证可正常调用；开局库、`use_endgame_heuristics` 均得到真实的"无明显提升"零结果（20 局开局库对比 50%/50%，29 局残局启发式对比约 52%），depth=3 vs depth=2 则得到有意义的真实提升（12 局，Elo +88.7）——三条问题均已有真实数据支撑的结论，详见 `docs/v0.5-real-data-checkpoint-3.md`
+- [x] MCTS 搜索骨架 (v0.6.1)：`MCTSEngine`（PUCT 选择 + 现有 `evaluate()` 作为叶子价值估计，暂无策略/价值网络），12 个测试含关键的符号约定测试与"与 alpha-beta 独立实现在必胜局面上找到同一步杀棋"的交叉验证；对阵 RandomEngine 的冒烟测试证实真实子力优势（第60步 4150:3600）但在给定的模拟次数下未必能在步数限制内形成杀棋——是符合预期的"无策略网络的原始 MCTS"特征而非 bug，详见 `docs/v0.6.1.md`
+- [ ] MCTS 实际强度的真实数据验证（模拟次数调优、CLI 集成）
+- [ ] 策略/价值神经网络 (v0.6.2+)
 
 上述开局库、残局启发式与强度对比目前都是"机制已完成，但结论/常量/是否默认启用仍需真实规模数据验证"的状态——三者共用同一份自我对弈数据格式，一次本地长时间运行即可同时回答三个问题，详见
 `docs/v0.5.2.md` / `docs/v0.5.3.md` / `docs/v0.5.4.md`。
@@ -145,6 +146,7 @@ alphazetacchess/
 │       │   ├── pawn_structure.py # 兵形结构 / 联兵 (V0.4.4)
 │       │   ├── piece_coordination.py # 子力协调 (V0.4.5)
 │       │   ├── endgame.py        # 残局阶段车/炮价值调整 (V0.5.3)
+│       │   ├── mcts.py           # MCTS 搜索骨架 (V0.6.1)，暂用现有 evaluate() 作叶子价值
 │       │   └── random_engine.py  # V0.1 随机引擎 (现作为评测基准)
 │       └── selfplay/             # 自我对弈数据记录、开局库、残局分析、强度对比 (V0.5)
 │           ├── recorder.py           # 对弈记录（JSON-lines）

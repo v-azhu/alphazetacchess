@@ -337,7 +337,7 @@ browser without editing code. This was the actual point of building V0.4.3-4.5 b
 moving further: there's now something concrete to sit down and play against. See
 `docs/ui.md`.
 
-## V0.5 — Self Play — V0.5.4 COMPLETE (all mechanisms); real local runs next
+## V0.5 — Self Play — COMPLETE (99 real games collected; see V0.6 for what's next)
 
 AI vs AI games, data collection, automatic evaluation and training dataset generation.
 
@@ -482,9 +482,35 @@ targeted test file: **130/130 green.** Smoke-tested end to end (small real match
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
 design and known limitations in `docs/v0.5.4.md`.
 
-## V0.6+ — Neural Evaluation / MCTS — PLANNED
+## V0.6+ — Neural Evaluation / MCTS — V0.6.1 COMPLETE (search skeleton); needs a network
 
 Policy/value network, neural evaluation and MCTS integration.
+
+### V0.6.1 — Monte Carlo Tree Search Skeleton — COMPLETE
+
+`src/alphazetacchess/engine/mcts.py`: `MCTSEngine`, a PUCT-based MCTS search skeleton using
+the *existing* V0.4.x/V0.5.3 `evaluate()` function as its leaf value estimator (squashed
+through `tanh` into `[-1, 1]`) and uniform move priors -- deliberately no policy/value
+network yet, same "search skeleton first, evaluation second" split V0.3/V0.4 used. Both the
+`evaluate()` call and the uniform priors are exactly the two things a future network
+replaces, without touching the tree-search logic around them.
+
+12 new tests (`tests/test_mcts_v061.py`), most notably a dedicated unit test for the single
+most error-prone part of any minimax/MCTS implementation (a child's value must be negated
+before comparing it from the parent's perspective) and a cross-validation test where
+`MCTSEngine` finds the *exact same* mate-in-one move an independently-implemented
+`SearchEngine(depth=2)` oracle finds, rather than hand-verifying the winning square.
+Combined with every other targeted test file: **142/142 green.**
+
+Smoke-tested against `RandomEngine`: 6/6 games drew at the move limit, which looked
+concerning until investigated directly -- tracking material confirmed `MCTSEngine`
+reliably builds a real, growing advantage (4150 vs 3600 by ply 60 in one representative
+game) but doesn't reliably convert it to checkmate within 150 moves at the simulation
+budgets tested (100-800) -- an expected characteristic of vanilla MCTS without a policy
+network (needs far more simulations per move than alpha-beta needs plies), not a
+correctness bug, which the unit tests (especially the alpha-beta cross-validation)
+independently confirm. Full design, exact test list, and the material-tracking evidence in
+`docs/v0.6.1.md`.
 
 ## V0.7 — Hybrid Engine — PLANNED
 
@@ -651,5 +677,62 @@ Current hand-off:
     work is almost entirely "keep collecting/comparing real data" rather
     than new code -- a natural pause point, or proceed to V0.6+ (neural
     evaluation / MCTS) if continuing here.
+        ↓
+    User ran the three suggested comparisons, interrupted early (depth=3
+    games are slow) -- still appended 36 complete, valid records (no
+    partial/corrupt lines) before stopping. data/selfplay.jsonl: 63 -> 99
+    real games. All three questions got real answers:
+      - Opening book: 20 games, exactly 50%/50%, Elo diff +0 -- no
+        measurable benefit yet (interesting side-note: zero draws across
+        all 20, vs. the corpus's overall ~60% draw rate -- see
+        docs/v0.5-real-data-checkpoint-3.md for a tentative explanation).
+      - Depth=3 vs Depth=2: 12 games, 62.5% score for depth=3, Elo diff
+        +88.7 -- the first checkpoint in this project's self-play history
+        to show a real, meaningfully-sized effect, matching strong prior
+        chess-engine intuition (deeper search beats shallower search).
+      - use_endgame_heuristics at depth=3: only 4 games completed before
+        the interruption; combined with the existing depth=2 games (29
+        total), still a flat ~52% / Elo +12 -- consistent with the
+        earlier depth=2-only null result.
+    tools/analyze_endgame.py on the full 99-game corpus: 20 decided
+    Rook/Cannon-edge positions (the FIRST run where the "sample too
+    small" note doesn't print) -- still exactly 50%. Opening book
+    rebuilt again (1330 positions). use_endgame_heuristics and the
+    opening book both remain off by default. Full breakdown in
+    docs/v0.5-real-data-checkpoint-3.md.
+        ↓
+    Given depth=3-vs-depth=2 is now a fairly confident real result and
+    the other two comparisons both cleared "not just too small" and came
+    back null, decided to move to V0.6 rather than grind out more
+    depth=3 games for diminishing certainty on two already-answered
+    (negative) questions.
+        ↓
+    V0.6.1 COMPLETE: MCTSEngine (src/alphazetacchess/engine/mcts.py), a
+    PUCT-based MCTS search skeleton using the EXISTING evaluate()
+    function as its leaf value estimator (tanh-squashed into [-1,1]) and
+    uniform move priors -- deliberately no policy/value network yet,
+    same "search skeleton first, evaluation second" split V0.3/V0.4
+    used. 12 new tests (142/142 total), including a dedicated sign-
+    convention unit test (the single most error-prone part of any
+    minimax/MCTS implementation) and a cross-validation test where
+    MCTSEngine finds the exact same mate-in-one SearchEngine(depth=2)
+    finds. Smoke test against RandomEngine initially looked concerning
+    (6/6 games drew at the move limit) but tracking material directly
+    confirmed MCTSEngine reliably builds a real advantage (4150 vs 3600
+    by ply 60) -- it just doesn't reliably convert that to checkmate
+    within 150 moves at the simulation budgets tried (100-800), an
+    expected vanilla-MCTS-without-a-policy-network characteristic, not a
+    bug (independently confirmed by the alpha-beta cross-validation
+    test). See docs/v0.6.1.md.
+        ↓
+    Next: either (a) find via real local benchmarking what simulation
+    count makes MCTSEngine reliably beat RandomEngine decisively and
+    start competing with SearchEngine at various depths (needs CLI
+    support -- not yet wired into tools/compare_engines.py/benchmark.py
+    -- and real compute budget), or (b) design the actual policy/value
+    network (V0.6.2) that _expand_and_evaluate's evaluate() call and
+    uniform priors are deliberately left as placeholders for -- a bigger
+    undertaking needing training data/infrastructure that doesn't exist
+    yet, worth thinking through before writing any of it.
 
 Last updated: 2026-09-05

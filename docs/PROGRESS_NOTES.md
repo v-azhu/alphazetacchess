@@ -1,115 +1,134 @@
-# AlphaZetaChess Progress Snapshot — 63-game real checkpoint + book-comparison wiring
+# AlphaZetaChess Progress Snapshot — 99-game checkpoint + V0.6.1 MCTS skeleton
 
 Snapshot date: 2026-09-05
 
 ## What happened this checkpoint
 
-The user ran several real self-play/comparison batches locally (where
-a real background process is practical, unlike this session's
-sandbox) and pushed the results, along with a documentation cleanup
-(removed duplicate root-level version docs that had been superseded by
-their `docs/` counterparts; moved this file from repo root to
-`docs/PROGRESS_NOTES.md`).
+Two distinct pieces of work: (1) analyzed a third round of real
+self-play data the user collected locally, and (2) pivoted to V0.6,
+building the first MCTS engine skeleton.
 
-`data/selfplay.jsonl` grew from 12 to **63 real games** (all depth=2):
-38 plain self-play + 25 `use_endgame_heuristics` on-vs-off comparison
-games (14 with ON as Red, 11 with ON as Black).
+### 1. Third real data checkpoint (99 games)
 
-Ran the existing tools against the full 63-game corpus:
+User ran the three comparisons the previous checkpoint's hand-off
+suggested, then interrupted early (depth=3 games are slow) — still
+appended 36 complete, valid records before stopping.
+`data/selfplay.jsonl`: 63 → 99 real games. All three open questions
+now have real answers:
 
-- **Opening book**: the committed `data/opening_book.json` had gone
-  stale at 689 positions (built against an intermediate, smaller
-  version of the corpus partway through local collection). Rebuilt
-  fresh from the final 63-game file: **1057 unique positions, 1121
-  position-move entries**. Confirmed end to end (not just "the file
-  exists") that `SearchEngine(use_opening_book=True, opening_book=...)
-  .choose_move(Board(), Color.RED)` actually returns `from_book=True`.
+- **Opening book**: 20 games, exactly 50%/50%, Elo diff +0 — no
+  measurable benefit yet. Notable side observation: zero draws across
+  all 20 games (vs. the corpus's overall ~60% draw rate) — a
+  tentative, not yet confirmed, hypothesis in
+  `docs/v0.5-real-data-checkpoint-3.md`.
+- **Depth=3 vs Depth=2**: 12 games, 62.5% score for depth=3, Elo diff
+  **+88.7** — the first real, meaningfully-sized effect this project's
+  self-play history has shown, matching strong prior chess-engine
+  intuition.
+- **`use_endgame_heuristics` at depth=3**: only 4 games completed
+  before the interruption; combined with existing depth=2 data (29
+  games total), still a flat ~52% / Elo +12 — consistent with the
+  earlier depth=2-only null result.
 
-- **Endgame heuristic**: `tools/analyze_endgame.py` found 30/63 games
-  reached the endgame phase, 16 decided Rook/Cannon-edge positions,
-  **exactly 50% favored-side win rate**. Isolating the 25 real
-  `use_endgame_heuristics` on-vs-off comparison games specifically: 3
-  wins / 3 wins / 19 draws — **50.0% score rate, Elo diff +0**. A real
-  null result at this sample size and depth, not "too small to tell."
-  The previous 12-game checkpoint's 75%-favored-side-won number is now
-  understood to have been small-sample noise, exactly as its own
-  caveat warned it might be.
+`tools/analyze_endgame.py` on the full 99-game corpus: 20 decided
+Rook/Cannon-edge positions — the first run where the tool's own
+"sample too small" note doesn't print — still exactly 50%. Opening
+book rebuilt again (1330 positions, up from 1057). Both
+`use_endgame_heuristics` and the opening book remain off by default.
 
-- **Surfaced a real gap**: `tools/compare_engines.py` had no
-  `--use-opening-book` flag (built before the book was substantial
-  enough to be worth comparing). Added `--a-use-opening-book`/
-  `--b-use-opening-book` + shared `--opening-book`/
-  `--opening-book-min-games`, wired to `SearchEngine`'s existing
-  V0.5.2 parameters. Documented the interaction with opening
-  randomization (can override a book move by design;
-  `--random-opening-prob 0` isolates the book's own effect).
-  Smoke-tested both the happy path and the missing-book-file fallback.
+**Decision**: given depth=3-vs-depth=2 is now fairly confidently
+answered and the other two comparisons both cleared "not just too
+small" and came back null, moved to V0.6 rather than grinding out more
+depth=3 games for diminishing returns on two already-answered
+questions.
 
-`use_endgame_heuristics` and the opening book both **remain off by
-default** — the checkpoint found no evidence of harm, but also none of
-benefit yet, and the project's established posture is "on by default
-only once measured to help."
+### 2. V0.6.1 — MCTS search skeleton
+
+`src/alphazetacchess/engine/mcts.py`: `MCTSEngine`, PUCT-based MCTS
+using the *existing* `evaluate()` function as leaf value estimator
+(tanh-squashed to `[-1,1]`) and uniform move priors — deliberately no
+policy/value network yet, following the same "search skeleton first,
+evaluation second" split V0.3/V0.4 used historically.
+
+12 new tests (`tests/test_mcts_v061.py`), most notably:
+- A dedicated unit test for the single most error-prone part of any
+  minimax/MCTS implementation (negating a child's value before
+  comparing it from the parent's perspective).
+- A cross-validation test: on a forced-mate fixture, `MCTSEngine`
+  finds the *exact same* mating move an independently-implemented
+  `SearchEngine(depth=2)` finds — much stronger evidence of
+  correctness than hand-verifying the winning square myself.
+
+**Smoke test initially looked concerning**: MCTSEngine vs RandomEngine,
+6 games at simulations=150 → 6/6 draws (move limit), zero decisive
+results. Investigated directly rather than dismissing or assuming a
+bug — tracked material every 10 plies in a real game and confirmed
+MCTSEngine reliably builds a genuine, growing advantage (4150 vs 3600
+by ply 60). The mechanism works; it just doesn't reliably *convert*
+that advantage into checkmate within a 150-move cap at the simulation
+budgets tried (100-800) — an expected characteristic of vanilla MCTS
+without a policy network (needs far more simulations per move than
+alpha-beta needs plies), not a correctness bug.
 
 ## What was verified this checkpoint
 
 ```
+pytest tests/test_mcts_v061.py -q
+12 passed in 0.30s
+
 pytest -q   (full suite)
-130 passed in 126.10s
+142 passed in 162.56s
 ```
-No `src/` changes were needed for the book-comparison CLI addition
-(`SearchEngine`'s `use_opening_book` support already existed and is
-already covered by V0.5.2's own test suite) — this checkpoint's code
-change was additive-only in `tools/compare_engines.py`.
 
-Manual smoke tests (documented in `docs/v0.5.4.md`'s addendum):
+Manual smoke tests (documented in `docs/v0.6.1.md`):
 ```
-python tools/compare_engines.py --a-use-opening-book --random-opening-prob 0 --games 1 --max-moves 5 --a-depth 1 --b-depth 1
-  → book loads (1057 positions), from_book move returned instantly (0.8s for the whole game)
+MCTSEngine(simulations=100).choose_move(Board(), Color.RED)
+  -> legal move, 0.31s
 
-python tools/compare_engines.py --a-use-opening-book --opening-book /tmp/does_not_exist.json --games 1 --max-moves 0
-  → clear fallback message, continues without a book rather than crashing
+run_match(MCTSEngine(simulations=150), RandomEngine, games=6, max_moves=150)
+  -> 6/6 draws (move limit)
+
+MCTSEngine(simulations=300) as Red vs RandomEngine as Black, material tracked every 10 plies:
+  ply 60: Red 4150 / Black 3600 -- real, growing material advantage confirmed
 ```
 
 ## What changed
 
-- `data/selfplay.jsonl`: 12 → 63 real games (user's local runs).
-- `data/opening_book.json`: rebuilt fresh from the full 63-game
-  corpus (689 → 1057 positions; the committed version had gone stale).
-- `tools/compare_engines.py`: added `--a-use-opening-book`/
-  `--b-use-opening-book`/`--opening-book`/`--opening-book-min-games`.
-- `docs/v0.5-real-data-checkpoint-2.md` (new): full breakdown of the
-  63-game corpus and what it does/doesn't establish.
-- `docs/v0.5.4.md`: addendum documenting the book-comparison flags.
-- `docs/roadmap.md`: hand-off section updated with the real 63-game
-  numbers and the book-comparison gap/fix.
-- Repo hygiene (user, before this checkpoint's work): removed
-  duplicate root-level `.md` docs superseded by `docs/` versions;
-  moved `PROGRESS_NOTES.md` to `docs/PROGRESS_NOTES.md`. Checked for
-  broken cross-references from other docs — none found.
+- `data/selfplay.jsonl`: 63 → 99 real games (user's local runs).
+- `data/opening_book.json`: rebuilt fresh from 99 games (1057 → 1330
+  positions).
+- `docs/v0.5-real-data-checkpoint-3.md` (new): full breakdown of all
+  three real comparisons.
+- `src/alphazetacchess/engine/mcts.py` (new): `MCTSEngine`, `_MCTSNode`,
+  `_squash`.
+- `tests/test_mcts_v061.py` (new, 12 tests).
+- `docs/v0.6.1.md` (new): full design writeup.
+- `docs/roadmap.md`: V0.5 line closed out as complete; V0.6.1 section
+  added; hand-off updated.
+- `README.md`: status checklist and project-structure tree updated
+  through V0.6.1.
 
 ## Exact next step
 
-Three open questions, all answerable by extending the same
-`data/selfplay.jsonl` corpus (63 real games already banked):
+Two independent directions:
 
+**Tune/benchmark MCTSEngine** (needs real compute + small CLI
+addition):
 ```bash
-# Does the book actually help? (mechanism confirmed; strength still untested)
-python tools/compare_engines.py --a-use-opening-book --random-opening-prob 0 --games 20 --output data/selfplay.jsonl
-
-# Does depth=3 beat depth=2?
-python tools/compare_engines.py --a-depth 3 --b-depth 2 --games 20 --output data/selfplay.jsonl
-
-# Does use_endgame_heuristics show a different (real) result at a depth
-# where search can act on the material nudge more meaningfully?
-python tools/compare_engines.py --a-depth 3 --a-use-endgame-heuristics --b-depth 3 --games 20 --output data/selfplay.jsonl
+# Not yet supported -- tools/compare_engines.py only builds
+# SearchEngine instances currently. Adding an --a-engine/--b-engine
+# selector (mcts vs search) is the natural small next increment.
 ```
+Goal: find the simulation count where `MCTSEngine` reliably beats
+`RandomEngine` decisively (not just materially) within a reasonable
+move limit, and where it starts competing with `SearchEngine` at
+various depths.
 
-Also worth keeping in mind independent of any specific term: the
-corpus's overall draw rate (40/63 ≈ 63%, and 19/25 ≈ 76% within the
-endgame-heuristic comparison slice specifically) may itself be
-limiting how much signal any depth=2 comparison can find, regardless
-of sample size — worth revisiting if future comparisons keep coming
-back "no detectable difference."
+**Design V0.6.2 (policy/value network)**: `_expand_and_evaluate`'s
+`evaluate()` call and uniform priors are deliberately left as
+placeholders for exactly this. Needs training data/infrastructure that
+doesn't exist yet — a bigger undertaking than any single prior
+checkpoint, worth designing carefully before writing code.
 
 ## Handoff rule (unchanged, repeated for visibility)
 
