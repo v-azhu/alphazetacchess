@@ -19,6 +19,18 @@ Usage:
     python tools/compare_engines.py --a-depth 2 --b-depth 3 --games 10
     python tools/compare_engines.py --a-use-mobility --games 20
     python tools/compare_engines.py --a-use-endgame-heuristics --games 20 --output data/selfplay.jsonl
+    python tools/compare_engines.py --a-use-opening-book --random-opening-prob 0 --games 20
+
+Note on --use-opening-book + opening randomization: both can be on at
+once (random opening's job is data diversity, the book's job is move
+quality, and they're not mutually exclusive in general) -- but for a
+comparison specifically meant to isolate the book's effect, pass
+--random-opening-prob 0 so the book side's early moves are governed
+entirely by the book rather than partly overridden by exploration
+noise (RandomizedOpeningEngine wraps SearchEngine and, by default,
+has a 30% chance per ply of ignoring the book/search choice entirely
+in favor of a uniformly random legal move -- see
+selfplay/opening_randomization.py).
 
 Performance note: same as tools/self_play.py -- at depth 2, individual
 games commonly take 1-3+ minutes, so a statistically meaningful batch
@@ -36,6 +48,7 @@ sys.path.insert(
 )
 
 from alphazetacchess.engine.search import SearchEngine
+from alphazetacchess.selfplay.opening_book import load_book
 from alphazetacchess.selfplay.opening_randomization import RandomizedOpeningEngine
 from alphazetacchess.selfplay.strength_comparison import run_comparison_match
 
@@ -46,6 +59,10 @@ def add_side_args(parser, prefix):
     parser.add_argument(f"--{prefix}-use-pawn-structure", action="store_true")
     parser.add_argument(f"--{prefix}-use-piece-coordination", action="store_true")
     parser.add_argument(f"--{prefix}-use-endgame-heuristics", action="store_true")
+    parser.add_argument(
+        f"--{prefix}-use-opening-book", action="store_true",
+        help=f"let side {prefix.upper()} consult --opening-book for its opening moves",
+    )
 
 
 def config_from_args(args, prefix):
@@ -55,16 +72,23 @@ def config_from_args(args, prefix):
         "use_pawn_structure": getattr(args, f"{prefix}_use_pawn_structure"),
         "use_piece_coordination": getattr(args, f"{prefix}_use_piece_coordination"),
         "use_endgame_heuristics": getattr(args, f"{prefix}_use_endgame_heuristics"),
+        "use_opening_book": getattr(args, f"{prefix}_use_opening_book"),
     }
 
 
-def build_engine(config, random_opening_plies, random_opening_prob):
+def build_engine(
+    config, random_opening_plies, random_opening_prob,
+    opening_book=None, opening_book_min_games=3,
+):
     engine = SearchEngine(
         depth=config["depth"],
         use_mobility=config["use_mobility"],
         use_pawn_structure=config["use_pawn_structure"],
         use_piece_coordination=config["use_piece_coordination"],
         use_endgame_heuristics=config["use_endgame_heuristics"],
+        use_opening_book=config["use_opening_book"],
+        opening_book=opening_book if config["use_opening_book"] else None,
+        opening_book_min_games=opening_book_min_games,
     )
 
     if random_opening_plies > 0 and random_opening_prob > 0:
@@ -95,12 +119,33 @@ def main():
         "--random-opening-prob", type=float, default=0.3,
         help="probability of a random move on each eligible ply (0 disables)",
     )
+    parser.add_argument(
+        "--opening-book", default="data/opening_book.json",
+        help="path to load for any side with --{a,b}-use-opening-book set "
+             "(ignored if neither side uses the book)",
+    )
+    parser.add_argument(
+        "--opening-book-min-games", type=int, default=3,
+        help="minimum recorded games at a position before the book move is trusted "
+             "(see selfplay/opening_book.py select_book_move)",
+    )
     add_side_args(parser, "a")
     add_side_args(parser, "b")
     args = parser.parse_args()
 
     a_config = config_from_args(args, "a")
     b_config = config_from_args(args, "b")
+
+    opening_book = None
+    if a_config["use_opening_book"] or b_config["use_opening_book"]:
+        if not os.path.exists(args.opening_book):
+            print(
+                f"--use-opening-book requested but {args.opening_book} does not exist "
+                f"-- run tools/build_opening_book.py first. Continuing without a book."
+            )
+        else:
+            opening_book = load_book(args.opening_book)
+            print(f"Loaded opening book: {len(opening_book)} position(s) from {args.opening_book}")
 
     if args.output:
         output_dir = os.path.dirname(args.output)
@@ -130,10 +175,12 @@ def main():
     started = time.time()
     stats = run_comparison_match(
         engine_a_factory=lambda: build_engine(
-            a_config, args.random_opening_plies, args.random_opening_prob
+            a_config, args.random_opening_plies, args.random_opening_prob,
+            opening_book=opening_book, opening_book_min_games=args.opening_book_min_games,
         ),
         engine_b_factory=lambda: build_engine(
-            b_config, args.random_opening_plies, args.random_opening_prob
+            b_config, args.random_opening_plies, args.random_opening_prob,
+            opening_book=opening_book, opening_book_min_games=args.opening_book_min_games,
         ),
         games=args.games,
         max_moves=args.max_moves,

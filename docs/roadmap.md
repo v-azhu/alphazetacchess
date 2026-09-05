@@ -603,16 +603,53 @@ Current hand-off:
     endgame_heuristics and the opening book both remain off by default.
     See docs/v0.5-real-data-checkpoint.md for the full breakdown.
         ↓
-    Still next: a MUCH larger batch (30-50+ games) from an environment
-    where a real background/long-running process is practical --
-    data/selfplay.jsonl already has 12 real games in it, so
-    `tools/self_play.py --output data/selfplay.jsonl` (append, not
-    overwrite) extends this checkpoint's data rather than replacing it.
+    User ran several real local batches (a real background process is
+    practical outside this sandbox) and pushed the results:
+    data/selfplay.jsonl grew from 12 to 63 real games. Rebuilt the
+    opening book against the full corpus (had gone stale at 689
+    positions from an intermediate partial run -- now 1057 positions,
+    1121 position-move entries) and confirmed end to end that
+    SearchEngine actually consults it (from_book=True on a real
+    choose_move() call, not just a file existing).
+    use_endgame_heuristics: isolated the 25 real on-vs-off comparison
+    games in the corpus -- 3 wins / 3 wins / 19 draws, i.e. an exact
+    50% score rate, Elo diff +0. A REAL null result, not "too small to
+    tell": the previous checkpoint's 75%-favored-side-won number is now
+    understood to have been small-sample noise, exactly as its own
+    caveat warned. use_endgame_heuristics and the opening book both
+    remain off by default -- no evidence of harm, but also none of
+    benefit at depth=2. See docs/v0.5-real-data-checkpoint-2.md.
         ↓
-    Here: with V0.5.1-V0.5.4 all in place as mechanisms, and a real (if
-    small) first data checkpoint now on record, the V0.5 line's
-    remaining work is almost entirely "collect a larger real corpus"
-    rather than new code -- a natural pause point, or proceed to V0.6+
-    (neural evaluation / MCTS) if continuing here.
+    Small natural gap this surfaced: tools/compare_engines.py had no
+    --use-opening-book flag (V0.5.4 predates the book becoming
+    substantial enough to be worth comparing). Added --a-use-opening-book
+    /--b-use-opening-book + shared --opening-book/--opening-book-min-games,
+    wired straight to SearchEngine's existing V0.5.2 parameters -- no new
+    mechanism, just a missing CLI path to one that already existed.
+    Documented the interaction with opening randomization (can override
+    a book move by design; pass --random-opening-prob 0 to isolate the
+    book's effect specifically). Smoke-tested (book loads, from_book=True
+    moves are instant; missing-book-file falls back cleanly with a
+    message rather than crashing). 130/130 tests still green (no src/
+    changes needed -- SearchEngine's book support was already tested by
+    V0.5.2's own suite). See docs/v0.5.4.md's addendum.
+        ↓
+    Next: does the book actually help? Does depth=3 beat depth=2? Does
+    use_endgame_heuristics show a different (real) result at depth=3,
+    where search can act on the material nudge more meaningfully?
+        python tools/compare_engines.py --a-use-opening-book --random-opening-prob 0 \
+            --games 20 --output data/selfplay.jsonl
+        python tools/compare_engines.py --a-depth 3 --b-depth 2 --games 20 --output data/selfplay.jsonl
+        python tools/compare_engines.py --a-depth 3 --a-use-endgame-heuristics --b-depth 3 \
+            --games 20 --output data/selfplay.jsonl
+    All three still append to the same data/selfplay.jsonl -- one more
+    local session (63 real games already banked) keeps compounding.
+        ↓
+    Here: with V0.5.1-V0.5.4 all in place as mechanisms, book-comparison
+    now wired in, and a real 63-game checkpoint on record (one real null
+    result, several questions still open), the V0.5 line's remaining
+    work is almost entirely "keep collecting/comparing real data" rather
+    than new code -- a natural pause point, or proceed to V0.6+ (neural
+    evaluation / MCTS) if continuing here.
 
-Last updated: 2026-09-04
+Last updated: 2026-09-05
