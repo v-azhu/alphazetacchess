@@ -884,5 +884,42 @@ Current hand-off:
     tools/compare_engines.py with it on one side -- the real test of
     whether any of this helped actual play strength, not just
     Pikafish-score correlation.
+        ↓
+    User tried 128->64 hidden units: only marginal improvement (776->766cp,
+    ~1.3% for ~4x more parameters) -- evidence AGAINST the capacity
+    hypothesis, pointing instead at the feature representation itself
+    (1260-dim one-hot piece-position encoding has no explicit mobility/
+    king-safety/pawn-structure/coordination notion the way evaluation.py's
+    hand-crafted terms do) as the likelier ceiling. Not chasing further
+    architecture tuning -- diminishing returns -- moved to the actual
+    point of this checkpoint instead.
+        ↓
+    Added a pluggable eval_fn to SearchEngine (via a new _evaluate()
+    method every one of its 4 call sites now goes through) and
+    MCTSEngine (_expand_and_evaluate) -- eval_fn=None (default)
+    preserves every prior version's exact behavior; setting it (e.g. to
+    a NeuralEvaluator, which already matches evaluate()'s calling
+    convention) replaces the heuristic entirely. A REAL BUG was caught
+    by the new tests, not shipped: consolidating SearchEngine's 4 call
+    sites left self.tt = TranspositionTable(...) as dead code AFTER a
+    return statement, meaning self.tt was never set on any instance --
+    surfaced immediately by a new test calling _quiescence directly
+    (AttributeError), invisible to py_compile or casual inspection.
+    Fixed and confirmed via the full suite (178/178, every existing
+    SearchEngine test included) rather than trusting the fix by
+    inspection. 6 new tests. tools/compare_engines.py gained
+    --a/b-use-neural-eval + --neural-eval-path, mirroring the existing
+    --use-opening-book pattern exactly. Smoke-tested end to end (loads
+    the real network, runs real games with it on one side). See
+    docs/v0.6.2.md's 5th addendum.
+        ↓
+    Next: run an actual strength comparison (not yet done -- the smoke
+    test above only confirmed the mechanism works, not whether it
+    helps):
+        python tools/compare_engines.py --a-use-neural-eval --a-depth 2 \
+            --b-depth 2 --games 20 --random-opening-prob 0
+    This is the real test of whether any of V0.6.2's distillation work
+    actually improved play strength, not just Pikafish-score
+    correlation.
 
 Last updated: 2026-09-06

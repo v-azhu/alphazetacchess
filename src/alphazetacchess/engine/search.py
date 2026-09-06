@@ -78,6 +78,7 @@ class SearchEngine(ChessEngine):
         opening_book=None,
         opening_book_min_games=3,
         tt_max_entries=200_000,
+        eval_fn=None,
     ):
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
@@ -132,8 +133,42 @@ class SearchEngine(ChessEngine):
         self.use_opening_book = use_opening_book
         self.opening_book = opening_book
         self.opening_book_min_games = opening_book_min_games
+        # V0.6.2: optional pluggable evaluator (e.g. neural/evaluator.py's
+        # NeuralEvaluator, matching evaluate(board, color)'s calling
+        # convention exactly). When set, this REPLACES the heuristic
+        # evaluate() call entirely at every evaluation site below --
+        # the use_piece_square_tables/use_mobility/etc. flags above are
+        # then ignored, since a pluggable evaluator has already decided
+        # its own internal representation. None (default) preserves
+        # every existing V0.2-V0.5.x behavior exactly unchanged -- see
+        # self._evaluate and its own docstring.
+        self.eval_fn = eval_fn
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
+
+    def _evaluate(self, board, color):
+        """
+        Single evaluation entry point every internal call site below
+        uses, so V0.6.2's pluggable `eval_fn` only has to be threaded
+        through once, here, rather than at each of the four places
+        that used to call the module-level `evaluate()` directly.
+        `self.eval_fn is None` (the default) reproduces every prior
+        version's exact evaluate() call -- this method changes nothing
+        about existing behavior unless `eval_fn` is explicitly set.
+        """
+        if self.eval_fn is not None:
+            return self.eval_fn(board, color)
+
+        return evaluate(
+            board, color,
+            use_piece_square_tables=self.use_piece_square_tables,
+            use_king_safety=self.use_king_safety,
+            use_mobility=self.use_mobility,
+            mobility_weight=self.mobility_weight,
+            use_pawn_structure=self.use_pawn_structure,
+            use_piece_coordination=self.use_piece_coordination,
+            use_endgame_heuristics=self.use_endgame_heuristics,
+        )
 
     def choose_move(self, board, color):
         self.nodes_evaluated = 0
@@ -148,16 +183,7 @@ class SearchEngine(ChessEngine):
         if not legal_moves:
             return SearchResult(
                 None,
-                evaluate(
-                    board, color,
-                    use_piece_square_tables=self.use_piece_square_tables,
-                    use_king_safety=self.use_king_safety,
-                    use_mobility=self.use_mobility,
-                    mobility_weight=self.mobility_weight,
-                    use_pawn_structure=self.use_pawn_structure,
-                    use_piece_coordination=self.use_piece_coordination,
-                    use_endgame_heuristics=self.use_endgame_heuristics,
-                ),
+                self._evaluate(board, color),
                 self.nodes_evaluated,
                 self.depth,
             )
@@ -348,16 +374,7 @@ class SearchEngine(ChessEngine):
                     board, alpha, beta, current_color, root_depth, 0
                 )
             else:
-                score = evaluate(
-                    board, current_color,
-                    use_piece_square_tables=self.use_piece_square_tables,
-                    use_king_safety=self.use_king_safety,
-                    use_mobility=self.use_mobility,
-                    mobility_weight=self.mobility_weight,
-                    use_pawn_structure=self.use_pawn_structure,
-                    use_piece_coordination=self.use_piece_coordination,
-                    use_endgame_heuristics=self.use_endgame_heuristics,
-                )
+                score = self._evaluate(board, current_color)
                 if self.use_transposition_table:
                     self.tt.store(key, depth, score, Bound.EXACT, None)
             return score
@@ -466,16 +483,7 @@ class SearchEngine(ChessEngine):
             # later, differently-capped probe of the same position
             # could otherwise reuse a value that does not correspond
             # to its own context. See docs/v0.3.4.md.
-            return evaluate(
-                board, color,
-                use_piece_square_tables=self.use_piece_square_tables,
-                use_king_safety=self.use_king_safety,
-                use_mobility=self.use_mobility,
-                mobility_weight=self.mobility_weight,
-                use_pawn_structure=self.use_pawn_structure,
-                use_piece_coordination=self.use_piece_coordination,
-                use_endgame_heuristics=self.use_endgame_heuristics,
-            )
+            return self._evaluate(board, color)
 
         in_check = Rule.is_in_check(board, color)
 
@@ -483,16 +491,7 @@ class SearchEngine(ChessEngine):
             candidates = legal_moves
             best_score = float("-inf")
         else:
-            stand_pat = evaluate(
-                board, color,
-                use_piece_square_tables=self.use_piece_square_tables,
-                use_king_safety=self.use_king_safety,
-                use_mobility=self.use_mobility,
-                mobility_weight=self.mobility_weight,
-                use_pawn_structure=self.use_pawn_structure,
-                use_piece_coordination=self.use_piece_coordination,
-                use_endgame_heuristics=self.use_endgame_heuristics,
-            )
+            stand_pat = self._evaluate(board, color)
 
             if stand_pat >= beta:
                 if self.use_transposition_table:

@@ -119,6 +119,7 @@ class MCTSEngine(ChessEngine):
         use_pawn_structure=False,
         use_piece_coordination=False,
         use_endgame_heuristics=False,
+        eval_fn=None,
     ):
         self.simulations = simulations
         self.c_puct = c_puct
@@ -140,6 +141,15 @@ class MCTSEngine(ChessEngine):
             use_piece_coordination=use_piece_coordination,
             use_endgame_heuristics=use_endgame_heuristics,
         )
+        # V0.6.2: optional pluggable evaluator (e.g. NeuralEvaluator),
+        # matching evaluate(board, color)'s calling convention. When
+        # set, REPLACES the heuristic evaluate() call in
+        # _expand_and_evaluate entirely -- eval_kwargs above is then
+        # ignored, same reasoning as SearchEngine's own eval_fn. Its
+        # raw output is still squashed through the same tanh as the
+        # heuristic path, since MCTS's value backup needs a bounded
+        # value regardless of which evaluator produced it.
+        self.eval_fn = eval_fn
         self.nodes_evaluated = 0
 
     def choose_move(self, board, color):
@@ -211,7 +221,11 @@ class MCTSEngine(ChessEngine):
         node.children = {move: _MCTSNode(prior=prior) for move in legal_moves}
 
         self.nodes_evaluated += 1
-        raw_score = evaluate(board, color, **self.eval_kwargs)
+        raw_score = (
+            self.eval_fn(board, color)
+            if self.eval_fn is not None
+            else evaluate(board, color, **self.eval_kwargs)
+        )
         return _squash(raw_score, self.value_scale)
 
     def _select_child(self, node):

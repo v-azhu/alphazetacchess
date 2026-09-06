@@ -1,95 +1,92 @@
-# AlphaZetaChess Progress Snapshot — early stopping added; capacity question open
+# AlphaZetaChess Progress Snapshot — neural evaluator wired into real engines
 
 Snapshot date: 2026-09-06
 
 ## What happened this checkpoint
 
-User labeled the full 3,957-game external corpus and retrained: the
-dataset grew from 2,888 to **94,872** labeled positions (~33x). The
-fixed `--epochs 800` default (tuned for the smaller dataset) caused a
-real, visible overfitting signature on the much larger one — the
-user's own training log showed validation RMSE bottoming out around
-epoch 160 (780.7 cp) and then **worsening** through epoch 800 (815.3
-cp) while training RMSE kept dropping (503.6 → 239.0 cp). A hardcoded
-epoch count has no way to know in advance where that point will land
-for a dataset it hasn't seen yet.
+User tried a bigger network (128→64 hidden units) on the full 94,872-
+position corpus: held-out RMSE improved only marginally, 776 → 766 cp
+(~1.3%) despite ~4x more parameters. That small a gain argues against
+the "capacity-limited" hypothesis from the previous checkpoint and
+toward the feature representation itself being the more likely
+ceiling — `neural/features.py`'s one-hot piece-position encoding has
+no explicit mobility/king-safety/pawn-structure notion the way
+`evaluation.py`'s hand-crafted terms do. Decided not to chase further
+architecture tuning (diminishing returns) and moved to the actual
+point of this whole checkpoint: does the trained network help in real
+search at all?
 
-**Fixed properly, not by re-guessing another fixed number**: added
-early stopping to `tools/train_neural_eval.py`. Validation RMSE is now
-checked every epoch, the best-seen checkpoint is kept in memory, and
-training halts after `--patience` (default 40) epochs without
-improvement — the saved network is always the best validation
-checkpoint actually observed. Smoke-tested the mechanism on a small
-synthetic dataset (confirmed it triggers and restores the right
-checkpoint) before running the real, expensive retrain.
+**Added a pluggable `eval_fn` to both `SearchEngine` and
+`MCTSEngine`.** `SearchEngine` gained a single `_evaluate(self, board,
+color)` method that all four of its internal evaluate() call sites now
+go through — `eval_fn=None` (default) reproduces every prior version's
+exact behavior; setting it (e.g. to a `NeuralEvaluator`, which already
+matches `evaluate()`'s `(board, color) -> float` signature) replaces
+the heuristic entirely. `MCTSEngine._expand_and_evaluate` got the
+equivalent treatment.
 
-**Retrained on the full 94,872-position corpus**: stopped automatically
-at epoch 198 (saving ~75% of the wall-clock cost `--epochs 800` would
-have used), restoring the epoch-158 checkpoint. Weight magnitude
-healthy (2.2), held-out RMSE **776 cp** vs. naive baseline **1228 cp**.
+**A real bug was caught by the new tests before it could ship, not
+after**: consolidating `SearchEngine`'s four call sites accidentally
+left `self.tt = TranspositionTable(...)` as dead code *after* a
+`return` statement — meaning `self.tt` was never actually set on any
+instance. This compiled cleanly (`py_compile` can't catch unreachable
+code) and wasn't obvious by inspection; it surfaced immediately when
+`tests/test_pluggable_eval_v062.py` called `_quiescence` directly and
+hit `AttributeError: 'SearchEngine' object has no attribute 'tt'`.
+Fixed by moving the line back into `__init__` proper, and — critically
+— confirmed by rerunning the FULL test suite (178/178, including every
+pre-existing `SearchEngine` test) rather than trusting the targeted
+fix by inspection alone.
 
-**Honest, mixed result — stated plainly, not glossed over**: held-out
-correlation actually dropped to **0.777** (from the smaller dataset's
-0.915). Investigated rather than either celebrating the RMSE
-improvement or panicking about the correlation drop: the target
-distribution itself changed substantially — the naive baseline's own
-RMSE dropped from 3201 to 1228 cp, meaning the new corpus (much more
-real-game-heavy) has far less mate-score-driven variance to predict
-than the old, mostly-self-play corpus did. Correlation is a *relative*
-measure, so a tighter target distribution is genuinely harder to
-correlate well with even when absolute error improved.
+**6 new tests**: default-`eval_fn` baseline preservation for both
+engines, confirming a custom `eval_fn` is actually invoked and its
+value used/squashed correctly, and an end-to-end `MCTSEngine.
+choose_move` smoke test with a custom evaluator plugged in.
 
-**A real, open question surfaced, not resolved**: early stopping
-firing at epoch 158 out of a possible 800, on a dataset now 30x
-larger, hints the network's fixed 64→32 hidden-unit capacity may now
-be the real bottleneck (underfitting) rather than overfitting risk.
-Started a 128→64 hidden-unit experiment on the full corpus, but it
-didn't finish within this session's per-command time budget (bigger
-networks are proportionally slower per epoch) — left as an open next
-experiment, not claimed as a completed result.
+**`tools/compare_engines.py`** gained `--a/b-use-neural-eval` +
+`--neural-eval-path`, mirroring the existing `--use-opening-book`
+pattern (including the same graceful fallback if the file doesn't
+exist). Smoke-tested end to end: loads the real committed network,
+plays real games with it on one side.
 
 ## What was verified this checkpoint
 
 ```
-pytest -q   (full suite, unchanged code paths)
-172 passed in 167.27s
+pytest -q   (full suite)
+178 passed in 128.92s
 ```
-Early-stopping mechanism smoke-tested directly on synthetic data
-before trusting it on the real retrain. Final network verified
-directly: weight magnitude (2.2, healthy), held-out correlation and
-RMSE computed against the exact same train/val split the training
-script itself uses.
+Including the 6 new pluggable-eval tests and confirming the
+`self.tt` bug fix didn't break anything else. Manual smoke test of
+`tools/compare_engines.py --a-use-neural-eval` (depth=1, 20-move games,
+purely to confirm the mechanism works end to end, not a strength claim).
 
 ## What changed
 
-- `tools/train_neural_eval.py`: added early stopping (`--patience`,
-  default 40) — validates every epoch, keeps the best checkpoint,
-  halts on no improvement, rather than always training exactly
-  `--epochs` times.
-- `data/neural_eval.npz`: retrained on the full 94,872-position corpus
-  with early stopping (best checkpoint from epoch 158).
-- `docs/v0.6.2.md`: 4th addendum with the full investigation.
+- `src/alphazetacchess/engine/search.py`: new `_evaluate()` method,
+  `eval_fn` constructor param, all 4 evaluate() call sites
+  consolidated through it. Fixed the `self.tt` dead-code bug introduced
+  during this same edit.
+- `src/alphazetacchess/engine/mcts.py`: `eval_fn` constructor param,
+  `_expand_and_evaluate` uses it when set.
+- `tests/test_pluggable_eval_v062.py` (new, 6 tests).
+- `tools/compare_engines.py`: `--a/b-use-neural-eval` +
+  `--neural-eval-path`.
+- `docs/v0.6.2.md`: 5th addendum with the full story.
 - `docs/roadmap.md`: hand-off updated.
 
 ## Exact next step
 
-**On the user's machine**: try a larger network now that early
-stopping guards against overfitting regardless of capacity choice —
-this is the open capacity question from this checkpoint:
+**Run an actual strength comparison** — not yet done; every run so far
+has been a mechanism smoke test, not a strength claim:
 ```bash
-python tools/train_neural_eval.py --hidden1 128 --hidden2 64
+python tools/compare_engines.py --a-use-neural-eval --a-depth 2 --b-depth 2 --games 20 --random-opening-prob 0
 ```
-Compare held-out RMSE/correlation against the current 776cp/0.777 —
-if a bigger network does meaningfully better, that confirms the
-capacity hypothesis; if not, the current network is likely close to
-what this feature representation can support.
-
-**Here, once satisfied with the network (current one or a bigger
-one)**: add a pluggable `eval_fn` to `SearchEngine`/`MCTSEngine` (both
-currently hardcode `evaluate()`), wire `NeuralEvaluator` in, and run
-`tools/compare_engines.py` with it on one side — the real test of
-whether any of this helped actual play strength, not just
-Pikafish-score correlation.
+This is the real test of whether V0.6.2's distillation pipeline
+actually improved play strength, not just Pikafish-score correlation —
+the question every addendum in `docs/v0.6.2.md` has been building
+toward. Worth trying at a couple of depths if time allows, since the
+network's usefulness could plausibly differ between shallow and deeper
+search.
 
 ## Handoff rule (unchanged, repeated for visibility)
 

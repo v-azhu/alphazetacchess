@@ -20,6 +20,7 @@ Usage:
     python tools/compare_engines.py --a-use-mobility --games 20
     python tools/compare_engines.py --a-use-endgame-heuristics --games 20 --output data/selfplay.jsonl
     python tools/compare_engines.py --a-use-opening-book --random-opening-prob 0 --games 20
+    python tools/compare_engines.py --a-use-neural-eval --random-opening-prob 0 --games 20
 
 Note on --use-opening-book + opening randomization: both can be on at
 once (random opening's job is data diversity, the book's job is move
@@ -51,6 +52,7 @@ from alphazetacchess.engine.search import SearchEngine
 from alphazetacchess.selfplay.opening_book import load_book
 from alphazetacchess.selfplay.opening_randomization import RandomizedOpeningEngine
 from alphazetacchess.selfplay.strength_comparison import run_comparison_match
+from alphazetacchess.neural.evaluator import NeuralEvaluator
 
 
 def add_side_args(parser, prefix):
@@ -63,6 +65,14 @@ def add_side_args(parser, prefix):
         f"--{prefix}-use-opening-book", action="store_true",
         help=f"let side {prefix.upper()} consult --opening-book for its opening moves",
     )
+    parser.add_argument(
+        f"--{prefix}-use-neural-eval", action="store_true",
+        help=f"let side {prefix.upper()} use --neural-eval-path's trained network "
+             f"INSTEAD of the heuristic evaluate() -- see neural/evaluator.py. When "
+             f"set, this side's --{prefix}-use-mobility/pawn-structure/piece-"
+             f"coordination/endgame-heuristics flags are ignored (the network has "
+             f"already decided its own internal representation).",
+    )
 
 
 def config_from_args(args, prefix):
@@ -73,12 +83,13 @@ def config_from_args(args, prefix):
         "use_piece_coordination": getattr(args, f"{prefix}_use_piece_coordination"),
         "use_endgame_heuristics": getattr(args, f"{prefix}_use_endgame_heuristics"),
         "use_opening_book": getattr(args, f"{prefix}_use_opening_book"),
+        "use_neural_eval": getattr(args, f"{prefix}_use_neural_eval"),
     }
 
 
 def build_engine(
     config, random_opening_plies, random_opening_prob,
-    opening_book=None, opening_book_min_games=3,
+    opening_book=None, opening_book_min_games=3, neural_evaluator=None,
 ):
     engine = SearchEngine(
         depth=config["depth"],
@@ -89,6 +100,7 @@ def build_engine(
         use_opening_book=config["use_opening_book"],
         opening_book=opening_book if config["use_opening_book"] else None,
         opening_book_min_games=opening_book_min_games,
+        eval_fn=neural_evaluator if config["use_neural_eval"] else None,
     )
 
     if random_opening_plies > 0 and random_opening_prob > 0:
@@ -129,6 +141,11 @@ def main():
         help="minimum recorded games at a position before the book move is trusted "
              "(see selfplay/opening_book.py select_book_move)",
     )
+    parser.add_argument(
+        "--neural-eval-path", default="data/neural_eval.npz",
+        help="path to load for any side with --{a,b}-use-neural-eval set "
+             "(ignored if neither side uses it)",
+    )
     add_side_args(parser, "a")
     add_side_args(parser, "b")
     args = parser.parse_args()
@@ -146,6 +163,17 @@ def main():
         else:
             opening_book = load_book(args.opening_book)
             print(f"Loaded opening book: {len(opening_book)} position(s) from {args.opening_book}")
+
+    neural_evaluator = None
+    if a_config["use_neural_eval"] or b_config["use_neural_eval"]:
+        if not os.path.exists(args.neural_eval_path):
+            print(
+                f"--use-neural-eval requested but {args.neural_eval_path} does not exist "
+                f"-- run tools/train_neural_eval.py first. Continuing without it."
+            )
+        else:
+            neural_evaluator = NeuralEvaluator(args.neural_eval_path)
+            print(f"Loaded neural evaluator from {args.neural_eval_path}")
 
     if args.output:
         output_dir = os.path.dirname(args.output)
@@ -177,10 +205,12 @@ def main():
         engine_a_factory=lambda: build_engine(
             a_config, args.random_opening_plies, args.random_opening_prob,
             opening_book=opening_book, opening_book_min_games=args.opening_book_min_games,
+            neural_evaluator=neural_evaluator,
         ),
         engine_b_factory=lambda: build_engine(
             b_config, args.random_opening_plies, args.random_opening_prob,
             opening_book=opening_book, opening_book_min_games=args.opening_book_min_games,
+            neural_evaluator=neural_evaluator,
         ),
         games=args.games,
         max_moves=args.max_moves,
