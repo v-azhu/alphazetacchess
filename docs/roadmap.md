@@ -828,5 +828,29 @@ Current hand-off:
     MCTSEngine, wire NeuralEvaluator in, and run tools/compare_engines.py
     with it on one side -- the real test of whether any of this helped
     actual play strength, not just Pikafish-score correlation.
+        ↓
+    User: self-play data collection is bottlenecked by weak hardware --
+    pointed out trainingdata/ already has ~140k real human/engine games
+    unused (WXF + dpxq sources). Built tools/import_external_games.py
+    to convert their ICCS-notation .pgns into this project's own V0.5.1
+    record format, so the EXISTING labeling tool works unchanged.
+    Coordinate-mapping needed real verification (a legal-move replay
+    test alone couldn't distinguish an orientation from its mirror
+    image, since Xiangqi's rules are left-right symmetric) -- resolved
+    via the authoritative ICCS spec + these files' own FEN header
+    matching core/fen.py's output exactly. Imported 3,957 real games
+    (2,651 WXF + 1,306 dpxq), 100% legal-move validation pass rate
+    (strong real-world confirmation the mapping is correct), ~40x more
+    games than the self-play corpus. See docs/v0.6.2.md's third
+    addendum. 172/172 tests still green (no engine code changed).
+        ↓
+    Next: ON THE USER'S MACHINE -- label the new corpus and retrain:
+        python tools/label_positions_with_pikafish.py --pikafish-path ... \
+            --network-path ... --input data/external_games.jsonl
+        python tools/train_neural_eval.py
+    Then here: add a pluggable eval_fn to SearchEngine/MCTSEngine, wire
+    NeuralEvaluator in, and run tools/compare_engines.py with it on one
+    side -- the real test of whether any of this helped actual play
+    strength.
 
 Last updated: 2026-09-06
