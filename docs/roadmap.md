@@ -852,5 +852,37 @@ Current hand-off:
     NeuralEvaluator in, and run tools/compare_engines.py with it on one
     side -- the real test of whether any of this helped actual play
     strength.
+        ↓
+    User labeled the full external corpus: 2,888 -> 94,872 labels
+    (~33x). The fixed --epochs 800 default (right for the smaller
+    dataset) caused a real, visible overfitting signature on the much
+    larger one (val RMSE bottomed at epoch 160, then WORSENED through
+    epoch 800 while train RMSE kept dropping). Fixed properly with
+    early stopping (validate every epoch, keep the best checkpoint,
+    stop after --patience epochs without improvement) rather than
+    re-guessing another fixed number -- smoke-tested the mechanism
+    before the real, expensive retrain. Retrained on the full 94,872
+    positions: stopped at epoch 198 (saved ~75% of the wall-clock cost
+    of running all 800), held-out RMSE 776cp vs naive baseline 1228cp.
+    Honest mixed result: correlation dropped to 0.777 (from 0.915) --
+    not necessarily worse, since the target distribution itself
+    changed (naive baseline RMSE also dropped, 3201->1228cp, since real
+    games have less mate-score-driven variance than the old mostly-
+    self-play corpus). Early stopping firing at epoch 158/800 on 30x
+    more data hints the network's fixed 64->32 capacity may now be the
+    real bottleneck (underfitting) rather than overfitting risk -- a
+    quick 128->64 experiment didn't finish within this session's
+    per-command time budget, left as an open next experiment rather
+    than a completed result. 172/172 tests still green. See
+    docs/v0.6.2.md's 4th addendum.
+        ↓
+    Next: ON THE USER'S MACHINE -- try a larger network now that early
+    stopping guards against overfitting regardless of capacity:
+        python tools/train_neural_eval.py --hidden1 128 --hidden2 64
+    Then, once satisfied with the network: add a pluggable eval_fn to
+    SearchEngine/MCTSEngine, wire NeuralEvaluator in, and run
+    tools/compare_engines.py with it on one side -- the real test of
+    whether any of this helped actual play strength, not just
+    Pikafish-score correlation.
 
 Last updated: 2026-09-06

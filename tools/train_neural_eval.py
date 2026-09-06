@@ -54,13 +54,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", default="data/pikafish_labels.jsonl")
     parser.add_argument("--output", default="data/neural_eval.npz")
-    parser.add_argument("--epochs", type=int, default=800)
+    parser.add_argument("--epochs", type=int, default=800, help="maximum epochs -- early stopping (--patience) usually halts sooner")
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--hidden1", type=int, default=64)
     parser.add_argument("--hidden2", type=int, default=32)
     parser.add_argument("--val-split", type=float, default=0.1, help="fraction of data held out for validation reporting")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--patience", type=int, default=40,
+        help="stop if validation RMSE hasn't improved for this many consecutive epochs "
+             "(the fixed --epochs count that was right for a small dataset silently became "
+             "too many once the corpus grew 30x larger -- see docs/v0.6.2.md's 4th addendum "
+             "for the overfitting this caused before early stopping was added)",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.input):
@@ -95,6 +102,22 @@ def main():
     y_train_standardized = (y_train - net.y_mean) / net.y_std
     print(f"Target standardization: mean={net.y_mean:.1f} cp, std={net.y_std:.1f} cp")
 
+    # Early stopping: evaluate validation RMSE every epoch (cheap --
+    # one forward pass) and keep the BEST checkpoint seen, not just
+    # whatever weights happen to exist after --epochs runs out. This
+    # matters more than it might look: the fixed epoch count that was
+    # right for a ~2900-example dataset turned out to be badly wrong
+    # once the corpus grew ~30x larger (validation RMSE bottomed out
+    # around epoch 160 and then WORSENED through epoch 800 while
+    # training RMSE kept dropping -- classic overfitting, and a fixed
+    # epoch count has no way to know in advance where that point will
+    # be for a dataset it hasn't seen yet). See docs/v0.6.2.md's 4th
+    # addendum for the real run this was discovered on.
+    best_val_rmse = float("inf")
+    best_state = None
+    best_epoch = 0
+    epochs_since_improvement = 0
+
     for epoch in range(args.epochs):
         epoch_indices = rng.permutation(len(y_train))
         epoch_loss = 0.0
@@ -105,15 +128,40 @@ def main():
             epoch_loss += loss
             num_batches += 1
 
+        val_pred = net.predict(X_val) if len(y_val) else np.array([])
+        val_rmse = float(np.sqrt(np.mean((val_pred - y_val) ** 2))) if len(y_val) else float("nan")
+
+        if val_rmse < best_val_rmse:
+            best_val_rmse = val_rmse
+            best_epoch = epoch + 1
+            epochs_since_improvement = 0
+            best_state = {
+                "w1": net.w1.copy(), "b1": net.b1.copy(),
+                "w2": net.w2.copy(), "b2": net.b2.copy(),
+                "w3": net.w3.copy(), "b3": net.b3.copy(),
+                "y_mean": net.y_mean, "y_std": net.y_std,
+            }
+        else:
+            epochs_since_improvement += 1
+
         if (epoch + 1) % max(args.epochs // 10, 1) == 0 or epoch == 0:
-            # Report RMSE in real centipawn units either way: training
-            # loss is computed in standardized space (unscale it back),
-            # validation uses net.predict() which is already real-scale.
             train_rmse_standardized = (epoch_loss / num_batches) ** 0.5
             train_rmse = train_rmse_standardized * net.y_std
-            val_pred = net.predict(X_val) if len(y_val) else np.array([])
-            val_rmse = float(np.sqrt(np.mean((val_pred - y_val) ** 2))) if len(y_val) else float("nan")
             print(f"  epoch {epoch + 1:>4}/{args.epochs}: train RMSE {train_rmse:.1f} cp, val RMSE {val_rmse:.1f} cp")
+
+        if len(y_val) and epochs_since_improvement >= args.patience:
+            print(
+                f"  stopping early at epoch {epoch + 1} -- no validation improvement "
+                f"in the last {args.patience} epochs"
+            )
+            break
+
+    if best_state is not None:
+        net.w1, net.b1 = best_state["w1"], best_state["b1"]
+        net.w2, net.b2 = best_state["w2"], best_state["b2"]
+        net.w3, net.b3 = best_state["w3"], best_state["b3"]
+        net.y_mean, net.y_std = best_state["y_mean"], best_state["y_std"]
+        print(f"Restored best checkpoint: epoch {best_epoch}, val RMSE {best_val_rmse:.1f} cp")
 
     max_weight = max(
         np.abs(w).max() for w in (net.w1, net.b1, net.w2, net.b2, net.w3, net.b3)
