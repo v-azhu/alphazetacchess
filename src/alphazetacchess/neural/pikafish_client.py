@@ -36,7 +36,7 @@ class PikafishClient:
     negligible).
     """
 
-    def __init__(self, engine_path, movetime_ms=200):
+    def __init__(self, engine_path, movetime_ms=200, network_path=None):
         self.movetime_ms = movetime_ms
         self._process = subprocess.Popen(
             engine_path if isinstance(engine_path, list) else [engine_path],
@@ -48,8 +48,20 @@ class PikafishClient:
         )
         self._send("uci")
         self._read_until("uciok")
+        if network_path is not None:
+            # Pikafish (and NNUE engines generally) can't search at
+            # all without a network loaded -- if it isn't sitting next
+            # to the executable under its default expected name/path,
+            # this must be set explicitly before `isready`/`go`, or
+            # every `go` command will fail with an "ERROR: The network
+            # file ... was not loaded successfully" message and the
+            # process will exit instead of ever sending `bestmove`.
+            self._send(f"setoption name EvalFile value {network_path}")
         self._send("isready")
-        self._read_until("readyok")
+        # Stored (not just discarded) so tests can confirm a setoption
+        # command was actually sent and acknowledged, not just that
+        # the handshake didn't hang.
+        self.handshake_lines = self._read_until("readyok")
 
     def _send(self, command):
         self._process.stdin.write(command + "\n")
@@ -61,9 +73,18 @@ class PikafishClient:
         while True:
             line = self._process.stdout.readline()
             if line == "":
+                hint = ""
+                if any("EvalFile" in seen or "network file" in seen for seen in lines):
+                    hint = (
+                        "\n\nThis looks like Pikafish couldn't find its .nnue network "
+                        "file. Pass --network-path pointing at pikafish.nnue (download "
+                        "from https://github.com/official-pikafish/Networks/releases "
+                        "if you don't have it), or place it next to the executable "
+                        "under its default expected name."
+                    )
                 raise RuntimeError(
                     f"Engine process exited before sending a line starting "
-                    f"with {sentinel_prefix!r}. Lines seen: {lines}"
+                    f"with {sentinel_prefix!r}. Lines seen: {lines}{hint}"
                 )
             line = line.strip()
             lines.append(line)

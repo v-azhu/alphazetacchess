@@ -65,6 +65,13 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--pikafish-path", required=True, help="path to a Pikafish (or other UCI) executable")
+    parser.add_argument(
+        "--network-path", default=None,
+        help="path to the .nnue network file, if Pikafish can't find it automatically "
+             "next to the executable (this is the common case on Windows -- see the "
+             "error message Pikafish prints if this is needed). Download from "
+             "https://github.com/official-pikafish/Networks/releases if you don't have one.",
+    )
     parser.add_argument("--input", default="data/selfplay.jsonl", help="V0.5.1 self-play records to sample positions from")
     parser.add_argument("--output", default="data/pikafish_labels.jsonl")
     parser.add_argument("--movetime-ms", type=int, default=200, help="think time per position, in milliseconds")
@@ -80,7 +87,7 @@ def main():
     print(f"Loaded {len(records)} game record(s) from {args.input}")
     print(f"Starting Pikafish: {args.pikafish_path}")
 
-    client = PikafishClient(args.pikafish_path, movetime_ms=args.movetime_ms)
+    client = PikafishClient(args.pikafish_path, movetime_ms=args.movetime_ms, network_path=args.network_path)
     labeled_count = 0
 
     try:

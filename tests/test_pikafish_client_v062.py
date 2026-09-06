@@ -10,6 +10,8 @@ this project can't depend on a real Pikafish binary being present.
 import os
 import sys
 
+import pytest
+
 from alphazetacchess.neural.pikafish_client import PikafishClient, mate_score_to_cp
 
 _FAKE_ENGINE = os.path.join(
@@ -18,8 +20,11 @@ _FAKE_ENGINE = os.path.join(
 _STARTING_FEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
 
 
-def fake_engine_command(score_kind, score_value):
-    return [sys.executable, _FAKE_ENGINE, score_kind, str(score_value)]
+def fake_engine_command(score_kind, score_value, mode=None):
+    command = [sys.executable, _FAKE_ENGINE, score_kind, str(score_value)]
+    if mode is not None:
+        command.append(mode)
+    return command
 
 
 def test_handshake_completes_without_hanging_or_raising():
@@ -78,6 +83,34 @@ def test_multiple_evaluate_calls_reuse_the_same_process():
     #                                   a second request rather than needing
     #                                   to be relaunched.
     client.close()
+
+
+def test_network_path_sends_setoption_evalfile():
+    client = PikafishClient(
+        fake_engine_command("cp", 0), movetime_ms=50, network_path="/some/path/pikafish.nnue"
+    )
+
+    assert any(
+        "setoption name EvalFile value /some/path/pikafish.nnue" in line
+        for line in client.handshake_lines
+    )
+    client.close()
+
+
+def test_missing_network_failure_gives_an_actionable_hint():
+    # Simulates Pikafish's actual real-world failure mode: it accepts
+    # uci/isready fine, then fails and exits (without ever sending
+    # bestmove) the moment a search is actually requested, because no
+    # .nnue network could be loaded. PikafishClient should surface a
+    # specific, actionable hint for this rather than just the raw
+    # "process exited" message.
+    client = PikafishClient(fake_engine_command("cp", 0, "missing_network"), movetime_ms=50)
+
+    try:
+        with pytest.raises(RuntimeError, match="network"):
+            client.evaluate_fen(_STARTING_FEN)
+    finally:
+        client.close()
 
 
 # ---------------------------------------------------------------------------
