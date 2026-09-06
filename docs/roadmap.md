@@ -482,7 +482,7 @@ targeted test file: **130/130 green.** Smoke-tested end to end (small real match
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
 design and known limitations in `docs/v0.5.4.md`.
 
-## V0.6+ — Neural Evaluation / MCTS — V0.6.1 COMPLETE (search skeleton); needs a network
+## V0.6+ — Neural Evaluation / MCTS — V0.6.2 COMPLETE (untrained); needs real Pikafish data
 
 Policy/value network, neural evaluation and MCTS integration.
 
@@ -511,6 +511,32 @@ network (needs far more simulations per move than alpha-beta needs plies), not a
 correctness bug, which the unit tests (especially the alpha-beta cross-validation)
 independently confirm. Full design, exact test list, and the material-tracking evidence in
 `docs/v0.6.1.md`.
+
+### V0.6.2 — Neural Evaluation via Pikafish Distillation — pipeline COMPLETE, untrained
+
+Investigated "borrow Pikafish's trained NNUE weights directly" before writing code, found
+two real blockers: Pikafish's own network has a custom non-commercial license murky enough
+to not cleanly embed in this public repo, and its HalfKAv2_xq feature encoding + quantized
+inference would need a substantial, bug-prone reimplementation to port correctly. Pivoted to
+**distillation**: run Pikafish locally as an oracle to label positions, train an entirely
+new, small, from-scratch network on those labels -- never redistributes Pikafish's own
+weights/code, and needs far less compute than either full self-play training or NNUE
+reimplementation.
+
+Five new pieces, each independently tested: `core/fen.py` (Xiangqi FEN encode/decode --
+note the UCCI piece-letter convention differs from this project's own `PieceType.value`,
+see the module's docstring), `neural/features.py` (perspective-relative board encoding,
+1260-dim), `neural/network.py` (`SmallMLP`, hand-derived backprop verified against a
+numerical gradient check), `neural/pikafish_client.py` + `tools/label_positions_with_
+pikafish.py` (UCI client tested against a real fake-engine subprocess, not mocked), and
+`tools/train_neural_eval.py` + `neural/evaluator.py`. 23 new tests, combined total
+**165/165 green**. Full pipeline smoke-tested end to end against a fake engine (real FENs
+sampled from real self-play games, labeled, network trained on the labels).
+
+**Not yet done**: no real Pikafish-labeled training has happened (needs the user's local
+machine), and the trained-network story isn't wired into `SearchEngine`/`MCTSEngine` yet --
+deliberately deferred until there's a real network worth plugging in. Full design and
+exact next commands in `docs/v0.6.2.md`.
 
 ## V0.7 — Hybrid Engine — PLANNED
 
@@ -734,5 +760,36 @@ Current hand-off:
     uniform priors are deliberately left as placeholders for -- a bigger
     undertaking needing training data/infrastructure that doesn't exist
     yet, worth thinking through before writing any of it.
+        ↓
+    User: local infra (a laptop) can't handle self-play-scale training.
+    Asked about borrowing Pikafish's (a strong open-source Xiangqi
+    engine) published training results instead. Investigated before
+    writing any code -- two real blockers to porting weights directly:
+    Pikafish's own NNUE weights carry a custom non-commercial license
+    murky enough to not cleanly embed in this public repo, and its
+    HalfKAv2_xq feature encoding + quantized inference would need a
+    substantial, bug-prone reimplementation to port correctly.
+        ↓
+    V0.6.2 COMPLETE as an untrained pipeline: pivoted to DISTILLATION --
+    run Pikafish locally as an oracle to label positions, train an
+    entirely new, small, from-scratch network on those labels (never
+    redistributes Pikafish's own weights/code). Five new pieces, each
+    independently tested: core/fen.py (Xiangqi FEN -- note the UCCI
+    piece-letter convention differs from this project's own PieceType.
+    value), neural/features.py (perspective-relative board encoding),
+    neural/network.py (SmallMLP, backprop verified against a numerical
+    gradient check), neural/pikafish_client.py + tools/label_positions_
+    with_pikafish.py (UCI client tested against a real fake-engine
+    subprocess), tools/train_neural_eval.py + neural/evaluator.py. 23
+    new tests, 165/165 total. Full pipeline smoke-tested end to end
+    against a fake engine. See docs/v0.6.2.md.
+        ↓
+    Next: ON THE USER'S MACHINE (needs a working Pikafish binary) --
+        python tools/label_positions_with_pikafish.py --pikafish-path /path/to/pikafish
+        python tools/train_neural_eval.py
+    Then here, once a real trained network exists: add a pluggable
+    eval_fn to SearchEngine/MCTSEngine (both currently hardcode
+    evaluate()), wire NeuralEvaluator in, and run tools/compare_engines.py
+    with it on one side -- the real test of whether any of this helped.
 
 Last updated: 2026-09-05

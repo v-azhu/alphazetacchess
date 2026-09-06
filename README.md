@@ -36,8 +36,8 @@ hybrid engine, inspired by the AlphaZero approach.
 - [x] 自动化强度对比 (v0.5.4)：任意两组引擎配置互相对局，胜/负/和 + Elo 差值估计 (`tools/compare_engines.py`)，复用 v0.5.1 的对局记录格式，产出可直接被开局库/残局分析工具消费；支持 `--use-opening-book` 用于开局库质量对比
 - [x] 首份真实规模数据验证：63→99 局真实对局（`data/selfplay.jsonl`），重建出 1330 个局面的真实开局库并验证可正常调用；开局库、`use_endgame_heuristics` 均得到真实的"无明显提升"零结果（20 局开局库对比 50%/50%，29 局残局启发式对比约 52%），depth=3 vs depth=2 则得到有意义的真实提升（12 局，Elo +88.7）——三条问题均已有真实数据支撑的结论，详见 `docs/v0.5-real-data-checkpoint-3.md`
 - [x] MCTS 搜索骨架 (v0.6.1)：`MCTSEngine`（PUCT 选择 + 现有 `evaluate()` 作为叶子价值估计，暂无策略/价值网络），12 个测试含关键的符号约定测试与"与 alpha-beta 独立实现在必胜局面上找到同一步杀棋"的交叉验证；对阵 RandomEngine 的冒烟测试证实真实子力优势（第60步 4150:3600）但在给定的模拟次数下未必能在步数限制内形成杀棋——是符合预期的"无策略网络的原始 MCTS"特征而非 bug，详见 `docs/v0.6.1.md`
-- [ ] MCTS 实际强度的真实数据验证（模拟次数调优、CLI 集成）
-- [ ] 策略/价值神经网络 (v0.6.2+)
+- [x] 神经网络评估管线 (v0.6.2)：不直接搬运 Pikafish 权重（许可证边界模糊 + NNUE 特征编码/量化推理复刻成本高），改为**蒸馏**——本地跑 Pikafish 给局面打分，训练一个完全自己从零训练的小型网络。包含 Xiangqi FEN 编解码 (`core/fen.py`)、局面特征提取 (`neural/features.py`)、纯 numpy 手写 MLP 及反向传播 (`neural/network.py`，经数值梯度校验)、UCI 客户端 (`neural/pikafish_client.py`，用伪引擎子进程测试)、打标签与训练 CLI 工具。23 个新测试，全部针对伪引擎/合成数据；尚未用真实 Pikafish 打过标签、尚未接入 SearchEngine/MCTSEngine，详见 `docs/v0.6.2.md`
+- [ ] 用真实 Pikafish 数据训练网络并接入引擎、验证是否真的更强
 
 上述开局库、残局启发式与强度对比目前都是"机制已完成，但结论/常量/是否默认启用仍需真实规模数据验证"的状态——三者共用同一份自我对弈数据格式，一次本地长时间运行即可同时回答三个问题，详见
 `docs/v0.5.2.md` / `docs/v0.5.3.md` / `docs/v0.5.4.md`。
@@ -137,7 +137,8 @@ alphazetacchess/
 │       │   ├── move.py           # Move 对象
 │       │   ├── move_generator.py # 七种棋子的伪合法走法生成
 │       │   ├── rule.py           # 合法性过滤、将军/将死/困毙判定
-│       │   └── zobrist.py        # Zobrist 哈希（置换表 / 开局库键）
+│       │   ├── zobrist.py        # Zobrist 哈希（置换表 / 开局库键）
+│       │   └── fen.py            # Xiangqi FEN 编解码 (V0.6.2，用于与外部 UCI 引擎通信)
 │       ├── engine/              # 决策层：搜索 + 评估
 │       │   ├── base.py           # ChessEngine 统一接口 + SearchResult
 │       │   ├── evaluation.py     # 评估函数（材料 + 可开关的评估项组合）
@@ -148,6 +149,11 @@ alphazetacchess/
 │       │   ├── endgame.py        # 残局阶段车/炮价值调整 (V0.5.3)
 │       │   ├── mcts.py           # MCTS 搜索骨架 (V0.6.1)，暂用现有 evaluate() 作叶子价值
 │       │   └── random_engine.py  # V0.1 随机引擎 (现作为评测基准)
+│       ├── neural/               # 神经网络评估管线 (V0.6.2)：从 Pikafish 蒸馏，非直接搬运权重
+│       │   ├── features.py       # 局面 -> 特征向量（视角相对编码）
+│       │   ├── network.py        # SmallMLP：纯 numpy 手写前向/反向传播
+│       │   ├── pikafish_client.py # 最小化 UCI 客户端，用于向 Pikafish 查询局面评分
+│       │   └── evaluator.py      # 训练好的网络包装为 evaluate(board, color) 同款接口
 │       └── selfplay/             # 自我对弈数据记录、开局库、残局分析、强度对比 (V0.5)
 │           ├── recorder.py           # 对弈记录（JSON-lines）
 │           ├── opening_randomization.py # 开局阶段随机化（数据多样性）
@@ -163,7 +169,9 @@ alphazetacchess/
 │   ├── self_play.py            # 自我对弈数据收集 CLI
 │   ├── build_opening_book.py   # 从自我对弈数据构建开局库 CLI
 │   ├── analyze_endgame.py      # 从自我对弈数据验证残局启发式 CLI
-│   └── compare_engines.py      # 两组引擎配置强度对比 CLI
+│   ├── compare_engines.py      # 两组引擎配置强度对比 CLI
+│   ├── label_positions_with_pikafish.py # 用本地 Pikafish 给局面打分，生成训练标签 (V0.6.2)
+│   └── train_neural_eval.py    # 训练 V0.6.2 神经网络评估器
 ├── data/                       # 自我对弈数据（默认不入库，见 data/README.md）
 ├── trainingdata/               # 供未来监督学习 / 开局库使用的历史棋谱数据
 └── pyproject.toml

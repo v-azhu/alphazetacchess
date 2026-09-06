@@ -1,134 +1,107 @@
-# AlphaZetaChess Progress Snapshot — 99-game checkpoint + V0.6.1 MCTS skeleton
+# AlphaZetaChess Progress Snapshot — V0.6.2 neural evaluation pipeline (untrained)
 
 Snapshot date: 2026-09-05
 
 ## What happened this checkpoint
 
-Two distinct pieces of work: (1) analyzed a third round of real
-self-play data the user collected locally, and (2) pivoted to V0.6,
-building the first MCTS engine skeleton.
+User's local infrastructure (a laptop) can't handle self-play-scale
+training. Asked about borrowing Pikafish's (a strong open-source
+Xiangqi engine) published training results instead of training from
+scratch.
 
-### 1. Third real data checkpoint (99 games)
+**Investigated before writing any code.** Two real blockers to porting
+Pikafish's NNUE weights directly:
+- Licensing: Pikafish's own `pikafish.nnue` carries a custom
+  non-commercial license ("no commercial use without permission,"
+  and it explicitly follows "weights further derived from them") --
+  murky enough that embedding it (or a derivative) in this public
+  repo isn't a clean call. A CC0 alternative exists for Fairy-
+  Stockfish's xiangqi variant but wasn't worth chasing given blocker 2.
+- Reimplementation: Pikafish's NNUE uses a specific feature encoding
+  (HalfKAv2_xq) and quantized inference -- correctly porting that into
+  this project's Python `Board` representation is a substantial,
+  bug-prone reverse-engineering project on its own.
 
-User ran the three comparisons the previous checkpoint's hand-off
-suggested, then interrupted early (depth=3 games are slow) — still
-appended 36 complete, valid records before stopping.
-`data/selfplay.jsonl`: 63 → 99 real games. All three open questions
-now have real answers:
+**Pivoted to distillation**: run Pikafish locally (on the user's
+machine) as an oracle to label positions, train an entirely new, small
+network from scratch on those labels. Never redistributes Pikafish's
+weights/code -- only its output (a number) as training signal, which
+is standard practice across the NNUE-training community.
 
-- **Opening book**: 20 games, exactly 50%/50%, Elo diff +0 — no
-  measurable benefit yet. Notable side observation: zero draws across
-  all 20 games (vs. the corpus's overall ~60% draw rate) — a
-  tentative, not yet confirmed, hypothesis in
-  `docs/v0.5-real-data-checkpoint-3.md`.
-- **Depth=3 vs Depth=2**: 12 games, 62.5% score for depth=3, Elo diff
-  **+88.7** — the first real, meaningfully-sized effect this project's
-  self-play history has shown, matching strong prior chess-engine
-  intuition.
-- **`use_endgame_heuristics` at depth=3**: only 4 games completed
-  before the interruption; combined with existing depth=2 data (29
-  games total), still a flat ~52% / Elo +12 — consistent with the
-  earlier depth=2-only null result.
+Built the full pipeline this checkpoint, five independently-tested
+pieces:
 
-`tools/analyze_endgame.py` on the full 99-game corpus: 20 decided
-Rook/Cannon-edge positions — the first run where the tool's own
-"sample too small" note doesn't print — still exactly 50%. Opening
-book rebuilt again (1330 positions, up from 1057). Both
-`use_endgame_heuristics` and the opening book remain off by default.
-
-**Decision**: given depth=3-vs-depth=2 is now fairly confidently
-answered and the other two comparisons both cleared "not just too
-small" and came back null, moved to V0.6 rather than grinding out more
-depth=3 games for diminishing returns on two already-answered
-questions.
-
-### 2. V0.6.1 — MCTS search skeleton
-
-`src/alphazetacchess/engine/mcts.py`: `MCTSEngine`, PUCT-based MCTS
-using the *existing* `evaluate()` function as leaf value estimator
-(tanh-squashed to `[-1,1]`) and uniform move priors — deliberately no
-policy/value network yet, following the same "search skeleton first,
-evaluation second" split V0.3/V0.4 used historically.
-
-12 new tests (`tests/test_mcts_v061.py`), most notably:
-- A dedicated unit test for the single most error-prone part of any
-  minimax/MCTS implementation (negating a child's value before
-  comparing it from the parent's perspective).
-- A cross-validation test: on a forced-mate fixture, `MCTSEngine`
-  finds the *exact same* mating move an independently-implemented
-  `SearchEngine(depth=2)` finds — much stronger evidence of
-  correctness than hand-verifying the winning square myself.
-
-**Smoke test initially looked concerning**: MCTSEngine vs RandomEngine,
-6 games at simulations=150 → 6/6 draws (move limit), zero decisive
-results. Investigated directly rather than dismissing or assuming a
-bug — tracked material every 10 plies in a real game and confirmed
-MCTSEngine reliably builds a genuine, growing advantage (4150 vs 3600
-by ply 60). The mechanism works; it just doesn't reliably *convert*
-that advantage into checkmate within a 150-move cap at the simulation
-budgets tried (100-800) — an expected characteristic of vanilla MCTS
-without a policy network (needs far more simulations per move than
-alpha-beta needs plies), not a correctness bug.
+1. `core/fen.py` -- Xiangqi FEN encode/decode. The one detail that
+   would have silently broken everything if missed: Xiangqi has two
+   competing piece-letter conventions, and this project's own
+   `PieceType.value` (Horse=H, Elephant=E) is the WRONG one for
+   talking to Pikafish (which needs Horse=N, Elephant=B). Caught this
+   by researching the actual UCCI convention before writing the
+   encoder, not after debugging garbled positions.
+2. `neural/features.py` -- perspective-relative board encoding
+   (1260-dim: "my pieces" vs "opponent pieces", board vertically
+   flipped for Black's perspective so both colors share one canonical
+   orientation).
+3. `neural/network.py` -- `SmallMLP`, a hand-derived 2-hidden-layer
+   MLP (pure numpy, no torch). Backprop verified against a direct
+   numerical gradient check, not just "training loss went down."
+4. `neural/pikafish_client.py` + `tools/label_positions_with_
+   pikafish.py` -- minimal UCI client + CLI to label sampled positions
+   from real self-play games. Tested against a real fake-engine
+   subprocess (`tests/fixtures/fake_uci_engine.py`), not mocked, since
+   this project's test suite can't depend on a real Pikafish binary.
+5. `tools/train_neural_eval.py` + `neural/evaluator.py` -- training
+   script and a thin wrapper so a trained network can be called
+   exactly like `evaluate(board, color)`.
 
 ## What was verified this checkpoint
 
 ```
-pytest tests/test_mcts_v061.py -q
-12 passed in 0.30s
-
 pytest -q   (full suite)
-142 passed in 162.56s
+165 passed in 125.72s
 ```
+23 new tests across the five pieces above. Full pipeline smoke-tested
+end to end using a fake UCI engine standing in for Pikafish: labeled
+24 real positions sampled from real self-play games, trained a tiny
+network on them, confirmed the mechanics (FEN round-trip, feature
+extraction, training loop, save/load) all work together correctly.
 
-Manual smoke tests (documented in `docs/v0.6.1.md`):
-```
-MCTSEngine(simulations=100).choose_move(Board(), Color.RED)
-  -> legal move, 0.31s
-
-run_match(MCTSEngine(simulations=150), RandomEngine, games=6, max_moves=150)
-  -> 6/6 draws (move limit)
-
-MCTSEngine(simulations=300) as Red vs RandomEngine as Black, material tracked every 10 plies:
-  ply 60: Red 4150 / Black 3600 -- real, growing material advantage confirmed
-```
+**Not verified**: whether a network trained on REAL Pikafish
+evaluations (which vary meaningfully, unlike the fake engine's
+constant output) can learn anything useful. That requires the user's
+local Pikafish and hasn't happened yet.
 
 ## What changed
 
-- `data/selfplay.jsonl`: 63 → 99 real games (user's local runs).
-- `data/opening_book.json`: rebuilt fresh from 99 games (1057 → 1330
-  positions).
-- `docs/v0.5-real-data-checkpoint-3.md` (new): full breakdown of all
-  three real comparisons.
-- `src/alphazetacchess/engine/mcts.py` (new): `MCTSEngine`, `_MCTSNode`,
-  `_squash`.
-- `tests/test_mcts_v061.py` (new, 12 tests).
-- `docs/v0.6.1.md` (new): full design writeup.
-- `docs/roadmap.md`: V0.5 line closed out as complete; V0.6.1 section
-  added; hand-off updated.
-- `README.md`: status checklist and project-structure tree updated
-  through V0.6.1.
+- `src/alphazetacchess/core/fen.py` (new): `board_to_fen`, `board_from_fen`.
+- `src/alphazetacchess/neural/` (new subpackage): `features.py`,
+  `network.py`, `pikafish_client.py`, `evaluator.py`.
+- `tools/label_positions_with_pikafish.py`, `tools/train_neural_eval.py` (new).
+- `tests/fixtures/fake_uci_engine.py` (new): fake UCI engine for testing.
+- `tests/test_fen_v062.py`, `test_network_v062.py`,
+  `test_pikafish_client_v062.py`, `test_evaluator_v062.py` (new, 23 tests total).
+- `docs/v0.6.2.md` (new): full pipeline design writeup.
+- `docs/roadmap.md`: V0.6.2 section + hand-off updated.
 
 ## Exact next step
 
-Two independent directions:
-
-**Tune/benchmark MCTSEngine** (needs real compute + small CLI
-addition):
+**On the user's machine** (needs a working Pikafish binary -- a
+prebuilt release from https://github.com/official-pikafish/Pikafish/releases
+is the easy path, no compiling required):
 ```bash
-# Not yet supported -- tools/compare_engines.py only builds
-# SearchEngine instances currently. Adding an --a-engine/--b-engine
-# selector (mcts vs search) is the natural small next increment.
+python tools/label_positions_with_pikafish.py --pikafish-path /path/to/pikafish --sample-every 4
+python tools/train_neural_eval.py
 ```
-Goal: find the simulation count where `MCTSEngine` reliably beats
-`RandomEngine` decisively (not just materially) within a reasonable
-move limit, and where it starts competing with `SearchEngine` at
-various depths.
+This labels positions from the existing 99-game real corpus and trains
+the first real network. Worth sanity-checking the reported validation
+RMSE against a naive "always predict 0" baseline before assuming
+anything was learned.
 
-**Design V0.6.2 (policy/value network)**: `_expand_and_evaluate`'s
-`evaluate()` call and uniform priors are deliberately left as
-placeholders for exactly this. Needs training data/infrastructure that
-doesn't exist yet — a bigger undertaking than any single prior
-checkpoint, worth designing carefully before writing code.
+**Here, once a real trained network exists**: add a pluggable
+`eval_fn` parameter to `SearchEngine`/`MCTSEngine` (both currently
+hardcode calls to `evaluate()`), wire `NeuralEvaluator` in, and run
+`tools/compare_engines.py` with it on one side -- the actual test of
+whether any of this was worthwhile.
 
 ## Handoff rule (unchanged, repeated for visibility)
 
