@@ -482,7 +482,7 @@ targeted test file: **130/130 green.** Smoke-tested end to end (small real match
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
 design and known limitations in `docs/v0.5.4.md`.
 
-## V0.6+ — Neural Evaluation / MCTS — V0.6.2 COMPLETE (untrained); needs real Pikafish data
+## V0.6+ — Neural Evaluation / MCTS — V0.6.2 first real network trained (0.92 correlation)
 
 Policy/value network, neural evaluation and MCTS integration.
 
@@ -791,5 +791,42 @@ Current hand-off:
     eval_fn to SearchEngine/MCTSEngine (both currently hardcode
     evaluate()), wire NeuralEvaluator in, and run tools/compare_engines.py
     with it on one side -- the real test of whether any of this helped.
+        ↓
+    User ran the real pipeline. First trained network (data/neural_eval.npz)
+    turned out DIVERGED (weights ~1e24-1e27, every prediction the same
+    absurd constant) -- root cause: raw score_cp targets up to +/-9000,
+    plain MSE gradient descent at a unit-scale-tuned learning rate blew
+    up. Fixed: SmallMLP gained y_mean/y_std target standardization +
+    gradient-norm clipping. 5 new tests (172/172 total), including one
+    that reproduces the actual failure at real-label scale. See
+    docs/v0.6.2.md's first addendum.
+        ↓
+    User reran training with the fix, real data (2888 positions, now
+    force-pushed as data/pikafish_labels.jsonl) -- no divergence.
+    Before trusting RMSE alone, hand-probed a few constructed positions
+    and found a CONCERNING pattern (predictions got more confidently
+    backwards as a constructed material imbalance grew) -- investigated
+    rather than dismissing or panicking: ruled out a Board.move()
+    current_player bug (none found), then computed correlation on the
+    ACTUAL held-out validation split against real Pikafish labels (the
+    fair, in-distribution test) -- 0.88-0.92 correlation, RMSE 40-60%
+    of the naive baseline. Real signal, not noise or a repeat of the
+    divergence -- the hand-probed positions were simply out-of-
+    distribution (a small MLP with sparse binary features doesn't
+    generalize additively to hand-crafted material configs far from
+    anything in 2600 real training examples, unlike evaluation.py's
+    hard-coded material counting). Compared 200 vs 800 vs 1000 epochs
+    directly: validation plateaus around 800 (further epochs mostly
+    just widen the train/val gap = overfitting onset). Updated the
+    default --epochs 200 -> 800 accordingly. Final committed network:
+    held-out correlation 0.915, RMSE 1292cp vs 3201cp naive baseline --
+    real, working, still imprecise. See docs/v0.6.2.md's second addendum.
+        ↓
+    Next: more labeled data (2888 positions from only 99 self-play
+    games) is the likelier lever for further improvement now, more than
+    further epochs. Then: add a pluggable eval_fn to SearchEngine/
+    MCTSEngine, wire NeuralEvaluator in, and run tools/compare_engines.py
+    with it on one side -- the real test of whether any of this helped
+    actual play strength, not just Pikafish-score correlation.
 
-Last updated: 2026-09-05
+Last updated: 2026-09-06

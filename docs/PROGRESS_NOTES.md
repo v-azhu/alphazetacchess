@@ -1,100 +1,90 @@
-# AlphaZetaChess Progress Snapshot — training divergence found and fixed
+# AlphaZetaChess Progress Snapshot — first working neural evaluator (0.92 correlation)
 
 Snapshot date: 2026-09-06
 
 ## What happened this checkpoint
 
-User ran the full V0.6.2 pipeline for real: labeled positions with a
-local Pikafish binary (after a `--network-path` fix for a Windows
-network-file-location issue) and trained a network, pushing
-`data/neural_eval.npz` (the `pikafish_labels.jsonl` file itself wasn't
-pushed -- it's gitignored by default, `git add` without `-f` silently
-skipped it).
+User reran training with the divergence fix, on the real labeled
+dataset (2888 positions from 99 self-play games, force-pushed as
+`data/pikafish_labels.jsonl` this time so it's reproducible). No
+divergence: `Target standardization: mean=-219.4 cp, std=3061.4 cp`
+printed sanely, weight magnitude stayed at 0.78.
 
-**Loaded and sanity-checked the trained network directly rather than
-assuming it worked.** Result: broken. Every prediction was the same
-absurd constant (~-3.9e10) regardless of position -- starting
-position, a position with Red up a full rook, evaluated from either
-side, all identical. Inspected the saved weights directly: every
-matrix had entries around **1e24 to 1e27** in magnitude. Training had
-diverged, not "learned a bad function."
+**Didn't stop at "RMSE went down" — checked whether it learned
+anything real.** Probed the network on a few hand-constructed
+positions first (starting position, a position with a rook removed)
+and got a concerning result: predictions got MORE confidently
+backwards as the constructed material imbalance grew. Investigated
+rather than panicking or dismissing:
+1. Checked `Board.move()` actually flips `current_player` (it does) —
+   ruled out a FEN/perspective mismatch between labeling and training.
+2. Computed correlation between predictions and real Pikafish labels
+   on the ACTUAL held-out validation split (288 positions never seen
+   during training, same split the training script itself uses) — the
+   fair, in-distribution test, unlike the hand-crafted probes above.
+   Result: **correlation 0.88-0.92**, RMSE 40-60% of the naive
+   "predict the mean" baseline.
 
-**Root cause**: Pikafish's raw `score_cp` labels range up to +/-9000
-(mate scores via `mate_score_to_cp`). Plain mean-squared-error
-gradient descent against targets that large, at a learning rate tuned
-for roughly unit-scale targets, blows the weights up within the first
-few steps rather than converging -- a standard, well-understood
-regression-training failure mode. Independently confirmed this is NOT
-a backprop-correctness bug: the numerical gradient check from the
-original V0.6.2 checkpoint already verified the math itself is right.
+**Conclusion**: the network genuinely learned real signal from
+Pikafish's evaluations on realistic positions. The "backwards" probe
+result was a real but different limitation: a small feedforward net
+with 1260 sparse binary features, trained on ~2600 examples, doesn't
+generalize additively to hand-crafted, out-of-distribution material
+configurations that don't resemble anything in real self-play games —
+unlike `evaluation.py`'s hard-coded material-counting term, which
+generalizes perfectly by construction. Worth remembering, not a bug.
 
-**Fixed two ways, together**:
-- `SmallMLP` gained `y_mean`/`y_std` attributes. `predict()` always
-  returns real-scale (centipawn) values; `train_step` is fed
-  pre-standardized (roughly unit-scale) targets by the caller.
-- `tools/train_neural_eval.py` now computes `y_mean`/`y_std` from the
-  training set itself before training, and prints an explicit warning
-  if post-training weight magnitude still looks like divergence.
-- `train_step` also gained gradient-norm clipping (`max_grad_norm=10.0`
-  default) as defense-in-depth, independent of standardization.
+**Tuned training length**: compared 200 vs 800 vs 1000 epochs directly.
+Validation RMSE improved substantially 200→800 (1578→1292 cp) then
+plateaued 800→1000 (1292→1290) while training RMSE kept dropping
+(840→771) — classic overfitting-onset signature (widening train/val
+gap). Updated `tools/train_neural_eval.py`'s default `--epochs` from
+200 to **800**.
+
+**Final committed network** (`data/neural_eval.npz`, 800 epochs): max
+weight magnitude 1.1 (healthy), held-out validation correlation
+**0.915**, RMSE **1292 cp** vs. naive baseline 3201 cp. Real, working,
+still imprecise (1292 cp is more than a full Rook's value).
 
 ## What was verified this checkpoint
 
 ```
-pytest -q   (full suite)
-172 passed in 161.53s
+pytest -q   (full suite, unchanged from previous checkpoint's code)
+172 passed in 153.59s
 ```
-5 new tests, most importantly one that **reproduces the actual
-failure** (synthetic targets at the same order of magnitude as real
-Pikafish labels) and confirms standardized training now stays bounded.
-
-Also verified directly (not just via unit tests): built a synthetic
-dataset from real self-play positions with large-scale (~thousands of
-cp) synthetic labels, ran the fixed `tools/train_neural_eval.py`
-against it -- **max weight magnitude after training: 0.73** (vs. the
-1e24+ seen in the real divergence).
+Verified directly (not just via unit tests, since this checkpoint was
+about a real trained artifact, not new code): weight magnitude sanity
+check, held-out correlation computation matching the training script's
+own train/val split exactly, and a direct 200-vs-800-vs-1000-epoch
+comparison to justify the new default.
 
 ## What changed
 
-- `src/alphazetacchess/neural/network.py`: `y_mean`/`y_std` target
-  standardization, gradient-norm clipping in `train_step`,
-  backward-compatible `load()` for networks saved before this fix.
-- `tools/train_neural_eval.py`: sets `y_mean`/`y_std` from the
-  training data, trains on standardized targets, warns if weights look
-  diverged after training.
-- `tests/test_network_v062.py`: 5 new tests.
-- `docs/v0.6.2.md`: addendum documenting the divergence, root cause,
-  and fix.
-
-**`data/neural_eval.npz` currently in the repo is from the diverged
-run and should not be used or trusted.**
+- `data/neural_eval.npz`: replaced the diverged network with a real,
+  working one (800 epochs, correlation 0.915).
+- `tools/train_neural_eval.py`: default `--epochs` 200 → 800.
+- `docs/v0.6.2.md`: second addendum with the full investigation and
+  final numbers.
+- `docs/roadmap.md`: hand-off updated.
 
 ## Exact next step
 
-**On the user's machine**: rerun training with the fix (no need to
-re-label -- the existing `data/pikafish_labels.jsonl` from the earlier
-run should still be there locally, even though it wasn't pushed):
+**More labeled data is the likelier lever now**, more than further
+training epochs (which have plateaued): the current 2888 positions
+come from only 99 self-play games.
 ```bash
+python tools/label_positions_with_pikafish.py --pikafish-path /path/to/pikafish --network-path /path/to/pikafish.nnue --sample-every 2
 python tools/train_neural_eval.py
 ```
-Check the printed `Target standardization: mean=... cp, std=... cp`
-line looks sane (roughly matching real Xiangqi evaluation scale, not
-near-zero or absurdly large), and confirm no divergence warning
-prints. Then push the corrected `data/neural_eval.npz` -- and this
-time also force-add the labels file so it's actually preserved and
-reproducible:
-```bash
-git add -f data/pikafish_labels.jsonl data/neural_eval.npz
-git commit -m "..."
-git push
-```
+(`--sample-every 2` instead of 4 roughly doubles the label count from
+the same 99 games without needing new self-play data first.)
 
-**Here, once a real, non-diverged trained network exists**: sanity-
-check its predictions on a few known positions (starting position
-near 0, a clear material-advantage position clearly favoring the
-correct side) before trusting it further, then add a pluggable
-`eval_fn` to `SearchEngine`/`MCTSEngine` and compare against the
-existing heuristic `evaluate()` via `tools/compare_engines.py`.
+**Here, once more data has been tried (or even with the current
+network, to get a first real signal)**: add a pluggable `eval_fn` to
+`SearchEngine`/`MCTSEngine` (both currently hardcode `evaluate()`),
+wire `NeuralEvaluator` in, and run `tools/compare_engines.py` with it
+on one side — the real test of whether any of this helped actual play
+strength, not just Pikafish-score correlation.
 
 ## Handoff rule (unchanged, repeated for visibility)
 
