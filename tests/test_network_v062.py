@@ -143,3 +143,93 @@ def test_save_and_load_round_trip_produces_identical_predictions():
     predictions_after = restored.predict(x)
 
     assert np.allclose(predictions_before, predictions_after)
+
+
+# ---------------------------------------------------------------------------
+# SmallMLP -- target standardization (the actual training-divergence fix)
+# ---------------------------------------------------------------------------
+
+def test_predict_applies_y_mean_and_std():
+    net = SmallMLP(input_dim=4, hidden1=3, hidden2=2, seed=5)
+    net.y_mean = 500.0
+    net.y_std = 200.0
+    x = np.zeros((2, 4), dtype=np.float32)
+
+    raw_standardized, _ = net.forward(x)
+    real_scale = net.predict(x)
+
+    assert np.allclose(real_scale, raw_standardized * 200.0 + 500.0)
+
+
+def test_save_and_load_preserves_y_mean_and_std():
+    import tempfile, os
+
+    net = SmallMLP(input_dim=4, hidden1=3, hidden2=2, seed=6)
+    net.y_mean = 123.0
+    net.y_std = 456.0
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = os.path.join(tmp_dir, "net.npz")
+        net.save(path)
+        restored = SmallMLP.load(path)
+
+    assert restored.y_mean == 123.0
+    assert restored.y_std == 456.0
+
+
+def test_load_defaults_y_mean_std_for_a_file_saved_without_them():
+    # Backward compatibility: a network saved before this fix existed
+    # (no y_mean/y_std keys at all) should load with the old no-op
+    # defaults rather than raising a KeyError.
+    import tempfile, os
+
+    net = SmallMLP(input_dim=4, hidden1=3, hidden2=2, seed=7)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = os.path.join(tmp_dir, "old_style_net.npz")
+        np.savez(path, w1=net.w1, b1=net.b1, w2=net.w2, b2=net.b2, w3=net.w3, b3=net.b3)
+        restored = SmallMLP.load(path)
+
+    assert restored.y_mean == 0.0
+    assert restored.y_std == 1.0
+
+
+def test_training_on_large_scale_standardized_targets_does_not_diverge():
+    # Reproduces the actual real-world failure this fix addresses:
+    # Pikafish-scale labels (mean ~0, spread in the thousands of
+    # centipawns) training-diverged the network to weights around
+    # 1e24-1e27 before this fix. With targets properly standardized
+    # (as tools/train_neural_eval.py now does), weights should stay
+    # small and bounded after training, not explode.
+    rng = np.random.default_rng(11)
+    x = (rng.standard_normal((40, 20)) > 0).astype(np.float32)  # sparse-ish binary features
+    true_weights = rng.standard_normal(20)
+    y_real_scale = (x @ true_weights) * 2000  # thousands-of-centipawns-scale target
+
+    net = SmallMLP(input_dim=20, hidden1=16, hidden2=8, seed=12)
+    net.y_mean = float(y_real_scale.mean())
+    net.y_std = float(y_real_scale.std())
+    y_standardized = (y_real_scale - net.y_mean) / net.y_std
+
+    for _ in range(200):
+        net.train_step(x, y_standardized, lr=0.05)
+
+    max_weight = max(np.abs(w).max() for w in (net.w1, net.b1, net.w2, net.b2, net.w3, net.b3))
+    assert max_weight < 1000  # nowhere near the ~1e24 seen in the real divergence
+    predictions = net.predict(x)
+    assert np.all(np.isfinite(predictions))
+
+
+def test_gradient_clipping_bounds_a_single_step_on_extreme_unstandardized_targets():
+    # Defense-in-depth check: even WITHOUT standardization (simulating
+    # someone forgetting to set y_mean/y_std, the actual mistake that
+    # caused the original divergence), a single train_step with
+    # max_grad_norm clipping shouldn't produce an enormous weight jump.
+    rng = np.random.default_rng(13)
+    x = rng.standard_normal((10, 15)).astype(np.float32)
+    y_extreme = np.full(10, 9000.0)  # worst case: every label is a saturated mate score
+
+    net = SmallMLP(input_dim=15, hidden1=8, hidden2=4, seed=14)
+    net.train_step(x, y_extreme, lr=0.01, max_grad_norm=10.0)
+
+    max_weight = max(np.abs(w).max() for w in (net.w1, net.b1, net.w2, net.b2, net.w3, net.b3))
+    assert max_weight < 100  # a single clipped step should move weights only modestly

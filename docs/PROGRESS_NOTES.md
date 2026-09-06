@@ -1,107 +1,100 @@
-# AlphaZetaChess Progress Snapshot — V0.6.2 neural evaluation pipeline (untrained)
+# AlphaZetaChess Progress Snapshot — training divergence found and fixed
 
-Snapshot date: 2026-09-05
+Snapshot date: 2026-09-06
 
 ## What happened this checkpoint
 
-User's local infrastructure (a laptop) can't handle self-play-scale
-training. Asked about borrowing Pikafish's (a strong open-source
-Xiangqi engine) published training results instead of training from
-scratch.
+User ran the full V0.6.2 pipeline for real: labeled positions with a
+local Pikafish binary (after a `--network-path` fix for a Windows
+network-file-location issue) and trained a network, pushing
+`data/neural_eval.npz` (the `pikafish_labels.jsonl` file itself wasn't
+pushed -- it's gitignored by default, `git add` without `-f` silently
+skipped it).
 
-**Investigated before writing any code.** Two real blockers to porting
-Pikafish's NNUE weights directly:
-- Licensing: Pikafish's own `pikafish.nnue` carries a custom
-  non-commercial license ("no commercial use without permission,"
-  and it explicitly follows "weights further derived from them") --
-  murky enough that embedding it (or a derivative) in this public
-  repo isn't a clean call. A CC0 alternative exists for Fairy-
-  Stockfish's xiangqi variant but wasn't worth chasing given blocker 2.
-- Reimplementation: Pikafish's NNUE uses a specific feature encoding
-  (HalfKAv2_xq) and quantized inference -- correctly porting that into
-  this project's Python `Board` representation is a substantial,
-  bug-prone reverse-engineering project on its own.
+**Loaded and sanity-checked the trained network directly rather than
+assuming it worked.** Result: broken. Every prediction was the same
+absurd constant (~-3.9e10) regardless of position -- starting
+position, a position with Red up a full rook, evaluated from either
+side, all identical. Inspected the saved weights directly: every
+matrix had entries around **1e24 to 1e27** in magnitude. Training had
+diverged, not "learned a bad function."
 
-**Pivoted to distillation**: run Pikafish locally (on the user's
-machine) as an oracle to label positions, train an entirely new, small
-network from scratch on those labels. Never redistributes Pikafish's
-weights/code -- only its output (a number) as training signal, which
-is standard practice across the NNUE-training community.
+**Root cause**: Pikafish's raw `score_cp` labels range up to +/-9000
+(mate scores via `mate_score_to_cp`). Plain mean-squared-error
+gradient descent against targets that large, at a learning rate tuned
+for roughly unit-scale targets, blows the weights up within the first
+few steps rather than converging -- a standard, well-understood
+regression-training failure mode. Independently confirmed this is NOT
+a backprop-correctness bug: the numerical gradient check from the
+original V0.6.2 checkpoint already verified the math itself is right.
 
-Built the full pipeline this checkpoint, five independently-tested
-pieces:
-
-1. `core/fen.py` -- Xiangqi FEN encode/decode. The one detail that
-   would have silently broken everything if missed: Xiangqi has two
-   competing piece-letter conventions, and this project's own
-   `PieceType.value` (Horse=H, Elephant=E) is the WRONG one for
-   talking to Pikafish (which needs Horse=N, Elephant=B). Caught this
-   by researching the actual UCCI convention before writing the
-   encoder, not after debugging garbled positions.
-2. `neural/features.py` -- perspective-relative board encoding
-   (1260-dim: "my pieces" vs "opponent pieces", board vertically
-   flipped for Black's perspective so both colors share one canonical
-   orientation).
-3. `neural/network.py` -- `SmallMLP`, a hand-derived 2-hidden-layer
-   MLP (pure numpy, no torch). Backprop verified against a direct
-   numerical gradient check, not just "training loss went down."
-4. `neural/pikafish_client.py` + `tools/label_positions_with_
-   pikafish.py` -- minimal UCI client + CLI to label sampled positions
-   from real self-play games. Tested against a real fake-engine
-   subprocess (`tests/fixtures/fake_uci_engine.py`), not mocked, since
-   this project's test suite can't depend on a real Pikafish binary.
-5. `tools/train_neural_eval.py` + `neural/evaluator.py` -- training
-   script and a thin wrapper so a trained network can be called
-   exactly like `evaluate(board, color)`.
+**Fixed two ways, together**:
+- `SmallMLP` gained `y_mean`/`y_std` attributes. `predict()` always
+  returns real-scale (centipawn) values; `train_step` is fed
+  pre-standardized (roughly unit-scale) targets by the caller.
+- `tools/train_neural_eval.py` now computes `y_mean`/`y_std` from the
+  training set itself before training, and prints an explicit warning
+  if post-training weight magnitude still looks like divergence.
+- `train_step` also gained gradient-norm clipping (`max_grad_norm=10.0`
+  default) as defense-in-depth, independent of standardization.
 
 ## What was verified this checkpoint
 
 ```
 pytest -q   (full suite)
-165 passed in 125.72s
+172 passed in 161.53s
 ```
-23 new tests across the five pieces above. Full pipeline smoke-tested
-end to end using a fake UCI engine standing in for Pikafish: labeled
-24 real positions sampled from real self-play games, trained a tiny
-network on them, confirmed the mechanics (FEN round-trip, feature
-extraction, training loop, save/load) all work together correctly.
+5 new tests, most importantly one that **reproduces the actual
+failure** (synthetic targets at the same order of magnitude as real
+Pikafish labels) and confirms standardized training now stays bounded.
 
-**Not verified**: whether a network trained on REAL Pikafish
-evaluations (which vary meaningfully, unlike the fake engine's
-constant output) can learn anything useful. That requires the user's
-local Pikafish and hasn't happened yet.
+Also verified directly (not just via unit tests): built a synthetic
+dataset from real self-play positions with large-scale (~thousands of
+cp) synthetic labels, ran the fixed `tools/train_neural_eval.py`
+against it -- **max weight magnitude after training: 0.73** (vs. the
+1e24+ seen in the real divergence).
 
 ## What changed
 
-- `src/alphazetacchess/core/fen.py` (new): `board_to_fen`, `board_from_fen`.
-- `src/alphazetacchess/neural/` (new subpackage): `features.py`,
-  `network.py`, `pikafish_client.py`, `evaluator.py`.
-- `tools/label_positions_with_pikafish.py`, `tools/train_neural_eval.py` (new).
-- `tests/fixtures/fake_uci_engine.py` (new): fake UCI engine for testing.
-- `tests/test_fen_v062.py`, `test_network_v062.py`,
-  `test_pikafish_client_v062.py`, `test_evaluator_v062.py` (new, 23 tests total).
-- `docs/v0.6.2.md` (new): full pipeline design writeup.
-- `docs/roadmap.md`: V0.6.2 section + hand-off updated.
+- `src/alphazetacchess/neural/network.py`: `y_mean`/`y_std` target
+  standardization, gradient-norm clipping in `train_step`,
+  backward-compatible `load()` for networks saved before this fix.
+- `tools/train_neural_eval.py`: sets `y_mean`/`y_std` from the
+  training data, trains on standardized targets, warns if weights look
+  diverged after training.
+- `tests/test_network_v062.py`: 5 new tests.
+- `docs/v0.6.2.md`: addendum documenting the divergence, root cause,
+  and fix.
+
+**`data/neural_eval.npz` currently in the repo is from the diverged
+run and should not be used or trusted.**
 
 ## Exact next step
 
-**On the user's machine** (needs a working Pikafish binary -- a
-prebuilt release from https://github.com/official-pikafish/Pikafish/releases
-is the easy path, no compiling required):
+**On the user's machine**: rerun training with the fix (no need to
+re-label -- the existing `data/pikafish_labels.jsonl` from the earlier
+run should still be there locally, even though it wasn't pushed):
 ```bash
-python tools/label_positions_with_pikafish.py --pikafish-path /path/to/pikafish --sample-every 4
 python tools/train_neural_eval.py
 ```
-This labels positions from the existing 99-game real corpus and trains
-the first real network. Worth sanity-checking the reported validation
-RMSE against a naive "always predict 0" baseline before assuming
-anything was learned.
+Check the printed `Target standardization: mean=... cp, std=... cp`
+line looks sane (roughly matching real Xiangqi evaluation scale, not
+near-zero or absurdly large), and confirm no divergence warning
+prints. Then push the corrected `data/neural_eval.npz` -- and this
+time also force-add the labels file so it's actually preserved and
+reproducible:
+```bash
+git add -f data/pikafish_labels.jsonl data/neural_eval.npz
+git commit -m "..."
+git push
+```
 
-**Here, once a real trained network exists**: add a pluggable
-`eval_fn` parameter to `SearchEngine`/`MCTSEngine` (both currently
-hardcode calls to `evaluate()`), wire `NeuralEvaluator` in, and run
-`tools/compare_engines.py` with it on one side -- the actual test of
-whether any of this was worthwhile.
+**Here, once a real, non-diverged trained network exists**: sanity-
+check its predictions on a few known positions (starting position
+near 0, a clear material-advantage position clearly favoring the
+correct side) before trusting it further, then add a pluggable
+`eval_fn` to `SearchEngine`/`MCTSEngine` and compare against the
+existing heuristic `evaluate()` via `tools/compare_engines.py`.
 
 ## Handoff rule (unchanged, repeated for visibility)
 

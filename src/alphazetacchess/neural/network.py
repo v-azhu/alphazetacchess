@@ -23,6 +23,32 @@ includes a direct numerical-gradient-vs-analytical-gradient check
 what the analytical gradient predicts) specifically because "the loss
 went down during training" is much weaker evidence of correctness than
 verifying the gradient computation itself against an independent method.
+
+## Why `y_mean`/`y_std` exist, and gradient clipping in `train_step`
+
+The first real training run (real Pikafish labels, not the fake
+engine's constant test output) diverged: every weight matrix ended up
+with entries around 1e24-1e27 in magnitude, and the "trained" network
+predicted the exact same enormous constant regardless of input. Root
+cause: Pikafish's raw `score_cp` labels range up to +/-9000 (see
+`pikafish_client.py`'s `mate_score_to_cp`), and plain, un-normalized
+mean-squared-error gradient descent against targets of that scale, at
+a learning rate tuned assuming roughly unit-scale targets, produces
+gradients large enough to blow the weights up within the first few
+steps rather than converge. This is a standard, well-understood
+regression-training failure mode, not a backprop-correctness bug (the
+numerical gradient check above already rules that out independently).
+
+Fixed two ways, together (defense in depth, since either alone would
+likely have been enough): (1) `y_mean`/`y_std` let the network store
+its own target standardization, so `predict()` always returns
+real-scale centipawn values while `train_step` is fed already-
+standardized (roughly unit-scale) targets by the caller (see
+`tools/train_neural_eval.py`) -- this is the primary fix; (2)
+`train_step` also clips the global gradient norm to `max_grad_norm`
+regardless, so a future mistake (e.g. forgetting to standardize
+targets again, or an unusually extreme label) degrades training
+speed rather than diverging outright.
 """
 
 import numpy as np
@@ -59,13 +85,26 @@ class SmallMLP:
         self.b2 = np.zeros(hidden2)
         self.w3 = rng.standard_normal((hidden2, 1)) * np.sqrt(2.0 / hidden2)
         self.b3 = np.zeros(1)
+        # Target standardization: predict() always returns values on
+        # the REAL label scale (e.g. centipawns), by applying
+        # `raw_output * y_std + y_mean`. Defaults (0.0, 1.0) are a
+        # no-op, preserving old behavior for callers that don't set
+        # these -- but training against raw, large-magnitude targets
+        # without setting these first is exactly what caused this
+        # class's first real-world training run to diverge (see module
+        # docstring). `tools/train_neural_eval.py` sets these from the
+        # training set's own mean/std before training starts.
+        self.y_mean = 0.0
+        self.y_std = 1.0
 
     def forward(self, x):
         """
         `x`: (N, input_dim) float array. Returns ((N,) predictions,
         cache) where `cache` holds the intermediate activations
         `backward` needs -- callers that only want predictions (e.g.
-        at inference time) can ignore the cache.
+        at inference time) can ignore the cache. Operates entirely in
+        STANDARDIZED target space (see `y_mean`/`y_std` above) -- use
+        `predict()`, not `forward()`, for real-scale output.
         """
         z1 = x @ self.w1 + self.b1
         a1 = _relu(z1)
@@ -77,9 +116,14 @@ class SmallMLP:
         return y_pred, cache
 
     def predict(self, x):
-        """Convenience wrapper for inference-only callers."""
-        y_pred, _ = self.forward(x)
-        return y_pred
+        """
+        Inference-only wrapper that returns REAL-scale predictions
+        (undoing the `y_mean`/`y_std` standardization `train_step`
+        trains against internally) -- this is what every caller
+        outside this class should use, including `NeuralEvaluator`.
+        """
+        y_pred_standardized, _ = self.forward(x)
+        return y_pred_standardized * self.y_std + self.y_mean
 
     def backward(self, cache, y_pred, y_true):
         """
@@ -117,10 +161,28 @@ class SmallMLP:
         }
         return loss, grads
 
-    def train_step(self, x, y_true, lr):
-        """One mini-batch gradient-descent step. Returns the batch's loss."""
+    def train_step(self, x, y_true, lr, max_grad_norm=10.0):
+        """
+        One mini-batch gradient-descent step. `y_true` must already be
+        in STANDARDIZED space (i.e. `(real_target - self.y_mean) /
+        self.y_std`) -- this method has no way to know the real-scale
+        target distribution itself, only the caller does (see module
+        docstring and `tools/train_neural_eval.py`). Returns the
+        batch's loss (in standardized-target units, not real-scale).
+
+        `max_grad_norm`: the combined (all-parameters-concatenated)
+        gradient norm is clipped to this before applying the update --
+        defense-in-depth against divergence (see module docstring),
+        not the primary fix, so this shouldn't normally trigger when
+        targets actually are properly standardized.
+        """
         y_pred, cache = self.forward(x)
         loss, grads = self.backward(cache, y_pred, y_true)
+
+        total_norm = np.sqrt(sum(np.sum(g ** 2) for g in grads.values()))
+        if total_norm > max_grad_norm:
+            scale = max_grad_norm / (total_norm + 1e-8)
+            grads = {name: g * scale for name, g in grads.items()}
 
         self.w1 -= lr * grads["w1"]
         self.b1 -= lr * grads["b1"]
@@ -137,6 +199,7 @@ class SmallMLP:
             w1=self.w1, b1=self.b1,
             w2=self.w2, b2=self.b2,
             w3=self.w3, b3=self.b3,
+            y_mean=self.y_mean, y_std=self.y_std,
         )
 
     @classmethod
@@ -148,4 +211,9 @@ class SmallMLP:
         net.w1, net.b1 = data["w1"], data["b1"]
         net.w2, net.b2 = data["w2"], data["b2"]
         net.w3, net.b3 = data["w3"], data["b3"]
+        # "y_mean"/"y_std" didn't exist before this fix -- fall back to
+        # the no-op defaults (0.0, 1.0) for any network saved before
+        # this change, rather than raising a KeyError on load.
+        net.y_mean = float(data["y_mean"]) if "y_mean" in data else 0.0
+        net.y_std = float(data["y_std"]) if "y_std" in data else 1.0
         return net

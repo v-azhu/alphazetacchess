@@ -80,6 +80,20 @@ def main():
     print(f"Train: {len(y_train)}, Validation: {len(y_val)}")
 
     net = SmallMLP(FEATURE_DIM, hidden1=args.hidden1, hidden2=args.hidden2, seed=args.seed)
+    # Standardize targets before training -- Pikafish's raw score_cp
+    # labels range up to +/-9000 (see pikafish_client.py's
+    # mate_score_to_cp), and training directly against targets that
+    # large at a learning rate tuned for roughly unit-scale targets is
+    # exactly what caused this project's first real training run to
+    # diverge (weights blew up to ~1e24-1e27). See network.py's module
+    # docstring for the full story. net.predict() always returns
+    # real-scale (centipawn) values regardless of this -- only
+    # train_step needs standardized targets.
+    net.y_mean = float(y_train.mean())
+    net.y_std = float(y_train.std()) or 1.0  # guard against a
+    #                                           degenerate all-identical-label dataset
+    y_train_standardized = (y_train - net.y_mean) / net.y_std
+    print(f"Target standardization: mean={net.y_mean:.1f} cp, std={net.y_std:.1f} cp")
 
     for epoch in range(args.epochs):
         epoch_indices = rng.permutation(len(y_train))
@@ -87,15 +101,29 @@ def main():
         num_batches = 0
         for start in range(0, len(y_train), args.batch_size):
             batch_idx = epoch_indices[start:start + args.batch_size]
-            loss = net.train_step(X_train[batch_idx], y_train[batch_idx], lr=args.lr)
+            loss = net.train_step(X_train[batch_idx], y_train_standardized[batch_idx], lr=args.lr)
             epoch_loss += loss
             num_batches += 1
 
         if (epoch + 1) % max(args.epochs // 10, 1) == 0 or epoch == 0:
-            train_rmse = (epoch_loss / num_batches) ** 0.5
+            # Report RMSE in real centipawn units either way: training
+            # loss is computed in standardized space (unscale it back),
+            # validation uses net.predict() which is already real-scale.
+            train_rmse_standardized = (epoch_loss / num_batches) ** 0.5
+            train_rmse = train_rmse_standardized * net.y_std
             val_pred = net.predict(X_val) if len(y_val) else np.array([])
             val_rmse = float(np.sqrt(np.mean((val_pred - y_val) ** 2))) if len(y_val) else float("nan")
             print(f"  epoch {epoch + 1:>4}/{args.epochs}: train RMSE {train_rmse:.1f} cp, val RMSE {val_rmse:.1f} cp")
+
+    max_weight = max(
+        np.abs(w).max() for w in (net.w1, net.b1, net.w2, net.b2, net.w3, net.b3)
+    )
+    if max_weight > 1e6:
+        print(
+            f"\nWARNING: largest weight magnitude after training is {max_weight:.2e} -- "
+            f"this looks like training diverged (a healthy small MLP's weights should "
+            f"stay well under 100). Try a smaller --lr before trusting this network."
+        )
 
     net.save(args.output)
     print(f"Saved trained network to {args.output}")
