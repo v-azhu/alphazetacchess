@@ -482,7 +482,7 @@ targeted test file: **130/130 green.** Smoke-tested end to end (small real match
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
 design and known limitations in `docs/v0.5.4.md`.
 
-## V0.6+ — Neural Evaluation / MCTS — V0.6.2 first real network trained (0.92 correlation)
+## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.1 MCTS still open
 
 Policy/value network, neural evaluation and MCTS integration.
 
@@ -972,5 +972,42 @@ Current hand-off:
     actually closed the gap to the heuristic evaluator (-280 Elo before
     this change) -- the honest headline question this whole V0.6.2 line
     has been building toward.
+        ↓
+    User ran the full retrain + 20-game comparison. Training converged
+    properly (early stopping at epoch 268, best epoch-228 checkpoint):
+    held-out RMSE 760.5cp, correlation 0.786 -- only marginally better
+    than the interrupted run. 20 real games: 1 neural win, 14 heuristic
+    wins, 5 draws -- Elo -269, essentially UNCHANGED from the
+    pre-auxiliary-features result (-280 on 6 games). Verified directly
+    from data/selfplay.jsonl, not trusted from the printed summary.
+        ↓
+    CONCLUSION: this is the real, converged verdict, not an artifact of
+    undertraining. Three attempts in a row (more capacity, ~33x more
+    data, richer features) each showed the same small, easily-exhausted
+    return on actual playing strength despite each being reasonable at
+    the time -- a consistent picture, not three unrelated setbacks.
+    use_neural_eval stays off by default, now with real evidence behind
+    it rather than just caution. V0.6.2 CONCLUDES here as a genuine,
+    documented negative result (same practice as V0.5.2's opening-book
+    and V0.5.3's endgame-heuristic null results) -- not a failure of
+    the checkpoint, real information about this technique's current
+    ceiling. See docs/v0.6.2.md's final addendum.
+        ↓
+    Not recommended: more of the same tweak pattern (yet more data/
+    capacity/features) -- three attempts have each shown the same
+    small return. A more promising alternative for the same 94,872
+    labeled positions: use them to CALIBRATE evaluation.py's own
+    hand-guessed constants (MATERIAL_VALUES, mobility/pawn-structure/
+    piece-coordination weights, etc.) directly via regression against
+    real Pikafish scores, rather than training a black-box network from
+    scratch -- fully interpretable, no eval_fn indirection needed, a
+    fundamentally different and likely more sample-efficient use of the
+    same hard-won data. Not attempted yet.
+        ↓
+    Separately, still open: V0.6.1's MCTSEngine has never been
+    benchmarked for real strength (only shown to build a real material
+    advantage vs RandomEngine, not compared against SearchEngine at any
+    depth) -- a reasonable alternative next direction if not pursuing
+    the calibration idea above.
 
 Last updated: 2026-09-06

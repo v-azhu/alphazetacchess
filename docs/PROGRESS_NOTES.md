@@ -1,86 +1,117 @@
-# AlphaZetaChess Progress Snapshot — augmented neural features (breaking change, incomplete retrain)
+# AlphaZetaChess Progress Snapshot — V0.6.2 concluded: a real negative result
 
 Snapshot date: 2026-09-06
 
 ## What happened this checkpoint
 
-Acted on the previous checkpoint's own conclusion (heuristic beat the
-neural evaluator -280 Elo; more comparison games wouldn't fix that,
-the representation needed work): added 8 auxiliary hand-crafted
-features to `neural/features.py`, reusing `engine/evaluation.py`'s own
-sub-components directly — material balance, `mobility_balance`,
-`pawn_structure_balance`, `piece_coordination_balance`,
-`endgame_balance`, king safety (via `evaluate()`'s own private
-`_king_safety_score`), and both sides' check status — rather than
-reinventing feature engineering from scratch. The network's job
-changes from "learn these heuristics from raw occupancy" to "learn how
-to weigh/correct these heuristics against Pikafish's judgment."
+User ran the full, uninterrupted retrain and the real 20-game
+comparison the previous checkpoint called for.
 
-**`FEATURE_DIM` changed 1260 → 1268 — a breaking change** for any
-network trained on the old pure-one-hot encoding. `NeuralEvaluator.
-__init__` now checks the loaded network's actual input dimension
-against the current `FEATURE_DIM` and raises a clear, actionable
-`ValueError` immediately, instead of letting an old network fail with
-an opaque numpy matmul-shape error the first time it's evaluated.
+**Training converged properly** (no session time-budget cutoff this
+time): early stopping triggered at epoch 268, restoring the epoch-228
+checkpoint. Held-out RMSE **760.5 cp**, correlation **0.786** — only
+marginally better than the earlier interrupted run's 767.2 cp / 0.782.
 
-**6 new tests**: exact `FEATURE_DIM`, auxiliary features zero on the
-symmetric starting position, a hand-verified material-difference
-assertion (removing a Rook produces exactly `900/500` from both
-perspectives with correct sign), mirror-symmetry extended to the new
-features, own/opponent check-status correctness, and the
-stale-dimension rejection. Combined total: **184/184 green**.
+**20 real games, depth=2, neural eval vs heuristic**:
+```
+Neural eval:    1 win
+Heuristic eval: 14 wins
+Draws:          5
+Neural score rate: 17.5%
+Estimated Elo difference: -269
+```
+Verified by recomputing directly from `data/selfplay.jsonl` (not
+trusted from the printed summary alone).
 
-**Retrained on the real corpus — honestly, an incomplete run.** This
-sandbox's per-command time budget cut training short at 175 epochs
-(the deterministic curve was still improving, hadn't triggered
-`--patience`'s early stop yet). Best checkpoint at epoch 162: held-out
-RMSE **767.2 cp** (vs. the old network's 776.3 cp — a real but modest
-~1.2% improvement), correlation 0.782 (vs. 0.777, essentially
-unchanged). One real strength-comparison game with the new network:
-heuristic won again (76 moves) — consistent with the modest RMSE
-change, but a single game proves nothing.
+**This is the real, final verdict for this approach at this scale —
+not undertraining, not an artifact.** -269 Elo is essentially
+unchanged from the pre-auxiliary-features result (-280 Elo on 6
+games). Three attempts in a row, each reasonable at the time, showed
+the same small, easily-exhausted return on actual playing strength:
+more network capacity (128→64 hidden units: ~1.3% RMSE improvement),
+~33x more training data (via the external-games import), and richer
+features (8 hand-crafted auxiliary features: ~1.2% RMSE improvement).
+A consistent picture, not three unrelated setbacks — this is a real
+current ceiling for a small hand-featured MLP trained on ~95k
+positions.
 
-**Explicitly not claiming this is a fair test of the auxiliary
-features' real potential.** The mechanism is solid and well-tested;
-the actual verdict on whether it helps needs a full, uninterrupted
-local training run and a real strength comparison, neither of which
-this session's time budget could complete.
+**A plausible reason correlation doesn't translate to strength**:
+alpha-beta search needs the evaluation function to be *locally
+consistent* across sibling nodes, not just *globally correlated* with
+a strong reference engine on average. A network that's "usually
+roughly right" but noisy on the specific close, tactically-sharp
+decisions a depth-2 search actually has to make can plausibly cause
+worse move choices than a less globally-accurate but more consistent,
+monotonic-in-material heuristic — especially at shallow depth, where
+there's little search to correct an early evaluation mistake.
+
+**`use_neural_eval` stays off by default — now with real, converged,
+statistically meaningful evidence behind that default.**
+
+## V0.6.2 concludes here as a genuine, documented negative result
+
+Consistent with this project's own established practice (V0.5.2's
+opening-book and V0.5.3's endgame-heuristic null results) of
+documenting negative findings as plainly as positive ones — not a
+failure of the checkpoint, real information about where this specific
+technique's current ceiling sits.
+
+**Not recommended**: more of the same tweak pattern (yet more data,
+capacity, or features) — three attempts have each shown the same small
+return, diminishing further each time.
+
+**A more promising alternative for the same 94,872 labeled positions**:
+rather than training a black-box network from scratch, use the same
+(FEN, Pikafish score) pairs to *calibrate `evaluation.py`'s own
+hand-guessed constants* (`MATERIAL_VALUES`, mobility/pawn-structure/
+piece-coordination weights, etc.) directly via regression against real
+Pikafish scores. Fully interpretable, no `eval_fn` indirection needed
+at all — the tuned constants would just replace the current
+hand-guessed ones directly in `evaluation.py`. A fundamentally
+different, likely more sample-efficient use of the same hard-won data.
+Not attempted yet.
+
+**Separately, still open**: `V0.6.1`'s `MCTSEngine` has never been
+benchmarked for real strength (only shown to build a real material
+advantage vs. `RandomEngine`, never compared against `SearchEngine` at
+any depth) — a reasonable alternative next direction.
 
 ## What was verified this checkpoint
 
 ```
-pytest -q   (full suite)
-184 passed in 169.21s
+pytest -q   (full suite, unchanged code)
+184 passed in 146.89s
 ```
-Direct verification of the retrained network: weight magnitude sane
-(2.34), input dimension matches (1268), held-out correlation/RMSE
-computed against the training script's own train/val split.
+Retrained network verified directly: weight magnitude sane (2.87),
+input dimension correct (1268), held-out correlation/RMSE recomputed
+independently. 20-game comparison result recomputed directly from
+`data/selfplay.jsonl`, matching the user's reported numbers exactly.
 
 ## What changed
 
-- `src/alphazetacchess/neural/features.py`: 8 auxiliary hand-crafted
-  features added, `FEATURE_DIM` 1260 → 1268 (breaking change).
-- `src/alphazetacchess/neural/evaluator.py`: explicit, clear
-  dimension-mismatch check at construction time.
-- `tests/test_network_v062.py`, `test_evaluator_v062.py`: 6 new tests.
-- `data/neural_eval.npz`: retrained (incompletely — see above) on the
-  new feature representation.
-- `data/selfplay.jsonl`: +1 real comparison game with the new network.
-- `docs/v0.6.2.md`: 8th addendum with the full, honest story.
-- `docs/roadmap.md`: hand-off updated.
+- `data/neural_eval.npz`: fully converged retrain (epoch 228 best
+  checkpoint, early-stopped at 268).
+- `data/selfplay.jsonl`: +20 real comparison games.
+- `docs/v0.6.2.md`: final addendum with the converged result and
+  V0.6.2's conclusion.
+- `docs/roadmap.md`: hand-off updated, V0.6 header reflects V0.6.2's
+  conclusion.
 
 ## Exact next step
 
-**On the user's machine — a full, uncapped retrain and a real
-comparison**, the honest headline question this whole V0.6.2 line has
-been building toward:
+Two independent options, neither blocking the other:
+
+**(a) Calibrate the existing heuristic** using the same labeled data —
+a new, different task (regression against `evaluation.py`'s own
+constants, not training a new network). Not yet scoped in detail.
+
+**(b) Benchmark `MCTSEngine`'s real strength** — still an open thread
+from V0.6.1:
 ```bash
-python tools/train_neural_eval.py
-python tools/compare_engines.py --a-use-neural-eval --a-depth 2 --b-depth 2 --games 20 --output data/selfplay.jsonl
+python tools/compare_engines.py --a-engine mcts ...  # not yet supported --
+# tools/compare_engines.py only builds SearchEngine instances currently;
+# adding an --a-engine/--b-engine selector is the natural small next step.
 ```
-Check whether the auxiliary features closed the -280 Elo gap from the
-previous checkpoint's comparison, worsened it, or left it about the
-same — any of those three is a real, informative answer at this point.
 
 ## Handoff rule (unchanged, repeated for visibility)
 
