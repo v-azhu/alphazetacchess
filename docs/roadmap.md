@@ -921,5 +921,27 @@ Current hand-off:
     This is the real test of whether any of V0.6.2's distillation work
     actually improved play strength, not just Pikafish-score
     correlation.
+        ↓
+    Ran real comparisons. Learned something about the tool first:
+    --random-opening-prob 0 + fully deterministic SearchEngine means
+    re-running the same command reproduces the same 2 games every time,
+    not new data -- accumulating a real sample needs randomization ON.
+    6 genuinely distinct real games (depth=2, neural eval vs heuristic):
+    0 neural wins, 4 heuristic wins, 2 draws -- neural score rate 16.7%,
+    Elo diff -280. A real, if still modest-sized, signal the heuristic
+    currently wins, consistent with the 776cp held-out RMSE (more than
+    a Rook's value) and the earlier capacity experiment's weak result
+    -- points at the feature representation, not more params/epochs/
+    games, as the likely lever. use_neural_eval should NOT default on
+    based on this evidence. 178/178 tests still green (no code changed,
+    pure data-collection this round). See docs/v0.6.2.md's 6th addendum.
+        ↓
+    Next: a real, larger comparison (20+ games) would firm up the exact
+    Elo figure, but the DIRECTION is unlikely to reverse given how it
+    lines up with training-side evidence -- more valuable next step is
+    likely revisiting neural/features.py's representation (add explicit
+    mobility/king-safety/pawn-structure-style features, closer to what
+    evaluation.py already hand-encodes) rather than just running more
+    comparison games against the current representation.
 
 Last updated: 2026-09-06

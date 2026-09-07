@@ -1,92 +1,83 @@
-# AlphaZetaChess Progress Snapshot — neural evaluator wired into real engines
+# AlphaZetaChess Progress Snapshot — first real strength comparison result
 
 Snapshot date: 2026-09-06
 
 ## What happened this checkpoint
 
-User tried a bigger network (128→64 hidden units) on the full 94,872-
-position corpus: held-out RMSE improved only marginally, 776 → 766 cp
-(~1.3%) despite ~4x more parameters. That small a gain argues against
-the "capacity-limited" hypothesis from the previous checkpoint and
-toward the feature representation itself being the more likely
-ceiling — `neural/features.py`'s one-hot piece-position encoding has
-no explicit mobility/king-safety/pawn-structure notion the way
-`evaluation.py`'s hand-crafted terms do. Decided not to chase further
-architecture tuning (diminishing returns) and moved to the actual
-point of this whole checkpoint: does the trained network help in real
-search at all?
+Ran real `tools/compare_engines.py --a-use-neural-eval --a-depth 2
+--b-depth 2` games — the actual answer to whether V0.6.2's distillation
+pipeline helped, not another mechanism smoke test.
 
-**Added a pluggable `eval_fn` to both `SearchEngine` and
-`MCTSEngine`.** `SearchEngine` gained a single `_evaluate(self, board,
-color)` method that all four of its internal evaluate() call sites now
-go through — `eval_fn=None` (default) reproduces every prior version's
-exact behavior; setting it (e.g. to a `NeuralEvaluator`, which already
-matches `evaluate()`'s `(board, color) -> float` signature) replaces
-the heuristic entirely. `MCTSEngine._expand_and_evaluate` got the
-equivalent treatment.
+**First learned something about the tool itself before trusting any
+result**: with `--random-opening-prob 0` (the setting used earlier to
+isolate the opening book's effect), `SearchEngine` is fully
+deterministic and the starting position is fixed, so re-running the
+identical command reproduces the identical 2 games every time — not
+new data. `--games N` under full determinism can only ever produce 2
+distinct outcomes (one per color assignment) regardless of N. Caught
+this by noticing a second run's output exactly matched the first
+(same move counts, same results) rather than assuming more games meant
+more data. Switched to the default (nonzero) `--random-opening-prob`
+to actually accumulate distinct games.
 
-**A real bug was caught by the new tests before it could ship, not
-after**: consolidating `SearchEngine`'s four call sites accidentally
-left `self.tt = TranspositionTable(...)` as dead code *after* a
-`return` statement — meaning `self.tt` was never actually set on any
-instance. This compiled cleanly (`py_compile` can't catch unreachable
-code) and wasn't obvious by inspection; it surfaced immediately when
-`tests/test_pluggable_eval_v062.py` called `_quiescence` directly and
-hit `AttributeError: 'SearchEngine' object has no attribute 'tt'`.
-Fixed by moving the line back into `__init__` proper, and — critically
-— confirmed by rerunning the FULL test suite (178/178, including every
-pre-existing `SearchEngine` test) rather than trusting the targeted
-fix by inspection alone.
+**6 genuinely distinct real games** (depth=2, neural eval vs
+heuristic; 2 from the deterministic runs, de-duplicated by exact move
+sequence; 4 with randomization on):
+```
+Neural eval:    0 wins
+Heuristic eval: 4 wins
+Draws:          2
+Neural score rate: 16.7%
+Estimated Elo difference: -280
+```
 
-**6 new tests**: default-`eval_fn` baseline preservation for both
-engines, confirming a custom `eval_fn` is actually invoked and its
-value used/squashed correctly, and an end-to-end `MCTSEngine.
-choose_move` smoke test with a custom evaluator plugged in.
-
-**`tools/compare_engines.py`** gained `--a/b-use-neural-eval` +
-`--neural-eval-path`, mirroring the existing `--use-opening-book`
-pattern (including the same graceful fallback if the file doesn't
-exist). Smoke-tested end to end: loads the real committed network,
-plays real games with it on one side.
+**A real, if still modest-sized, signal that the heuristic currently
+outperforms the neural evaluator at depth=2.** Not a surprise given
+the training-side evidence already on record: 776 cp of held-out RMSE
+is a large absolute error (more than a full Rook's value) for guiding
+move selection precisely, and the earlier capacity experiment (128→64
+hidden units, only ~1.3% RMSE improvement) already pointed at the
+feature representation — not more parameters, epochs, or even more
+comparison games — as the more promising lever for closing this gap.
+`use_neural_eval` should NOT default on based on this evidence.
 
 ## What was verified this checkpoint
 
 ```
-pytest -q   (full suite)
-178 passed in 128.92s
+pytest -q   (full suite, unchanged code)
+178 passed in 140.26s
 ```
-Including the 6 new pluggable-eval tests and confirming the
-`self.tt` bug fix didn't break anything else. Manual smoke test of
-`tools/compare_engines.py --a-use-neural-eval` (depth=1, 20-move games,
-purely to confirm the mechanism works end to end, not a strength claim).
+No source code changed this checkpoint — pure real-data collection via
+`tools/compare_engines.py`, with the aggregate computed directly from
+`data/selfplay.jsonl` (de-duplicating the accidental determinism-caused
+repeat by exact move sequence) rather than trusted from memory of the
+individual run outputs.
 
 ## What changed
 
-- `src/alphazetacchess/engine/search.py`: new `_evaluate()` method,
-  `eval_fn` constructor param, all 4 evaluate() call sites
-  consolidated through it. Fixed the `self.tt` dead-code bug introduced
-  during this same edit.
-- `src/alphazetacchess/engine/mcts.py`: `eval_fn` constructor param,
-  `_expand_and_evaluate` uses it when set.
-- `tests/test_pluggable_eval_v062.py` (new, 6 tests).
-- `tools/compare_engines.py`: `--a/b-use-neural-eval` +
-  `--neural-eval-path`.
-- `docs/v0.6.2.md`: 5th addendum with the full story.
+- `data/selfplay.jsonl`: +6 real comparison games (neural eval vs
+  heuristic, depth=2).
+- `docs/v0.6.2.md`: 6th addendum with the full result and the
+  determinism lesson.
 - `docs/roadmap.md`: hand-off updated.
 
 ## Exact next step
 
-**Run an actual strength comparison** — not yet done; every run so far
-has been a mechanism smoke test, not a strength claim:
+**Most promising next step, per this checkpoint's own reasoning**: not
+more comparison games against the current network, but revisiting
+`neural/features.py`'s representation — add explicit features closer
+to what `evaluation.py` already hand-encodes (mobility, king safety,
+pawn structure, piece coordination) rather than relying on a small MLP
+to discover that structure from a purely positional one-hot encoding.
+This is a real design/implementation task, not a quick rerun.
+
+**If pursuing more comparison data anyway** (e.g. to firm up the exact
+Elo figure rather than just its direction): remember randomization
+must be ON to get distinct games —
 ```bash
-python tools/compare_engines.py --a-use-neural-eval --a-depth 2 --b-depth 2 --games 20 --random-opening-prob 0
+python tools/compare_engines.py --a-use-neural-eval --a-depth 2 --b-depth 2 --games 20 --output data/selfplay.jsonl
 ```
-This is the real test of whether V0.6.2's distillation pipeline
-actually improved play strength, not just Pikafish-score correlation —
-the question every addendum in `docs/v0.6.2.md` has been building
-toward. Worth trying at a couple of depths if time allows, since the
-network's usefulness could plausibly differ between shallow and deeper
-search.
+(no `--random-opening-prob 0`, unlike the opening-book-isolation case).
 
 ## Handoff rule (unchanged, repeated for visibility)
 
