@@ -6,7 +6,7 @@ import pytest
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color, Piece, PieceType
 from alphazetacchess.core.zobrist import Zobrist
-from alphazetacchess.neural.features import board_to_features, FEATURE_DIM
+from alphazetacchess.neural.features import board_to_features, FEATURE_DIM, AUX_FEATURE_SCALE, _AUX_NAMES
 from alphazetacchess.neural.network import SmallMLP
 
 
@@ -70,6 +70,75 @@ def test_same_position_looks_different_from_each_sides_perspective():
     from_black = board_to_features(board, Color.BLACK)
 
     assert not np.array_equal(from_red, from_black)
+
+
+# ---------------------------------------------------------------------------
+# board_to_features -- auxiliary hand-crafted features (added after the
+# first real strength comparison showed the pure one-hot encoding
+# losing to the heuristic evaluate() -- see docs/v0.6.2.md's 7th addendum)
+# ---------------------------------------------------------------------------
+
+def test_feature_dim_includes_the_auxiliary_features():
+    assert FEATURE_DIM == 1268  # 1260 one-hot + 8 auxiliary
+
+
+def test_auxiliary_features_are_zero_on_the_symmetric_starting_position():
+    board = Board()
+    features = board_to_features(board, Color.RED)
+
+    aux = features[1260:]
+    assert np.allclose(aux, 0.0)
+
+
+def test_material_balance_feature_reflects_a_real_material_difference():
+    board = Board()
+    board.board[9][0] = None  # remove a Black rook -- Red is now up a Rook
+
+    from_red = board_to_features(board, Color.RED)
+    from_black = board_to_features(board, Color.BLACK)
+
+    material_index = 1260 + _AUX_NAMES.index("material_balance")
+    assert from_red[material_index] == pytest.approx(900 / AUX_FEATURE_SCALE)
+    assert from_black[material_index] == pytest.approx(-900 / AUX_FEATURE_SCALE)
+
+
+def test_auxiliary_features_are_symmetric_under_the_same_mirror_as_one_hot():
+    # Same mirror-image construction as the one-hot symmetry test above
+    # -- the auxiliary features must respect the same "my/theirs,
+    # flipped for Black" convention, not just the one-hot planes.
+    original = empty_board()
+    put(original, PieceType.ROOK, Color.RED, 2, 3)
+    put(original, PieceType.HORSE, Color.BLACK, 5, 7)
+
+    mirrored = empty_board()
+    put(mirrored, PieceType.ROOK, Color.BLACK, 2, 9 - 3)
+    put(mirrored, PieceType.HORSE, Color.RED, 5, 9 - 7)
+
+    features_original = board_to_features(original, Color.RED)
+    features_mirrored = board_to_features(mirrored, Color.BLACK)
+
+    assert np.array_equal(features_original[1260:], features_mirrored[1260:])
+
+
+def test_own_and_opponent_in_check_features():
+    # A position where Black's king has no escort and Red's Rook
+    # delivers check along the open file -- own_in_check should be 1.0
+    # from Black's perspective, 0.0 from Red's.
+    board = empty_board()
+    put(board, PieceType.KING, Color.RED, 4, 0)
+    put(board, PieceType.KING, Color.BLACK, 4, 9)
+    put(board, PieceType.ROOK, Color.RED, 4, 5)
+
+    own_check_index = 1260 + _AUX_NAMES.index("own_in_check")
+    opponent_check_index = 1260 + _AUX_NAMES.index("opponent_in_check")
+
+    from_black = board_to_features(board, Color.BLACK)
+    assert from_black[own_check_index] == 1.0
+    assert from_black[opponent_check_index] == 0.0
+
+    from_red = board_to_features(board, Color.RED)
+    assert from_red[own_check_index] == 0.0
+    assert from_red[opponent_check_index] == 1.0
 
 
 # ---------------------------------------------------------------------------

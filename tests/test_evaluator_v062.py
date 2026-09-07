@@ -4,6 +4,7 @@ import os
 import tempfile
 
 import numpy as np
+import pytest
 
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color
@@ -39,3 +40,19 @@ def test_neural_evaluator_returns_a_plain_python_float():
 
     assert isinstance(score, float)
     assert not isinstance(score, np.floating)  # a plain float, not a numpy scalar
+
+
+def test_neural_evaluator_rejects_a_network_trained_on_a_different_feature_dim():
+    # Simulates loading a network saved before an auxiliary-feature
+    # addition changed FEATURE_DIM -- should fail immediately and
+    # clearly at construction time, not with an opaque numpy matmul
+    # shape error the first time it's actually evaluated.
+    stale_dim = FEATURE_DIM - 8  # pretend this was saved for the pre-auxiliary-feature encoding
+    net = SmallMLP(stale_dim, hidden1=4, hidden2=4, seed=9)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = os.path.join(tmp_dir, "stale_net.npz")
+        net.save(path)
+
+        with pytest.raises(ValueError, match="not compatible"):
+            NeuralEvaluator(path)

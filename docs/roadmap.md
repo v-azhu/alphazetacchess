@@ -943,5 +943,34 @@ Current hand-off:
     mobility/king-safety/pawn-structure-style features, closer to what
     evaluation.py already hand-encodes) rather than just running more
     comparison games against the current representation.
+        ↓
+    Acted on that conclusion: added 8 auxiliary hand-crafted features
+    to neural/features.py, reusing engine/evaluation.py's own
+    mobility_balance/pawn_structure_balance/piece_coordination_balance/
+    endgame_balance/_king_safety_score/material-count sub-components
+    directly rather than reinventing feature engineering. FEATURE_DIM
+    1260->1268 -- a BREAKING CHANGE for networks trained on the old
+    encoding; NeuralEvaluator now checks this explicitly and raises a
+    clear error instead of an opaque numpy shape mismatch. 6 new tests
+    (184/184 total), including hand-verified material-difference and
+    check-status assertions, and mirror-symmetry extended to the new
+    features. Retrained on the real 94,872-position corpus, but HONESTLY
+    an incomplete run -- this sandbox's time budget cut training short
+    at 175 epochs (still improving, hadn't triggered early stopping) --
+    modest improvement (RMSE 776.3->767.2cp, correlation ~unchanged at
+    0.78). One real strength-comparison game: heuristic won again.
+    Explicitly NOT claimed as a fair test of the auxiliary features'
+    real potential -- needs a full, uninterrupted local run. See
+    docs/v0.6.2.md's 8th addendum.
+        ↓
+    Next: ON THE USER'S MACHINE -- a full, uncapped retrain (no
+    time-budget interruption) and a real 20+-game comparison:
+        python tools/train_neural_eval.py
+        python tools/compare_engines.py --a-use-neural-eval --a-depth 2 \
+            --b-depth 2 --games 20 --output data/selfplay.jsonl
+    This is the real, fair test of whether the auxiliary features
+    actually closed the gap to the heuristic evaluator (-280 Elo before
+    this change) -- the honest headline question this whole V0.6.2 line
+    has been building toward.
 
 Last updated: 2026-09-06
