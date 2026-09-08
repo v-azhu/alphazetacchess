@@ -1,117 +1,112 @@
-# AlphaZetaChess Progress Snapshot — V0.6.2 concluded: a real negative result
+# AlphaZetaChess Progress Snapshot — V0.6.3 calibration analysis (real findings, not yet applied)
 
 Snapshot date: 2026-09-06
 
 ## What happened this checkpoint
 
-User ran the full, uninterrupted retrain and the real 20-game
-comparison the previous checkpoint called for.
+Rather than a fourth iteration of V0.6.2's "more data/capacity/
+features" pattern (three attempts, each showing the same small,
+exhausted return, concluding with a real -269 Elo loss to the
+heuristic), used the same 94,872 real labeled positions completely
+differently: fit new values for `evaluate()`'s own hand-guessed
+constants directly via linear regression against real Pikafish scores,
+instead of training another black-box network.
 
-**Training converged properly** (no session time-budget cutoff this
-time): early stopping triggered at epoch 268, restoring the epoch-228
-checkpoint. Held-out RMSE **760.5 cp**, correlation **0.786** — only
-marginally better than the earlier interrupted run's 767.2 cp / 0.782.
+**`engine/evaluation.py` gained `evaluate_components()`**: decomposes
+a position into raw regression features (material counts per piece
+type, PST/king-safety balances, and the existing `mobility_balance`/
+`pawn_structure_balance`/`piece_coordination_balance`/`endgame_balance`
+functions) — recombining these with the CURRENT hand-guessed constants
+reproduces `evaluate()`'s own output exactly, tested directly as the
+central correctness gate (a decomposition that doesn't sum back to the
+same total isn't faithful, whatever else it computes).
 
-**20 real games, depth=2, neural eval vs heuristic**:
-```
-Neural eval:    1 win
-Heuristic eval: 14 wins
-Draws:          5
-Neural score rate: 17.5%
-Estimated Elo difference: -269
-```
-Verified by recomputing directly from `data/selfplay.jsonl` (not
-trusted from the printed summary alone).
+**`tools/calibrate_evaluation.py`**: loads labels, computes components
+for every position, fits an OLS regression (closed-form, no gradient
+descent needed for 13 linear features) against real Pikafish scores,
+reports fitted vs. current constants side by side, and compares
+held-out RMSE/correlation against both the fitted model and the
+current constants on the same split.
 
-**This is the real, final verdict for this approach at this scale —
-not undertraining, not an artifact.** -269 Elo is essentially
-unchanged from the pre-auxiliary-features result (-280 Elo on 6
-games). Three attempts in a row, each reasonable at the time, showed
-the same small, easily-exhausted return on actual playing strength:
-more network capacity (128→64 hidden units: ~1.3% RMSE improvement),
-~33x more training data (via the external-games import), and richer
-features (8 hand-crafted auxiliary features: ~1.2% RMSE improvement).
-A consistent picture, not three unrelated setbacks — this is a real
-current ceiling for a small hand-featured MLP trained on ~95k
-positions.
+**Real, coherent finding, run against the actual 94,872-position
+corpus**: normalized to Pawn=1, Rook/Cannon/Horse appear substantially
+undervalued in the current hand-guessed material scale:
 
-**A plausible reason correlation doesn't translate to strength**:
-alpha-beta search needs the evaluation function to be *locally
-consistent* across sibling nodes, not just *globally correlated* with
-a strong reference engine on average. A network that's "usually
-roughly right" but noisy on the specific close, tactically-sharp
-decisions a depth-2 search actually has to make can plausibly cause
-worse move choices than a less globally-accurate but more consistent,
-monotonic-in-material heuristic — especially at shallow depth, where
-there's little search to correct an early evaluation mistake.
+| Piece | Current ratio | Fitted ratio |
+|---|---|---|
+| Rook | 9.00 | 15.89 |
+| Cannon | 4.50 | 7.80 |
+| Horse | 4.00 | 7.25 |
+| Elephant | 2.00 | 2.10 |
+| Advisor | 2.00 | 1.68 |
+| Pawn | 1.00 | 1.00 |
 
-**`use_neural_eval` stays off by default — now with real, converged,
-statistically meaningful evidence behind that default.**
+Elephant/Advisor/Pawn already look about right (within ~5-16%); Rook/
+Cannon/Horse are low by a consistent ~1.7-1.9x factor — a coherent
+pattern, not three unrelated numbers, and plausible on its own merits
+(these pieces' value comes disproportionately from mobility/attacking
+potential, which fixed material counts don't naturally capture).
 
-## V0.6.2 concludes here as a genuine, documented negative result
+Also found: a real **+40cp tempo-bias intercept** not currently
+modeled anywhere in `evaluate()`; PST/king-safety calibrated to ~8-10x
+their current implicit weight (suggestively too small, though this
+doesn't reflect real-world impact since these ARE on by default —
+worth more investigation); pawn-structure/piece-coordination
+calibrated near zero (flagged with explicit caution — could mean
+"doesn't matter" or "low variance in this data," not distinguished
+yet, so NOT concluding these V0.4.4/V0.4.5 heuristics are useless).
 
-Consistent with this project's own established practice (V0.5.2's
-opening-book and V0.5.3's endgame-heuristic null results) of
-documenting negative findings as plainly as positive ones — not a
-failure of the checkpoint, real information about where this specific
-technique's current ceiling sits.
-
-**Not recommended**: more of the same tweak pattern (yet more data,
-capacity, or features) — three attempts have each shown the same small
-return, diminishing further each time.
-
-**A more promising alternative for the same 94,872 labeled positions**:
-rather than training a black-box network from scratch, use the same
-(FEN, Pikafish score) pairs to *calibrate `evaluation.py`'s own
-hand-guessed constants* (`MATERIAL_VALUES`, mobility/pawn-structure/
-piece-coordination weights, etc.) directly via regression against real
-Pikafish scores. Fully interpretable, no `eval_fn` indirection needed
-at all — the tuned constants would just replace the current
-hand-guessed ones directly in `evaluation.py`. A fundamentally
-different, likely more sample-efficient use of the same hard-won data.
-Not attempted yet.
-
-**Separately, still open**: `V0.6.1`'s `MCTSEngine` has never been
-benchmarked for real strength (only shown to build a real material
-advantage vs. `RandomEngine`, never compared against `SearchEngine` at
-any depth) — a reasonable alternative next direction.
+**Honestly reported**: the overall linear model is LESS accurate at
+predicting Pikafish's score than V0.6.2's neural network (1055cp RMSE
+/ 0.511 correlation vs. 760cp / 0.786) — expected (linear features
+have less expressive power than even a small MLP) and not the point:
+the goal is better constants for the existing, fast, interpretable
+heuristic, not a more accurate predictor in isolation.
 
 ## What was verified this checkpoint
 
 ```
-pytest -q   (full suite, unchanged code)
-184 passed in 146.89s
+pytest -q   (full suite)
+191 passed in 170.33s
 ```
-Retrained network verified directly: weight magnitude sane (2.87),
-input dimension correct (1268), held-out correlation/RMSE recomputed
-independently. 20-game comparison result recomputed directly from
-`data/selfplay.jsonl`, matching the user's reported numbers exactly.
+7 new tests, most importantly the recombination-matches-evaluate()
+correctness gate (checked on the starting position, an asymmetric
+position, and with every optional term enabled). Calibration tool run
+against the real corpus, results verified by direct inspection of the
+printed coefficients and RMSE/correlation numbers.
 
 ## What changed
 
-- `data/neural_eval.npz`: fully converged retrain (epoch 228 best
-  checkpoint, early-stopped at 268).
-- `data/selfplay.jsonl`: +20 real comparison games.
-- `docs/v0.6.2.md`: final addendum with the converged result and
-  V0.6.2's conclusion.
-- `docs/roadmap.md`: hand-off updated, V0.6 header reflects V0.6.2's
-  conclusion.
+- `src/alphazetacchess/engine/evaluation.py`: new
+  `evaluate_components()` function.
+- `tools/calibrate_evaluation.py` (new): OLS calibration CLI.
+- `tests/test_evaluation_components_v063.py` (new, 7 tests).
+- `docs/v0.6.3.md` (new): full findings writeup.
+- `docs/roadmap.md`: hand-off updated.
+
+**Nothing was applied back into `evaluate()`'s actual constants this
+checkpoint** — this produced and validated the analysis, not a tested
+improvement.
 
 ## Exact next step
 
-Two independent options, neither blocking the other:
+**Test the material-value finding specifically** (most confident,
+coherent, easiest to isolate without touching PST/king-safety/mobility
+scaling at the same time): update `MATERIAL_VALUES` (or add an
+opt-in alternate set) with the fitted Rook/Cannon/Horse values, keep
+Elephant/Advisor/Pawn as-is, and run a real `tools/compare_engines.py`
+comparison against the current constants. Not yet implemented — needs
+a way to override `MATERIAL_VALUES` per-engine-instance first (e.g. a
+constructor parameter), since it's currently a module-level constant.
 
-**(a) Calibrate the existing heuristic** using the same labeled data —
-a new, different task (regression against `evaluation.py`'s own
-constants, not training a new network). Not yet scoped in detail.
+**Before trusting the pawn-structure/piece-coordination near-zero
+findings**: check each feature's actual variance/prevalence across the
+real corpus — a near-zero regression coefficient on a rarely-nonzero
+feature means something different than on a feature that varies a lot
+but doesn't predict well.
 
-**(b) Benchmark `MCTSEngine`'s real strength** — still an open thread
-from V0.6.1:
-```bash
-python tools/compare_engines.py --a-engine mcts ...  # not yet supported --
-# tools/compare_engines.py only builds SearchEngine instances currently;
-# adding an --a-engine/--b-engine selector is the natural small next step.
-```
+**Separately, still open**: V0.6.1's `MCTSEngine` has never been
+benchmarked for real strength against `SearchEngine` at any depth.
 
 ## Handoff rule (unchanged, repeated for visibility)
 

@@ -127,6 +127,68 @@ def _king_safety_score(board, color):
     return _guard_integrity_score(board, color) + _open_file_exposure_score(board, king)
 
 
+def evaluate_components(board, perspective_color):
+    """
+    Decompose a position into the same named ingredients `evaluate()`
+    itself combines, as RAW feature values (piece-count differences,
+    balance-function outputs) rather than already-weighted scores --
+    built for `tools/calibrate_evaluation.py` (V0.6.3) to use as
+    regression features when fitting these ingredients' weights
+    against real Pikafish evaluations, instead of trusting the
+    hand-guessed constants (`MATERIAL_VALUES`,
+    `PAWN_CROSSED_RIVER_BONUS`, and implicit weight-1 for every
+    `*_balance` term) forever.
+
+    Returns a dict with one entry per material piece type (excluding
+    KING, which is always worth 0 and isn't a meaningful regression
+    target) plus one entry per other scoring ingredient. Every value
+    is a signed "own minus opponent" difference, matching every
+    `*_balance` function's own convention -- e.g. `material_rook` is
+    `(# own Rooks) - (# opponent Rooks)`, NOT that difference already
+    multiplied by `MATERIAL_VALUES[ROOK]`. Recombining these raw values
+    with the CURRENT hand-guessed constants must reproduce `evaluate()`'s
+    own output exactly -- `tests/test_evaluation_components_v063.py`
+    checks this directly as its main correctness gate, since a
+    decomposition that doesn't sum back up to the same total is not a
+    faithful decomposition, whatever else it computes.
+    """
+    opponent_color = Board.opponent(perspective_color)
+
+    material_counts = {piece_type: 0 for piece_type in MATERIAL_VALUES if piece_type != PieceType.KING}
+    pawn_crossed_river_diff = 0
+    pst_balance = 0
+
+    for row in board.board:
+        for piece in row:
+            if piece is None:
+                continue
+            sign = 1 if piece.color == perspective_color else -1
+
+            if piece.type in material_counts:
+                material_counts[piece.type] += sign
+
+            if piece.type == PieceType.PAWN and Board.has_crossed_river(piece.y, piece.color):
+                pawn_crossed_river_diff += sign
+
+            pst_balance += sign * _pst_lookup(piece)
+
+    components = {
+        f"material_{piece_type.name.lower()}": count
+        for piece_type, count in material_counts.items()
+    }
+    components["pawn_crossed_river_diff"] = pawn_crossed_river_diff
+    components["pst_balance"] = pst_balance
+    components["king_safety_balance"] = (
+        _king_safety_score(board, perspective_color) - _king_safety_score(board, opponent_color)
+    )
+    components["mobility_balance"] = mobility_balance(board, perspective_color)
+    components["pawn_structure_balance"] = pawn_structure_balance(board, perspective_color)
+    components["piece_coordination_balance"] = piece_coordination_balance(board, perspective_color)
+    components["endgame_balance"] = endgame_balance(board, perspective_color)
+
+    return components
+
+
 def evaluate(
     board,
     perspective_color,

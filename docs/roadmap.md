@@ -482,7 +482,35 @@ targeted test file: **130/130 green.** Smoke-tested end to end (small real match
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
 design and known limitations in `docs/v0.5.4.md`.
 
-## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.1 MCTS still open
+## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis only)
+
+### V0.6.3 — Calibrating the Heuristic's Constants Against Real Data — COMPLETE (analysis)
+
+Rather than a fourth iteration of V0.6.2's "more data/capacity/features" pattern (three attempts,
+each showing the same small, exhausted return), used the same 94,872 real labeled positions
+completely differently: fit new values for `evaluate()`'s own hand-guessed constants directly via
+linear regression, instead of training another black-box network.
+
+`engine/evaluation.py`'s new `evaluate_components()` decomposes a position into raw regression
+features (material counts per type, PST/king-safety/mobility/pawn-structure/piece-coordination/
+endgame balances) -- recombining these with the CURRENT hand-guessed constants reproduces
+`evaluate()`'s own output exactly (the central correctness gate, tested directly).
+`tools/calibrate_evaluation.py` fits an OLS regression against real Pikafish scores.
+
+**Real, coherent finding**: normalized to Pawn=1, Rook/Cannon/Horse appear substantially
+undervalued in the current hand-guessed material scale (current ratios 9.0/4.5/4.0 vs. fitted
+15.9/7.8/7.25 -- roughly 1.7-1.9x low across all three, a consistent pattern) while
+Elephant/Advisor/Pawn's relative values already look about right. Also found a real +40cp
+intercept (tempo bias) not currently modeled at all, and suggestive (but more cautiously
+interpreted) findings that PST/king-safety scaling may be too small and pawn-structure/piece-
+coordination's real impact needs separate variance-based investigation before drawing
+conclusions. The linear model is LESS accurate overall than V0.6.2's neural network (1055cp/0.511
+correlation vs. 760cp/0.786) -- expected, and not the point: the goal is better constants for the
+existing, fast, interpretable heuristic, not a more accurate predictor in isolation.
+
+7 new tests (`tests/test_evaluation_components_v063.py`). Combined total: **191/191 green**.
+**Not yet applied back into `evaluate()` or benchmarked in real play** -- this checkpoint
+produced and validated the analysis, not a tested improvement. See `docs/v0.6.3.md`.
 
 Policy/value network, neural evaluation and MCTS integration.
 
@@ -1009,5 +1037,36 @@ Current hand-off:
     advantage vs RandomEngine, not compared against SearchEngine at any
     depth) -- a reasonable alternative next direction if not pursuing
     the calibration idea above.
+        ↓
+    Pursued the calibration idea. engine/evaluation.py gained
+    evaluate_components() (raw regression features, recombining with
+    current constants reproduces evaluate() exactly -- tested directly)
+    and tools/calibrate_evaluation.py (OLS regression against real
+    Pikafish scores). 7 new tests, 191/191 total.
+    REAL FINDING: normalized to Pawn=1, Rook/Cannon/Horse appear
+    substantially undervalued in the current material scale (9.0/4.5/4.0
+    current vs 15.9/7.8/7.25 fitted -- a consistent ~1.7-1.9x pattern
+    across all three), while Elephant/Advisor/Pawn already look about
+    right. Also found a real +40cp tempo-bias intercept not currently
+    modeled anywhere. PST/king-safety scaling suggestively too small;
+    pawn-structure/piece-coordination near-zero coefficients flagged
+    for caution (could mean "doesn't matter" OR "low variance in this
+    data" -- not distinguished yet). Linear model is LESS accurate
+    overall than V0.6.2's network (1055cp/0.511 vs 760cp/0.786) --
+    expected and not the point: better constants for the existing fast
+    interpretable heuristic, not a more accurate predictor in isolation.
+    NOT yet applied back into evaluate() or benchmarked in real play --
+    analysis only. See docs/v0.6.3.md.
+        ↓
+    Next: test the material-value finding specifically (most confident,
+    coherent, easiest to isolate) -- update MATERIAL_VALUES (or an
+    opt-in alternate set) with the fitted Rook/Cannon/Horse values,
+    keep Elephant/Advisor/Pawn as-is, run a real
+    tools/compare_engines.py comparison against current constants:
+        (not yet implemented -- needs a way to swap MATERIAL_VALUES,
+        e.g. a constructor override, before this can be run)
+    Also worth doing before trusting the pawn-structure/piece-
+    coordination near-zero findings: check each feature's actual
+    variance/prevalence across the real corpus first.
 
 Last updated: 2026-09-06

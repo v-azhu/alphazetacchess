@@ -36,7 +36,8 @@ hybrid engine, inspired by the AlphaZero approach.
 - [x] 自动化强度对比 (v0.5.4)：任意两组引擎配置互相对局，胜/负/和 + Elo 差值估计 (`tools/compare_engines.py`)，复用 v0.5.1 的对局记录格式，产出可直接被开局库/残局分析工具消费；支持 `--use-opening-book` 用于开局库质量对比
 - [x] 首份真实规模数据验证：63→99 局真实对局（`data/selfplay.jsonl`），重建出 1330 个局面的真实开局库并验证可正常调用；开局库、`use_endgame_heuristics` 均得到真实的"无明显提升"零结果（20 局开局库对比 50%/50%，29 局残局启发式对比约 52%），depth=3 vs depth=2 则得到有意义的真实提升（12 局，Elo +88.7）——三条问题均已有真实数据支撑的结论，详见 `docs/v0.5-real-data-checkpoint-3.md`
 - [x] MCTS 搜索骨架 (v0.6.1)：`MCTSEngine`（PUCT 选择 + 现有 `evaluate()` 作为叶子价值估计，暂无策略/价值网络），12 个测试含关键的符号约定测试与"与 alpha-beta 独立实现在必胜局面上找到同一步杀棋"的交叉验证；对阵 RandomEngine 的冒烟测试证实真实子力优势（第60步 4150:3600）但在给定的模拟次数下未必能在步数限制内形成杀棋——是符合预期的"无策略网络的原始 MCTS"特征而非 bug，详见 `docs/v0.6.1.md`
-- [x] 神经网络评估管线 (v0.6.2)：不直接搬运 Pikafish 权重（许可证边界模糊 + NNUE 特征编码/量化推理复刻成本高），改为**蒸馏**——本地跑 Pikafish 给局面打分，训练一个完全自己从零训练的小型网络。包含 Xiangqi FEN 编解码 (`core/fen.py`)、局面特征提取 (`neural/features.py`，含 8 个复用 `evaluate()` 子模块的手工特征)、纯 numpy 手写 MLP 及反向传播 (`neural/network.py`，经数值梯度校验，含早停机制)、UCI 客户端 (`neural/pikafish_client.py`)、打标签与训练 CLI 工具、`SearchEngine`/`MCTSEngine` 可插拔 `eval_fn`。**结论（真实、已收敛的结果）**：即使加大网络容量、扩充到 94,872 条真实标注数据、加入手工特征，20 局真实强度对比中神经网络评估依然落后启发式评估约 269 Elo——这是一个诚实的负面结果，`use_neural_eval` 默认关闭。详见 `docs/v0.6.2.md`；更有潜力的后续方向是用同一批标注数据反过来**校准 `evaluation.py` 现有公式里的手工常数**，而不是继续训练黑盒网络
+- [x] 神经网络评估管线 (v0.6.2)：不直接搬运 Pikafish 权重（许可证边界模糊 + NNUE 特征编码/量化推理复刻成本高），改为**蒸馏**——本地跑 Pikafish 给局面打分，训练一个完全自己从零训练的小型网络。包含 Xiangqi FEN 编解码 (`core/fen.py`)、局面特征提取 (`neural/features.py`，含 8 个复用 `evaluate()` 子模块的手工特征)、纯 numpy 手写 MLP 及反向传播 (`neural/network.py`，经数值梯度校验，含早停机制)、UCI 客户端 (`neural/pikafish_client.py`)、打标签与训练 CLI 工具、`SearchEngine`/`MCTSEngine` 可插拔 `eval_fn`。**结论（真实、已收敛的结果）**：即使加大网络容量、扩充到 94,872 条真实标注数据、加入手工特征，20 局真实强度对比中神经网络评估依然落后启发式评估约 269 Elo——这是一个诚实的负面结果，`use_neural_eval` 默认关闭。详见 `docs/v0.6.2.md`
+- [x] 启发式常数校准分析 (v0.6.3)：不再训练黑盒网络，改用同一批真实标注数据对 `evaluate()` 现有的手工常数直接做线性回归校准 (`engine/evaluation.py` 新增 `evaluate_components()`，`tools/calibrate_evaluation.py`)。**真实发现**：以兵为基准 1，车/炮/马在当前手工设定的价值表里被系统性低估了约 1.7-1.9 倍（现行 9.0/4.5/4.0 vs 拟合出的 15.9/7.8/7.25），象/士的相对价值则基本吻合；另外发现一个约 +40cp、当前完全没有建模的"先行优势"常数项。尚未把校准结果应用回 `evaluate()` 或做真实强度验证，详见 `docs/v0.6.3.md`
 - [ ] 用真实 Pikafish 数据训练网络并接入引擎、验证是否真的更强
 
 上述开局库、残局启发式与强度对比目前都是"机制已完成，但结论/常量/是否默认启用仍需真实规模数据验证"的状态——三者共用同一份自我对弈数据格式，一次本地长时间运行即可同时回答三个问题，详见
@@ -172,7 +173,8 @@ alphazetacchess/
 │   ├── compare_engines.py      # 两组引擎配置强度对比 CLI
 │   ├── label_positions_with_pikafish.py # 用本地 Pikafish 给局面打分，生成训练标签 (V0.6.2)
 │   ├── train_neural_eval.py    # 训练 V0.6.2 神经网络评估器
-│   └── import_external_games.py # 将 trainingdata/ 中的真实棋谱转换为可标注格式
+│   ├── import_external_games.py # 将 trainingdata/ 中的真实棋谱转换为可标注格式
+│   └── calibrate_evaluation.py # 用真实标注数据校准 evaluate() 现有常数 (V0.6.3)
 ├── data/                       # 自我对弈数据（默认不入库，见 data/README.md）
 ├── trainingdata/               # 供未来监督学习 / 开局库使用的历史棋谱数据
 └── pyproject.toml
