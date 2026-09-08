@@ -19,6 +19,29 @@ MATERIAL_VALUES = {
 PAWN_CROSSED_RIVER_BONUS = 30
 CENTER_FILE_BONUS = 5
 
+# V0.6.3 -- tools/calibrate_evaluation.py fit new material values via
+# OLS regression against 94,872 real Pikafish-labeled positions (see
+# docs/v0.6.3.md). Normalized to Pawn=1, Rook/Cannon/Horse came out
+# substantially undervalued in MATERIAL_VALUES above (ratios 9.0/4.5/4.0
+# vs fitted 15.9/7.8/7.25 -- a consistent ~1.7-1.9x pattern across all
+# three), while Elephant/Advisor/Pawn's fitted ratios were already
+# close to their current ones. This alternate table updates only
+# Rook/Cannon/Horse (rounded from the exact fitted 1525.7/749.0/696.1
+# to the nearest 50 for a plausible, testable constant, not because
+# the extra precision was shown to matter) and deliberately leaves
+# Elephant/Advisor/Pawn unchanged, isolating the one finding this
+# checkpoint was most confident in from the more speculative
+# PST/king-safety-scaling and near-zero pawn-structure/piece-
+# coordination findings the same analysis produced. NOT enabled by
+# default -- opt in via SearchEngine's own `material_values` parameter
+# (see `evaluate()`'s docstring) and compare against the default via
+# `tools/compare_engines.py --a-use-calibrated-material`. Real strength
+# impact not yet measured at scale; see docs/v0.6.3.md's Next Step.
+CALIBRATED_MATERIAL_VALUES = dict(MATERIAL_VALUES)
+CALIBRATED_MATERIAL_VALUES[PieceType.ROOK] = 1500
+CALIBRATED_MATERIAL_VALUES[PieceType.CANNON] = 750
+CALIBRATED_MATERIAL_VALUES[PieceType.HORSE] = 700
+
 # V0.4.1 -- Piece-Square Tables.
 _HORSE_COLUMN_BONUS = [0, 4, 8, 12, 14, 12, 8, 4, 0]
 _HORSE_DEV_BONUS = [-6, 0, 0, 4, 4, 8, 8, 4, 4, 2]
@@ -73,8 +96,8 @@ def _center_bonus(piece):
     return (4 - distance_from_center) * CENTER_FILE_BONUS
 
 
-def _piece_score(piece, use_piece_square_tables):
-    score = MATERIAL_VALUES[piece.type]
+def _piece_score(piece, use_piece_square_tables, material_values=MATERIAL_VALUES):
+    score = material_values[piece.type]
     if piece.type == PieceType.PAWN and Board.has_crossed_river(piece.y, piece.color):
         score += PAWN_CROSSED_RIVER_BONUS
     if use_piece_square_tables:
@@ -199,6 +222,7 @@ def evaluate(
     use_pawn_structure=False,
     use_piece_coordination=False,
     use_endgame_heuristics=False,
+    material_values=None,
 ):
     """Evaluate a position from perspective_color's point of view.
 
@@ -218,7 +242,18 @@ def evaluate(
     V0.5.3 adds optional endgame-phase heuristics (Rook/Cannon value
     shift once major material has dropped low -- "车赛全局，炮怕残棋"),
     also disabled by default. See docs/v0.5.3.md.
+
+    V0.6.3 adds an optional `material_values` override (a dict, same
+    shape as the module-level `MATERIAL_VALUES`) -- None (default)
+    uses `MATERIAL_VALUES` unchanged, exactly reproducing every prior
+    version's behavior. Pass `CALIBRATED_MATERIAL_VALUES` (see this
+    module's own constant, fit via `tools/calibrate_evaluation.py`
+    against real Pikafish data) to try the data-informed Rook/Cannon/
+    Horse values instead. See docs/v0.6.3.md.
     """
+    if material_values is None:
+        material_values = MATERIAL_VALUES
+
     score = 0
 
     for row in board.board:
@@ -226,7 +261,7 @@ def evaluate(
             if piece is None:
                 continue
 
-            piece_score = _piece_score(piece, use_piece_square_tables)
+            piece_score = _piece_score(piece, use_piece_square_tables, material_values)
 
             if piece.color == perspective_color:
                 score += piece_score

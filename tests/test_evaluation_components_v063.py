@@ -138,3 +138,57 @@ def test_components_are_antisymmetric_between_colors():
 
     for key in red_components:
         assert red_components[key] == -black_components[key]
+
+
+# ---------------------------------------------------------------------------
+# evaluate()'s material_values override (V0.6.3's calibration test)
+# ---------------------------------------------------------------------------
+
+def test_default_material_values_preserves_existing_behavior():
+    board = Board()
+    board.board[9][0] = None
+
+    explicit_none = evaluate(board, Color.RED, material_values=None)
+    default = evaluate(board, Color.RED)
+
+    assert explicit_none == default
+
+
+def test_calibrated_material_values_changes_the_score_as_expected():
+    from alphazetacchess.engine.evaluation import CALIBRATED_MATERIAL_VALUES
+
+    board = Board()
+    board.board[9][0] = None  # Red is up exactly one Rook
+
+    default_score = evaluate(board, Color.RED)
+    calibrated_score = evaluate(board, Color.RED, material_values=CALIBRATED_MATERIAL_VALUES)
+
+    # Only the Rook's value changed (900 -> 1500); every other term is identical.
+    assert calibrated_score - default_score == (
+        CALIBRATED_MATERIAL_VALUES[PieceType.ROOK] - MATERIAL_VALUES[PieceType.ROOK]
+    )
+
+
+def test_search_engine_material_values_reaches_evaluate():
+    from alphazetacchess.engine.search import SearchEngine
+    from alphazetacchess.engine.evaluation import CALIBRATED_MATERIAL_VALUES
+
+    board = Board()
+    board.board[9][0] = None  # Red is up exactly one Rook
+
+    default_engine = SearchEngine(material_values=None)
+    calibrated_engine = SearchEngine(material_values=CALIBRATED_MATERIAL_VALUES)
+
+    default_score = default_engine._evaluate(board, Color.RED)
+    calibrated_score = calibrated_engine._evaluate(board, Color.RED)
+
+    assert calibrated_score - default_score == (
+        CALIBRATED_MATERIAL_VALUES[PieceType.ROOK] - MATERIAL_VALUES[PieceType.ROOK]
+    )
+
+
+def test_calibrated_material_values_leaves_elephant_advisor_pawn_unchanged():
+    from alphazetacchess.engine.evaluation import CALIBRATED_MATERIAL_VALUES
+
+    for piece_type in (PieceType.ELEPHANT, PieceType.ADVISOR, PieceType.PAWN, PieceType.KING):
+        assert CALIBRATED_MATERIAL_VALUES[piece_type] == MATERIAL_VALUES[piece_type]

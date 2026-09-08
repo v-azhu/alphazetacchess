@@ -79,6 +79,7 @@ class SearchEngine(ChessEngine):
         opening_book_min_games=3,
         tt_max_entries=200_000,
         eval_fn=None,
+        material_values=None,
     ):
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
@@ -143,6 +144,15 @@ class SearchEngine(ChessEngine):
         # every existing V0.2-V0.5.x behavior exactly unchanged -- see
         # self._evaluate and its own docstring.
         self.eval_fn = eval_fn
+        # V0.6.3: optional MATERIAL_VALUES override, passed straight
+        # through to evaluate() (see its own docstring). None (default)
+        # uses the module-level MATERIAL_VALUES unchanged. Pass
+        # evaluation.CALIBRATED_MATERIAL_VALUES to try the data-fit
+        # Rook/Cannon/Horse values from docs/v0.6.3.md instead. Has no
+        # effect when eval_fn is set (a pluggable evaluator has already
+        # decided its own representation, same reasoning as every
+        # other evaluate()-only parameter above).
+        self.material_values = material_values
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
 
@@ -168,6 +178,7 @@ class SearchEngine(ChessEngine):
             use_pawn_structure=self.use_pawn_structure,
             use_piece_coordination=self.use_piece_coordination,
             use_endgame_heuristics=self.use_endgame_heuristics,
+            material_values=self.material_values,
         )
 
     def choose_move(self, board, color):

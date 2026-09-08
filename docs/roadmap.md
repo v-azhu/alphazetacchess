@@ -1068,5 +1068,27 @@ Current hand-off:
     Also worth doing before trusting the pawn-structure/piece-
     coordination near-zero findings: check each feature's actual
     variance/prevalence across the real corpus first.
+        ↓
+    Wired it up. evaluate() gained an optional material_values
+    parameter (None preserves exact prior behavior); threaded through
+    SearchEngine's own new material_values constructor param, same
+    pattern as V0.6.2's eval_fn. New CALIBRATED_MATERIAL_VALUES constant
+    (Rook 900->1500, Cannon 450->750, Horse 400->700, rounded from the
+    exact fitted values; Elephant/Advisor/Pawn deliberately left
+    unchanged to isolate the most confident finding). tools/
+    compare_engines.py gained --a/b-use-calibrated-material, mirroring
+    --use-opening-book/--use-neural-eval exactly. 4 new tests, 195/195
+    total. A real comparison game was started but didn't complete
+    within this sandbox's per-command time budget -- mechanism
+    confirmed correct and tested, strength verdict still needs a real
+    run. See docs/v0.6.3.md's addendum.
+        ↓
+    Next: ON THE USER'S MACHINE -- the actual strength test:
+        python tools/compare_engines.py --a-use-calibrated-material \
+            --a-depth 2 --b-depth 2 --games 20 --output data/selfplay.jsonl
+    Also still open: investigate the near-zero pawn-structure/piece-
+    coordination coefficients' actual variance/prevalence before
+    drawing conclusions, and V0.6.1's MCTSEngine still has no real
+    strength benchmark against SearchEngine at any depth.
 
 Last updated: 2026-09-06

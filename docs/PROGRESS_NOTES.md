@@ -1,112 +1,82 @@
-# AlphaZetaChess Progress Snapshot — V0.6.3 calibration analysis (real findings, not yet applied)
+# AlphaZetaChess Progress Snapshot — calibrated material values wired for real testing
 
 Snapshot date: 2026-09-06
 
 ## What happened this checkpoint
 
-Rather than a fourth iteration of V0.6.2's "more data/capacity/
-features" pattern (three attempts, each showing the same small,
-exhausted return, concluding with a real -269 Elo loss to the
-heuristic), used the same 94,872 real labeled positions completely
-differently: fit new values for `evaluate()`'s own hand-guessed
-constants directly via linear regression against real Pikafish scores,
-instead of training another black-box network.
+Acted on V0.6.3's own "Next step" — rather than leave the material-
+value finding (Rook/Cannon/Horse appear undervalued ~1.7-1.9x relative
+to Pawn in the current hand-guessed scale) as analysis-only, made it
+directly testable in real search.
 
-**`engine/evaluation.py` gained `evaluate_components()`**: decomposes
-a position into raw regression features (material counts per piece
-type, PST/king-safety balances, and the existing `mobility_balance`/
-`pawn_structure_balance`/`piece_coordination_balance`/`endgame_balance`
-functions) — recombining these with the CURRENT hand-guessed constants
-reproduces `evaluate()`'s own output exactly, tested directly as the
-central correctness gate (a decomposition that doesn't sum back to the
-same total isn't faithful, whatever else it computes).
+**`evaluate()` gained an optional `material_values` parameter**: `None`
+(default) reproduces every prior version's exact behavior; an override
+dict replaces the material lookup table entirely. Threaded through
+`_piece_score` (the only internal caller of `MATERIAL_VALUES`) and a
+new `SearchEngine` constructor parameter of the same name, flowing
+into `_evaluate()` alongside the existing `eval_fn` override — the
+same pattern V0.6.2's pluggable evaluator already established.
 
-**`tools/calibrate_evaluation.py`**: loads labels, computes components
-for every position, fits an OLS regression (closed-form, no gradient
-descent needed for 13 linear features) against real Pikafish scores,
-reports fitted vs. current constants side by side, and compares
-held-out RMSE/correlation against both the fitted model and the
-current constants on the same split.
+**New `CALIBRATED_MATERIAL_VALUES` constant**: Rook 900→1500, Cannon
+450→750, Horse 400→700 (rounded from the exact fitted 1525.7/749.0/
+696.1 to the nearest 50 — a plausible, testable constant, not claiming
+that precision matters). Elephant/Advisor/Pawn deliberately left
+unchanged, isolating the single most confident finding from the more
+speculative PST/king-safety-scaling and near-zero pawn-structure/
+piece-coordination findings the same analysis produced.
 
-**Real, coherent finding, run against the actual 94,872-position
-corpus**: normalized to Pawn=1, Rook/Cannon/Horse appear substantially
-undervalued in the current hand-guessed material scale:
+**`tools/compare_engines.py`** gained `--a/b-use-calibrated-material`,
+mirroring the existing `--use-opening-book`/`--use-neural-eval`
+pattern exactly.
 
-| Piece | Current ratio | Fitted ratio |
-|---|---|---|
-| Rook | 9.00 | 15.89 |
-| Cannon | 4.50 | 7.80 |
-| Horse | 4.00 | 7.25 |
-| Elephant | 2.00 | 2.10 |
-| Advisor | 2.00 | 1.68 |
-| Pawn | 1.00 | 1.00 |
-
-Elephant/Advisor/Pawn already look about right (within ~5-16%); Rook/
-Cannon/Horse are low by a consistent ~1.7-1.9x factor — a coherent
-pattern, not three unrelated numbers, and plausible on its own merits
-(these pieces' value comes disproportionately from mobility/attacking
-potential, which fixed material counts don't naturally capture).
-
-Also found: a real **+40cp tempo-bias intercept** not currently
-modeled anywhere in `evaluate()`; PST/king-safety calibrated to ~8-10x
-their current implicit weight (suggestively too small, though this
-doesn't reflect real-world impact since these ARE on by default —
-worth more investigation); pawn-structure/piece-coordination
-calibrated near zero (flagged with explicit caution — could mean
-"doesn't matter" or "low variance in this data," not distinguished
-yet, so NOT concluding these V0.4.4/V0.4.5 heuristics are useless).
-
-**Honestly reported**: the overall linear model is LESS accurate at
-predicting Pikafish's score than V0.6.2's neural network (1055cp RMSE
-/ 0.511 correlation vs. 760cp / 0.786) — expected (linear features
-have less expressive power than even a small MLP) and not the point:
-the goal is better constants for the existing, fast, interpretable
-heuristic, not a more accurate predictor in isolation.
+**4 new tests**: default preserves existing behavior; the calibrated
+table changes a position's score by exactly the expected Rook-value
+delta (600 = 1500-900) with everything else held constant;
+`SearchEngine` correctly threads the override through; and
+`CALIBRATED_MATERIAL_VALUES` itself is verified to leave Elephant/
+Advisor/Pawn/King untouched.
 
 ## What was verified this checkpoint
 
 ```
 pytest -q   (full suite)
-191 passed in 170.33s
+195 passed in 166.03s
 ```
-7 new tests, most importantly the recombination-matches-evaluate()
-correctness gate (checked on the starting position, an asymmetric
-position, and with every optional term enabled). Calibration tool run
-against the real corpus, results verified by direct inspection of the
-printed coefficients and RMSE/correlation numbers.
+A real comparison game was started (`--a-use-calibrated-material
+--a-depth 2 --b-depth 2`) but didn't complete within this sandbox's
+per-command time budget — the same constraint every prior real
+comparison in this project has run into (real depth-2 games take 1-3+
+minutes here). The mechanism itself is confirmed correct via the
+printed config line (`use_calibrated_material: True` for side A,
+`False` for side B) and the unit tests above; the actual strength
+verdict needs a real, uninterrupted run.
 
 ## What changed
 
-- `src/alphazetacchess/engine/evaluation.py`: new
-  `evaluate_components()` function.
-- `tools/calibrate_evaluation.py` (new): OLS calibration CLI.
-- `tests/test_evaluation_components_v063.py` (new, 7 tests).
-- `docs/v0.6.3.md` (new): full findings writeup.
+- `src/alphazetacchess/engine/evaluation.py`: `material_values`
+  parameter on `evaluate()`, new `CALIBRATED_MATERIAL_VALUES` constant.
+- `src/alphazetacchess/engine/search.py`: `material_values` constructor
+  parameter on `SearchEngine`, threaded through `_evaluate()`.
+- `tools/compare_engines.py`: `--a/b-use-calibrated-material`.
+- `tests/test_evaluation_components_v063.py`: 4 new tests.
+- `docs/v0.6.3.md`: addendum with the wiring details.
 - `docs/roadmap.md`: hand-off updated.
-
-**Nothing was applied back into `evaluate()`'s actual constants this
-checkpoint** — this produced and validated the analysis, not a tested
-improvement.
 
 ## Exact next step
 
-**Test the material-value finding specifically** (most confident,
-coherent, easiest to isolate without touching PST/king-safety/mobility
-scaling at the same time): update `MATERIAL_VALUES` (or add an
-opt-in alternate set) with the fitted Rook/Cannon/Horse values, keep
-Elephant/Advisor/Pawn as-is, and run a real `tools/compare_engines.py`
-comparison against the current constants. Not yet implemented — needs
-a way to override `MATERIAL_VALUES` per-engine-instance first (e.g. a
-constructor parameter), since it's currently a module-level constant.
+**On the user's machine — the actual strength test**, the real answer
+to whether the calibrated material values help:
+```bash
+python tools/compare_engines.py --a-use-calibrated-material --a-depth 2 --b-depth 2 --games 20 --output data/selfplay.jsonl
+```
 
-**Before trusting the pawn-structure/piece-coordination near-zero
-findings**: check each feature's actual variance/prevalence across the
-real corpus — a near-zero regression coefficient on a rarely-nonzero
-feature means something different than on a feature that varies a lot
-but doesn't predict well.
-
-**Separately, still open**: V0.6.1's `MCTSEngine` has never been
-benchmarked for real strength against `SearchEngine` at any depth.
+**Also still open**:
+- Investigate the near-zero pawn-structure/piece-coordination
+  regression coefficients' actual variance/prevalence across the real
+  corpus before drawing any conclusion about them (flagged with
+  caution in `docs/v0.6.3.md`, not yet checked).
+- V0.6.1's `MCTSEngine` still has no real strength benchmark against
+  `SearchEngine` at any depth.
 
 ## Handoff rule (unchanged, repeated for visibility)
 

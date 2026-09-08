@@ -21,6 +21,7 @@ Usage:
     python tools/compare_engines.py --a-use-endgame-heuristics --games 20 --output data/selfplay.jsonl
     python tools/compare_engines.py --a-use-opening-book --random-opening-prob 0 --games 20
     python tools/compare_engines.py --a-use-neural-eval --random-opening-prob 0 --games 20
+    python tools/compare_engines.py --a-use-calibrated-material --games 20
 
 Note on --use-opening-book + opening randomization: both can be on at
 once (random opening's job is data diversity, the book's job is move
@@ -49,6 +50,7 @@ sys.path.insert(
 )
 
 from alphazetacchess.engine.search import SearchEngine
+from alphazetacchess.engine.evaluation import CALIBRATED_MATERIAL_VALUES
 from alphazetacchess.selfplay.opening_book import load_book
 from alphazetacchess.selfplay.opening_randomization import RandomizedOpeningEngine
 from alphazetacchess.selfplay.strength_comparison import run_comparison_match
@@ -73,6 +75,14 @@ def add_side_args(parser, prefix):
              f"coordination/endgame-heuristics flags are ignored (the network has "
              f"already decided its own internal representation).",
     )
+    parser.add_argument(
+        f"--{prefix}-use-calibrated-material", action="store_true",
+        help=f"let side {prefix.upper()} use engine/evaluation.py's "
+             f"CALIBRATED_MATERIAL_VALUES (Rook/Cannon/Horse fit via V0.6.3's OLS "
+             f"regression against real Pikafish scores, see docs/v0.6.3.md) instead "
+             f"of the default hand-guessed MATERIAL_VALUES. Ignored if this side "
+             f"also has --{prefix}-use-neural-eval set.",
+    )
 
 
 def config_from_args(args, prefix):
@@ -84,6 +94,7 @@ def config_from_args(args, prefix):
         "use_endgame_heuristics": getattr(args, f"{prefix}_use_endgame_heuristics"),
         "use_opening_book": getattr(args, f"{prefix}_use_opening_book"),
         "use_neural_eval": getattr(args, f"{prefix}_use_neural_eval"),
+        "use_calibrated_material": getattr(args, f"{prefix}_use_calibrated_material"),
     }
 
 
@@ -101,6 +112,7 @@ def build_engine(
         opening_book=opening_book if config["use_opening_book"] else None,
         opening_book_min_games=opening_book_min_games,
         eval_fn=neural_evaluator if config["use_neural_eval"] else None,
+        material_values=CALIBRATED_MATERIAL_VALUES if config["use_calibrated_material"] else None,
     )
 
     if random_opening_plies > 0 and random_opening_prob > 0:
