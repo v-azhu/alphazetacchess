@@ -1,80 +1,79 @@
-# AlphaZetaChess Progress Snapshot — calibrated material values wired for real testing
+# AlphaZetaChess Progress Snapshot — calibrated material comparison: inconclusive at n=20
 
 Snapshot date: 2026-09-06
 
 ## What happened this checkpoint
 
-Acted on V0.6.3's own "Next step" — rather than leave the material-
-value finding (Rook/Cannon/Horse appear undervalued ~1.7-1.9x relative
-to Pawn in the current hand-guessed scale) as analysis-only, made it
-directly testable in real search.
+User ran the real, uninterrupted 20-game comparison the previous
+checkpoint called for: `--a-use-calibrated-material --a-depth 2
+--b-depth 2 --games 20`.
 
-**`evaluate()` gained an optional `material_values` parameter**: `None`
-(default) reproduces every prior version's exact behavior; an override
-dict replaces the material lookup table entirely. Threaded through
-`_piece_score` (the only internal caller of `MATERIAL_VALUES`) and a
-new `SearchEngine` constructor parameter of the same name, flowing
-into `_evaluate()` alongside the existing `eval_fn` override — the
-same pattern V0.6.2's pluggable evaluator already established.
+**Result**: 4 calibrated-values wins, 5 default-values wins, 11 draws
+(55% draw rate). Score rate 47.5%, Elo -17. Verified directly from
+`data/selfplay.jsonl`, matching the user's reported numbers exactly.
 
-**New `CALIBRATED_MATERIAL_VALUES` constant**: Rook 900→1500, Cannon
-450→750, Horse 400→700 (rounded from the exact fitted 1525.7/749.0/
-696.1 to the nearest 50 — a plausible, testable constant, not claiming
-that precision matters). Elephant/Advisor/Pawn deliberately left
-unchanged, isolating the single most confident finding from the more
-speculative PST/king-safety-scaling and near-zero pawn-structure/
-piece-coordination findings the same analysis produced.
+**-17 Elo is not a meaningful finding at this sample size — it's
+statistical noise, not evidence of near-parity.** Computed the
+approximate 95% confidence interval on the score rate: roughly
+**[26%, 69%]** — wide enough to be consistent with anything from a
+real, substantial disadvantage to a real, substantial advantage for
+the calibrated values. Explicitly distinguished this from V0.6.2's
+neural-evaluator result (a real, converged -269 Elo at the *same*
+n=20 sample size, which WAS large enough to be confidently
+distinguished from noise) — not every "small negative Elo number" this
+project reports means the same thing, and conflating them would be a
+real mistake.
 
-**`tools/compare_engines.py`** gained `--a/b-use-calibrated-material`,
-mirroring the existing `--use-opening-book`/`--use-neural-eval`
-pattern exactly.
+**What this checkpoint can and cannot conclude**: cannot conclude the
+calibrated values measurably help OR measurably hurt at depth=2 — the
+sample doesn't support either claim. Can conclude the mechanism itself
+works correctly end to end (confirmed by the unit tests and this real
+run completing without error). Two genuinely separate things kept
+straight: the *regression finding* itself (Rook/Cannon/Horse
+undervalued ~1.7-1.9x vs. Pawn, fit against 94,872 real Pikafish
+scores) is real and well-supported; whether *acting on it* measurably
+improves actual game outcomes is a separate, still-open empirical
+question this run couldn't resolve — would need very roughly 100+
+games to narrow the confidence interval enough to detect an effect in
+a plausible range.
 
-**4 new tests**: default preserves existing behavior; the calibrated
-table changes a position's score by exactly the expected Rook-value
-delta (600 = 1500-900) with everything else held constant;
-`SearchEngine` correctly threads the override through; and
-`CALIBRATED_MATERIAL_VALUES` itself is verified to leave Elephant/
-Advisor/Pawn/King untouched.
+`CALIBRATED_MATERIAL_VALUES` and `--use-calibrated-material` remain
+available, tested, and off by default.
 
 ## What was verified this checkpoint
 
 ```
-pytest -q   (full suite)
-195 passed in 166.03s
+pytest -q   (full suite, unchanged code)
+195 passed in 164.51s
 ```
-A real comparison game was started (`--a-use-calibrated-material
---a-depth 2 --b-depth 2`) but didn't complete within this sandbox's
-per-command time budget — the same constraint every prior real
-comparison in this project has run into (real depth-2 games take 1-3+
-minutes here). The mechanism itself is confirmed correct via the
-printed config line (`use_calibrated_material: True` for side A,
-`False` for side B) and the unit tests above; the actual strength
-verdict needs a real, uninterrupted run.
+Result recomputed directly from `data/selfplay.jsonl` (win/loss/draw
+tally and Elo formula), plus an approximate confidence-interval
+calculation to properly characterize what the sample size can and
+cannot support — not just reporting the point estimate.
 
 ## What changed
 
-- `src/alphazetacchess/engine/evaluation.py`: `material_values`
-  parameter on `evaluate()`, new `CALIBRATED_MATERIAL_VALUES` constant.
-- `src/alphazetacchess/engine/search.py`: `material_values` constructor
-  parameter on `SearchEngine`, threaded through `_evaluate()`.
-- `tools/compare_engines.py`: `--a/b-use-calibrated-material`.
-- `tests/test_evaluation_components_v063.py`: 4 new tests.
-- `docs/v0.6.3.md`: addendum with the wiring details.
+- `docs/v0.6.3.md`: second addendum with the real comparison result
+  and the inconclusive-vs-neutral distinction.
 - `docs/roadmap.md`: hand-off updated.
+- (`data/selfplay.jsonl` already had the 20 games from the user's push
+  — no local change needed beyond documentation.)
 
 ## Exact next step
 
-**On the user's machine — the actual strength test**, the real answer
-to whether the calibrated material values help:
+**A much larger comparison run (very roughly 100+ games)** is the
+natural way to actually settle whether the calibrated material values
+help, whenever that scale of compute is available:
 ```bash
-python tools/compare_engines.py --a-use-calibrated-material --a-depth 2 --b-depth 2 --games 20 --output data/selfplay.jsonl
+python tools/compare_engines.py --a-use-calibrated-material --a-depth 2 --b-depth 2 --games 100 --output data/selfplay.jsonl
 ```
+Not attempted further this session (would need many hours at this
+project's current per-game speed).
 
-**Also still open**:
+**Still separately open**:
 - Investigate the near-zero pawn-structure/piece-coordination
-  regression coefficients' actual variance/prevalence across the real
-  corpus before drawing any conclusion about them (flagged with
-  caution in `docs/v0.6.3.md`, not yet checked).
+  regression coefficients' actual variance/prevalence in the real
+  corpus before drawing any conclusion about them.
 - V0.6.1's `MCTSEngine` still has no real strength benchmark against
   `SearchEngine` at any depth.
 

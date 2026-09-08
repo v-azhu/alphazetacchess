@@ -1090,5 +1090,27 @@ Current hand-off:
     coordination coefficients' actual variance/prevalence before
     drawing conclusions, and V0.6.1's MCTSEngine still has no real
     strength benchmark against SearchEngine at any depth.
+        ↓
+    User ran the real 20-game comparison. Result: 4 calibrated wins, 5
+    default wins, 11 draws -- Elo -17. INCONCLUSIVE, not neutral: the
+    approximate 95% CI on score rate is roughly [26%, 69%], wide enough
+    to be consistent with a real advantage OR disadvantage in either
+    direction. Explicitly distinguished from V0.6.2's neural-evaluator
+    result (a real, converged -269 Elo at the same n=20 -- large enough
+    to be confidently distinguishable from noise; this one isn't).
+    Two separate things kept straight: the REGRESSION finding itself
+    (Rook/Cannon/Horse undervalued ~1.7-1.9x vs Pawn, fit against real
+    Pikafish scores) is real and well-supported; whether ACTING on it
+    measurably improves actual game outcomes is a separate, still-open
+    question this run couldn't resolve at this sample size (would need
+    very roughly 100+ games to narrow the CI enough). See
+    docs/v0.6.3.md's second addendum.
+        ↓
+    Next: a much larger comparison run (100+ games) is the natural way
+    to actually settle this, whenever that compute is available -- not
+    attempted further this session. Also still open: investigate the
+    near-zero pawn-structure/piece-coordination coefficients before
+    drawing conclusions, and V0.6.1's MCTSEngine still has no real
+    strength benchmark against SearchEngine at any depth.
 
 Last updated: 2026-09-06
