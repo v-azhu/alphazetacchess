@@ -1,3 +1,5 @@
+from threading import Event
+
 from ..core.rule import Rule
 from .base import ChessEngine, SearchResult
 from .evaluation import evaluate
@@ -6,6 +8,10 @@ from ..selfplay.opening_book import select_book_move
 
 
 MATE_SCORE = 100000
+
+
+class SearchCancelled(Exception):
+    """Internal signal used to unwind an interrupted search safely."""
 
 
 class SearchEngine(ChessEngine):
@@ -85,87 +91,40 @@ class SearchEngine(ChessEngine):
         self.use_alpha_beta = use_alpha_beta
         self.iterative_deepening = iterative_deepening
         self.use_transposition_table = use_transposition_table
-        # PVS only makes sense on top of Alpha-Beta pruning; it is
-        # automatically disabled whenever use_alpha_beta is False (see
-        # _negamax), so the flag only matters when both are True.
         self.use_pvs = use_pvs
-        # Quiescence search extends the leaves regardless of
-        # use_alpha_beta/use_pvs (it is not a pruning trick, it
-        # changes what is being evaluated at the horizon), so both the
-        # pruned and unpruned Negamax paths apply it identically --
-        # this keeps them comparable for correctness testing.
         self.use_quiescence = use_quiescence
-        # Hard safety cap on quiescence recursion depth, to guarantee
-        # termination even for a pathologically long forced-capture or
-        # forced-check sequence. See _quiescence's docstring.
         self.quiescence_max_ply = quiescence_max_ply
-        # V0.4.1: piece-square tables in the evaluation function. Kept
-        # toggleable so the current material+mobility baseline (V0.2/
-        # V0.3) stays available as the A/B comparison point -- see
-        # docs/v0.4.1.md.
         self.use_piece_square_tables = use_piece_square_tables
-        # V0.4.2: king safety (guard integrity + open-file exposure)
-        # in the evaluation function. Independently toggleable from
-        # use_piece_square_tables so each V0.4.x evaluation layer
-        # stays separately A/B-comparable -- see docs/v0.4.2.md.
         self.use_king_safety = use_king_safety
-        # V0.4.3: optional Mobility evaluation term.
-        # Disabled by default to preserve the V0.4.2 baseline.
         self.use_mobility = use_mobility
         self.mobility_weight = mobility_weight
-        # V0.4.4: optional Pawn Structure (Connected Pawns) evaluation
-        # term. Also disabled by default, same reasoning.
         self.use_pawn_structure = use_pawn_structure
-        # V0.4.5: optional Piece Coordination (Doubled Rooks, Rook-
-        # Cannon Battery) evaluation term. Also disabled by default,
-        # same reasoning.
         self.use_piece_coordination = use_piece_coordination
-        # V0.5.3: optional endgame-phase heuristics (Rook/Cannon value
-        # shift once major material is low -- see engine/endgame.py).
-        # Also disabled by default, same reasoning as every other
-        # V0.4.x/V0.5.x evaluation term.
         self.use_endgame_heuristics = use_endgame_heuristics
-        # V0.5.2: optional opening book, built from V0.5.1 self-play
-        # records (see selfplay/opening_book.py). `opening_book` is
-        # the loaded book dict (selfplay.opening_book.load_book(path)),
-        # not a path -- SearchEngine doesn't do file I/O itself, so the
-        # same loaded book can be reused across many SearchEngine
-        # instances without re-reading it from disk each time.
         self.use_opening_book = use_opening_book
         self.opening_book = opening_book
         self.opening_book_min_games = opening_book_min_games
-        # V0.6.2: optional pluggable evaluator (e.g. neural/evaluator.py's
-        # NeuralEvaluator, matching evaluate(board, color)'s calling
-        # convention exactly). When set, this REPLACES the heuristic
-        # evaluate() call entirely at every evaluation site below --
-        # the use_piece_square_tables/use_mobility/etc. flags above are
-        # then ignored, since a pluggable evaluator has already decided
-        # its own internal representation. None (default) preserves
-        # every existing V0.2-V0.5.x behavior exactly unchanged -- see
-        # self._evaluate and its own docstring.
         self.eval_fn = eval_fn
-        # V0.6.3: optional MATERIAL_VALUES override, passed straight
-        # through to evaluate() (see its own docstring). None (default)
-        # uses the module-level MATERIAL_VALUES unchanged. Pass
-        # evaluation.CALIBRATED_MATERIAL_VALUES to try the data-fit
-        # Rook/Cannon/Horse values from docs/v0.6.3.md instead. Has no
-        # effect when eval_fn is set (a pluggable evaluator has already
-        # decided its own representation, same reasoning as every
-        # other evaluate()-only parameter above).
         self.material_values = material_values
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
+        self._stop_event = Event()
+
+    def request_stop(self):
+        """Request cooperative cancellation of the current search."""
+        self._stop_event.set()
+
+    def clear_stop(self):
+        """Clear a previously requested search cancellation."""
+        self._stop_event.clear()
+
+    @staticmethod
+    def _check_stop(stop_event):
+        if stop_event is not None and stop_event.is_set():
+            raise SearchCancelled
 
     def _evaluate(self, board, color):
-        """
-        Single evaluation entry point every internal call site below
-        uses, so V0.6.2's pluggable `eval_fn` only has to be threaded
-        through once, here, rather than at each of the four places
-        that used to call the module-level `evaluate()` directly.
-        `self.eval_fn is None` (the default) reproduces every prior
-        version's exact evaluate() call -- this method changes nothing
-        about existing behavior unless `eval_fn` is explicitly set.
-        """
+        """Evaluate a position through the configured evaluator."""
         if self.eval_fn is not None:
             return self.eval_fn(board, color)
 
@@ -181,9 +140,26 @@ class SearchEngine(ChessEngine):
             material_values=self.material_values,
         )
 
-    def choose_move(self, board, color):
+    def choose_move(self, board, color, stop_event=None):
+        """Search for a move, optionally using an external cancellation event.
+
+        The external event is intentionally not cleared here: its owner
+        controls the lifetime of that event. When no external event is
+        supplied, the engine-owned event is cleared at the start of a new
+        search and can be triggered through `request_stop()`.
+
+        With iterative deepening enabled, cancellation discards only the
+        currently incomplete iteration and returns the last fully completed
+        result. If cancellation arrives before depth 1 completes, the first
+        legal move is returned as a safe fallback with depth 0.
+        """
+        if stop_event is None:
+            self.clear_stop()
+            stop_event = self._stop_event
+
         self.nodes_evaluated = 0
         self.tt.reset_stats()
+        self._check_stop(stop_event)
 
         if self.use_opening_book and self.opening_book:
             book_move = self._book_move(board, color)
@@ -191,6 +167,8 @@ class SearchEngine(ChessEngine):
                 return book_move
 
         legal_moves = Rule.generate_legal_moves(board, color)
+        self._check_stop(stop_event)
+
         if not legal_moves:
             return SearchResult(
                 None,
@@ -200,20 +178,33 @@ class SearchEngine(ChessEngine):
             )
 
         if not self.iterative_deepening:
-            return self._search_fixed_depth(
-                board, color, legal_moves, self.depth
-            )
+            try:
+                return self._search_fixed_depth(
+                    board, color, legal_moves, self.depth, stop_event
+                )
+            except SearchCancelled:
+                return SearchResult(
+                    legal_moves[0],
+                    self._evaluate(board, color),
+                    self.nodes_evaluated,
+                    0,
+                )
 
         best_result = None
         root_moves = list(legal_moves)
 
         for current_depth in range(1, self.depth + 1):
-            result = self._search_fixed_depth(
-                board,
-                color,
-                root_moves,
-                current_depth,
-            )
+            try:
+                result = self._search_fixed_depth(
+                    board,
+                    color,
+                    root_moves,
+                    current_depth,
+                    stop_event,
+                )
+            except SearchCancelled:
+                break
+
             best_result = SearchResult(
                 result.best_move,
                 result.score,
@@ -227,20 +218,18 @@ class SearchEngine(ChessEngine):
                     best_result.best_move,
                 )
 
-        return best_result
+        if best_result is not None:
+            return best_result
+
+        return SearchResult(
+            root_moves[0],
+            self._evaluate(board, color),
+            self.nodes_evaluated,
+            0,
+        )
 
     def _book_move(self, board, color):
-        """
-        Return a SearchResult built from the opening book if a
-        confident entry exists for this position, otherwise None (in
-        which case choose_move falls through to normal search).
-
-        Book entries are validated against the actual current legal
-        moves before being trusted -- defensive against a book built
-        against a different rule-engine version, or any other reason
-        the recorded move might not be legal in the exact position
-        it's being looked up in.
-        """
+        """Return a validated opening-book move, or None."""
         book_move = select_book_move(
             self.opening_book, board, color, min_games=self.opening_book_min_games
         )
@@ -258,7 +247,7 @@ class SearchEngine(ChessEngine):
 
         return SearchResult(matching, None, 0, 0, from_book=True)
 
-    def _search_fixed_depth(self, board, color, legal_moves, depth):
+    def _search_fixed_depth(self, board, color, legal_moves, depth, stop_event=None):
         root_moves = self._order_root_moves(legal_moves, None)
 
         best_move = None
@@ -267,31 +256,26 @@ class SearchEngine(ChessEngine):
         opponent = board.opponent(color)
 
         for index, move in enumerate(root_moves):
+            self._check_stop(stop_event)
             board.move(move.from_pos, move.to_pos)
-
-            if self.use_alpha_beta and self.use_pvs and index > 0:
-                # Same PVS pattern as _negamax's own move loop (see its
-                # docstring): the root's first (best-ordered) move gets
-                # the full window; every later root move is first
-                # probed with a null window and only re-searched with
-                # the full window if the probe suggests it might
-                # actually be better.
-                score = -self._negamax(
-                    board, depth - 1, -alpha - 1, -alpha, opponent, depth,
-                    use_pruning=True,
-                )
-                if alpha < score < beta:
+            try:
+                if self.use_alpha_beta and self.use_pvs and index > 0:
                     score = -self._negamax(
-                        board, depth - 1, -beta, -score, opponent, depth,
-                        use_pruning=True,
+                        board, depth - 1, -alpha - 1, -alpha, opponent, depth,
+                        use_pruning=True, stop_event=stop_event,
                     )
-            else:
-                score = -self._negamax(
-                    board, depth - 1, -beta, -alpha, opponent, depth,
-                    use_pruning=self.use_alpha_beta,
-                )
-
-            board.undo()
+                    if alpha < score < beta:
+                        score = -self._negamax(
+                            board, depth - 1, -beta, -score, opponent, depth,
+                            use_pruning=True, stop_event=stop_event,
+                        )
+                else:
+                    score = -self._negamax(
+                        board, depth - 1, -beta, -alpha, opponent, depth,
+                        use_pruning=self.use_alpha_beta, stop_event=stop_event,
+                    )
+            finally:
+                board.undo()
 
             if score > best_score:
                 best_score = score
@@ -308,10 +292,7 @@ class SearchEngine(ChessEngine):
         if preferred_move is None:
             return ordered
 
-        preferred = (
-            preferred_move.from_pos,
-            preferred_move.to_pos,
-        )
+        preferred = (preferred_move.from_pos, preferred_move.to_pos)
 
         for index, move in enumerate(ordered):
             if (move.from_pos, move.to_pos) == preferred:
@@ -341,17 +322,10 @@ class SearchEngine(ChessEngine):
         current_color,
         root_depth,
         use_pruning,
+        stop_event=None,
     ):
-        """
-        Return the minimax value of `board` from `current_color`'s own
-        point of view (Negamax convention): positive means good for
-        `current_color`, negative means good for the opponent.
-
-        `use_pruning=False` reproduces a plain, exhaustive Negamax
-        search (still returns the exact minimax value, just without
-        Alpha-Beta cutoffs or PVS) -- this is the correctness baseline
-        used by test_search.py's minimax-vs-alpha-beta comparison.
-        """
+        """Return the minimax value from `current_color`'s own point of view."""
+        self._check_stop(stop_event)
         self.nodes_evaluated += 1
 
         alpha_original = alpha
@@ -366,12 +340,6 @@ class SearchEngine(ChessEngine):
         legal_moves = Rule.generate_legal_moves(board, current_color)
 
         if not legal_moves:
-            # No legal moves is always a loss for `current_color` in
-            # Xiangqi (checkmate and stalemate score identically --
-            # see Rule's module docstring). `root_depth` is THIS
-            # search call's own max depth (not self.depth), so the
-            # ply-from-root offset stays correct across iterative
-            # deepening's shallower iterations too.
             score = -(MATE_SCORE - (root_depth - depth))
             if self.use_transposition_table:
                 self.tt.store(key, depth, score, Bound.EXACT, None)
@@ -379,10 +347,8 @@ class SearchEngine(ChessEngine):
 
         if depth == 0:
             if self.use_quiescence:
-                # _quiescence performs its own TT probe/store (always
-                # at the depth=0 TT slot), so nothing more to do here.
                 score = self._quiescence(
-                    board, alpha, beta, current_color, root_depth, 0
+                    board, alpha, beta, current_color, root_depth, 0, stop_event
                 )
             else:
                 score = self._evaluate(board, current_color)
@@ -397,30 +363,26 @@ class SearchEngine(ChessEngine):
         opponent = board.opponent(current_color)
 
         for index, move in enumerate(legal_moves):
+            self._check_stop(stop_event)
             board.move(move.from_pos, move.to_pos)
-
-            if use_pruning and self.use_pvs and index > 0:
-                # Null-window probe: cheaply check whether this move
-                # could beat what we already have.
-                score = -self._negamax(
-                    board, depth - 1, -alpha - 1, -alpha, opponent,
-                    root_depth, use_pruning,
-                )
-                if alpha < score < beta:
-                    # It might really be better than our current best
-                    # -- re-search with the full window for an exact
-                    # value. (Standard PVS re-search.)
+            try:
+                if use_pruning and self.use_pvs and index > 0:
                     score = -self._negamax(
-                        board, depth - 1, -beta, -score, opponent,
-                        root_depth, use_pruning,
+                        board, depth - 1, -alpha - 1, -alpha, opponent,
+                        root_depth, use_pruning, stop_event,
                     )
-            else:
-                score = -self._negamax(
-                    board, depth - 1, -beta, -alpha, opponent,
-                    root_depth, use_pruning,
-                )
-
-            board.undo()
+                    if alpha < score < beta:
+                        score = -self._negamax(
+                            board, depth - 1, -beta, -score, opponent,
+                            root_depth, use_pruning, stop_event,
+                        )
+                else:
+                    score = -self._negamax(
+                        board, depth - 1, -beta, -alpha, opponent,
+                        root_depth, use_pruning, stop_event,
+                    )
+            finally:
+                board.undo()
 
             if score > best_score:
                 best_score = score
@@ -429,7 +391,7 @@ class SearchEngine(ChessEngine):
             if use_pruning:
                 alpha = max(alpha, best_score)
                 if alpha >= beta:
-                    break  # Beta cutoff.
+                    break
 
         if self.use_transposition_table:
             if best_score <= alpha_original:
@@ -443,25 +405,9 @@ class SearchEngine(ChessEngine):
 
         return best_score
 
-    def _quiescence(self, board, alpha, beta, color, root_depth, qply):
-        """
-        Extend the search past the nominal depth limit along "noisy"
-        lines -- captures, and every legal move while in check -- until
-        a quiet position is reached, to avoid the horizon effect (e.g.
-        stopping the search right after a capture that looks like a
-        material win, without seeing the recapture that actually loses
-        material).
-
-        Fail-soft Negamax convention, same as `_negamax`: returns the
-        value from `color`'s own point of view.
-
-        "Check extension": a position where `color` is in check can
-        never be treated as quiet -- there is no stand-pat option, and
-        every legal move is searched as a forced evasion, even though
-        none of them may be captures. This is what forces the search
-        to actually resolve a check sequence instead of stopping mid-way
-        through it.
-        """
+    def _quiescence(self, board, alpha, beta, color, root_depth, qply, stop_event=None):
+        """Extend the search along captures and forced check evasions."""
+        self._check_stop(stop_event)
         self.nodes_evaluated += 1
 
         key = board.zobrist_hash
@@ -475,25 +421,12 @@ class SearchEngine(ChessEngine):
         legal_moves = Rule.generate_legal_moves(board, color)
 
         if not legal_moves:
-            # Checkmate or stalemate reached inside quiescence. Ply is
-            # counted from the true root (root_depth, the nominal
-            # search's own ply budget, plus qply, how far quiescence
-            # has gone past it) so mate-distance scoring stays
-            # meaningful even for mates found only via the capture/
-            # check search.
             score = -(MATE_SCORE - (root_depth + qply))
             if self.use_transposition_table:
                 self.tt.store(key, 0, score, Bound.EXACT, None)
             return score
 
         if qply >= self.quiescence_max_ply:
-            # Hard safety backstop against a pathologically long
-            # forced-capture or forced-check sequence. Deliberately
-            # NOT cached: the TT key carries no notion of "how much
-            # qsearch budget was left when this was computed", so a
-            # later, differently-capped probe of the same position
-            # could otherwise reuse a value that does not correspond
-            # to its own context. See docs/v0.3.4.md.
             return self._evaluate(board, color)
 
         in_check = Rule.is_in_check(board, color)
@@ -524,18 +457,21 @@ class SearchEngine(ChessEngine):
         opponent = board.opponent(color)
 
         for move in candidates:
+            self._check_stop(stop_event)
             board.move(move.from_pos, move.to_pos)
-            score = -self._quiescence(
-                board, -beta, -alpha, opponent, root_depth, qply + 1
-            )
-            board.undo()
+            try:
+                score = -self._quiescence(
+                    board, -beta, -alpha, opponent, root_depth, qply + 1, stop_event
+                )
+            finally:
+                board.undo()
 
             if score > best_score:
                 best_score = score
 
             alpha = max(alpha, score)
             if alpha >= beta:
-                break  # Beta cutoff.
+                break
 
         if self.use_transposition_table:
             if best_score <= alpha_original:
