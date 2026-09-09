@@ -71,7 +71,9 @@ def test_go_depth_starts_async_search_and_publishes_bestmove():
     engine = UCCIEngine(FakeSearchEngine())
 
     assert engine.handle_line("go depth 1") == []
-    engine._search_thread.join()
+    thread = engine._search_thread
+    assert thread is not None
+    thread.join()
 
     responses = engine.handle_line("")
     assert len(responses) == 1
