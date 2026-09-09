@@ -5,8 +5,6 @@ from alphazetacchess.tools.perft import perft
 
 
 # Standard Xiangqi initial-position legal-move counts.
-# Keep the deeper reference values here as a roadmap for future optimized
-# perft runs; depth 1 is also a cheap regression test for every CI run.
 INITIAL_PERFT = {
     1: 44,
     2: 1920,
@@ -25,6 +23,11 @@ def test_initial_position_depth_one():
     assert perft(board, 1) == INITIAL_PERFT[1]
 
 
+def test_initial_position_depth_two():
+    board = Board()
+    assert perft(board, 2) == INITIAL_PERFT[2]
+
+
 def test_perft_rejects_negative_depth():
     with pytest.raises(ValueError):
         perft(Board(), -1)
@@ -35,6 +38,7 @@ def test_perft_restores_board_state():
     before = str(board)
     before_hash = board.zobrist_hash
     before_player = board.current_player
+    before_position_history = list(board.position_history)
 
     perft(board, 2)
 
@@ -42,3 +46,4 @@ def test_perft_restores_board_state():
     assert board.zobrist_hash == before_hash
     assert board.current_player == before_player
     assert board.history == []
+    assert board.position_history == before_position_history
