@@ -4,15 +4,15 @@ from alphazetacchess.core.piece import Color
 from alphazetacchess.engine.search import SearchCancelled, SearchEngine
 
 
-class StopOnSecondCheck:
-    """Set the stop condition on the first recursive search check."""
+class StopOnFourthCheck:
+    """Set the stop condition after the first root move is made."""
 
     def __init__(self):
         self.calls = 0
 
     def is_set(self):
         self.calls += 1
-        return self.calls >= 2
+        return self.calls >= 4
 
 
 class CancelAtDepthTwoEngine(SearchEngine):
@@ -34,7 +34,7 @@ def test_cancelled_search_restores_board_after_an_in_progress_move():
     original_history = list(board.position_history)
 
     engine = SearchEngine(depth=2, use_quiescence=False)
-    stop_event = StopOnSecondCheck()
+    stop_event = StopOnFourthCheck()
 
     result = engine.choose_move(board, Color.RED, stop_event=stop_event)
 
