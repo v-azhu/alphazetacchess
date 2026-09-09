@@ -35,8 +35,7 @@ class SearchLimits:
             if value is not None and value < 0:
                 raise ValueError(f"{name} cannot be negative")
 
-        if self.depth == 0:
-            raise ValueError("depth must be greater than zero")
+        # depth=0 is retained as a protocol-level no-search sentinel.
         if self.movestogo == 0:
             raise ValueError("movestogo must be greater than zero")
 
