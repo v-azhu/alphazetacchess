@@ -75,7 +75,7 @@ class UCCIEngine:
         if command == "go":
             responses = self._drain_responses()
             self._handle_go(parts[1:])
-            return responses
+            return responses + self._drain_responses()
         if command == "stop":
             return self._drain_responses() + self._handle_stop()
         if command == "quit":
