@@ -1,4 +1,5 @@
 import io
+from threading import Event
 
 import pytest
 
@@ -13,11 +14,22 @@ INITIAL_FEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - -
 class FakeSearchEngine:
     depth = 3
 
-    def choose_move(self, board, color):
+    def choose_move(self, board, color, stop_event=None):
         from alphazetacchess.core.rule import Rule
 
         move = Rule.generate_legal_moves(board, color)[0]
         return SearchResult(move, 0, 1, self.depth)
+
+
+class BlockingSearchEngine(FakeSearchEngine):
+    def __init__(self):
+        self.started = Event()
+
+    def choose_move(self, board, color, stop_event=None):
+        self.started.set()
+        stop_event.wait()
+        move = Rule.generate_legal_moves(board, color)[0]
+        return SearchResult(move, 0, 1, 0)
 
 
 def test_ucci_handshake():
@@ -56,16 +68,46 @@ def test_position_rejects_startpos():
         engine.handle_line("position startpos")
 
 
-def test_go_depth_returns_iccs_bestmove():
+def test_go_depth_starts_async_search_and_publishes_bestmove():
     engine = UCCIEngine(FakeSearchEngine())
 
-    responses = engine.handle_line("go depth 1")
+    assert engine.handle_line("go depth 1") == []
+    engine._search_thread.join()
 
+    responses = engine.handle_line("")
     assert len(responses) == 1
     assert responses[0].startswith("bestmove ")
     move = responses[0].split()[1]
     assert len(move) == 4
     GameRecord.move_from_iccs(move)
+
+
+def test_stop_cancels_search_and_emits_exactly_one_final_bestmove():
+    search_engine = BlockingSearchEngine()
+    engine = UCCIEngine(search_engine)
+
+    assert engine.handle_line("go depth 5") == []
+    assert search_engine.started.wait(timeout=1)
+
+    responses = engine.handle_line("stop")
+
+    assert len(responses) == 1
+    assert responses[0].startswith("bestmove ")
+    assert engine.handle_line("") == []
+    assert engine._searching is False
+
+
+def test_commands_requiring_stable_position_are_rejected_while_searching():
+    search_engine = BlockingSearchEngine()
+    engine = UCCIEngine(search_engine)
+
+    engine.handle_line("go depth 5")
+    assert search_engine.started.wait(timeout=1)
+
+    with pytest.raises(UCCIError, match="send 'stop' first"):
+        engine.handle_line("position fen " + INITIAL_FEN)
+
+    engine.handle_line("stop")
 
 
 def test_go_depth_zero_returns_nobestmove():
