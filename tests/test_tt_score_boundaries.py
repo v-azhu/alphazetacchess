@@ -31,7 +31,7 @@ def test_positive_mate_score_is_normalized_at_threshold_boundary():
         ply=17,
     )
 
-    assert restored == MATE_SCORE - 17
+    assert restored == score + 5 - 17
 
 
 def test_negative_mate_score_is_normalized_at_threshold_boundary():
@@ -47,7 +47,7 @@ def test_negative_mate_score_is_normalized_at_threshold_boundary():
         ply=17,
     )
 
-    assert restored == -(MATE_SCORE - 17)
+    assert restored == score - 5 + 17
 
 
 def test_positive_mate_score_round_trip_at_ply_zero():
@@ -92,7 +92,7 @@ def test_lower_bound_mate_score_is_normalized_before_cutoff():
         "position",
         4,
         -MATE_SCORE,
-        MATE_SCORE - 6,
+        MATE_SCORE - 8,
         ply=7,
     )
 
@@ -109,7 +109,7 @@ def test_upper_bound_mate_score_is_normalized_before_cutoff():
     restored, _ = tt.probe(
         "position",
         4,
-        -(MATE_SCORE - 6),
+        -(MATE_SCORE - 8),
         MATE_SCORE,
         ply=7,
     )
