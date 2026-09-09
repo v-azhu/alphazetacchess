@@ -7,7 +7,7 @@ hand an external engine a specific board state.
 
 ## The one thing worth reading carefully before touching this file
 
-Xiangqi has **two competing piece-letter conventions** in real-world
+Xiangqi has **two competing piece-letter conventions in real-world
 use (see https://github.com/fairy-stockfish/Fairy-Stockfish/discussions/544):
 
 1. "WXF"-style: Horse=H, Elephant=E -- this is what this project's own
@@ -99,6 +99,9 @@ def board_from_fen(fen):
     not how it was reached, so there's nothing meaningful to put in
     move history -- this matters if the caller intends to call
     `board.undo()`, which won't work past this point).
+    The imported position is nevertheless recorded as the first entry
+    in `position_history`, so exact-position repetition checks work
+    from the imported position.
     """
     fields = fen.strip().split()
     if len(fields) < 2:
@@ -109,6 +112,7 @@ def board_from_fen(fen):
     board = Board()
     board.board = [[None for _ in range(board.WIDTH)] for _ in range(board.HEIGHT)]
     board.history = []
+    board.position_history = []
 
     rows = placement.split("/")
     if len(rows) != board.HEIGHT:
@@ -131,6 +135,10 @@ def board_from_fen(fen):
                 raise ValueError(f"Rank {rank_index} overflows board width in {fen!r}")
             board.board[y][x] = Piece(piece_type, color, x, y)
             x += 1
+        if x != board.WIDTH:
+            raise ValueError(
+                f"Rank {rank_index} has width {x}, expected {board.WIDTH}: {fen!r}"
+            )
 
     if active_color == "w":
         board.current_player = Color.RED
@@ -140,4 +148,5 @@ def board_from_fen(fen):
         raise ValueError(f"Unrecognized active color {active_color!r} in {fen!r}")
 
     board.zobrist_hash = Zobrist.board_hash(board)
+    board.position_history.append(board.zobrist_hash)
     return board
