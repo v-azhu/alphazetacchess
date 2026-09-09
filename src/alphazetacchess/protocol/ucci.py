@@ -77,7 +77,9 @@ class UCCIEngine:
         if command == "go":
             responses = self._drain_responses()
             self._handle_go(parts[1:])
-            return responses + self._drain_responses()
+            # ``go`` is asynchronous. Do not race the worker by draining its
+            # result here; the protocol loop will collect it on a later line.
+            return responses
         if command == "stop":
             return self._drain_responses() + self._handle_stop()
         if command == "quit":
@@ -220,6 +222,7 @@ class UCCIEngine:
     def _search_worker(self, search_fen, stop_event, limits):
         """Search a private position snapshot and publish one final response."""
         timer = None
+        response = "nobestmove"
         try:
             board = board_from_fen(search_fen)
             color = board.current_player
@@ -234,12 +237,13 @@ class UCCIEngine:
                 board, color, stop_event=stop_event
             )
 
-            if result.best_move is None:
-                response = "nobestmove"
-            else:
+            if result.best_move is not None:
                 move = GameRecord.move_to_iccs(result.best_move)
-                info = f"info depth {result.depth} nodes {result.nodes_evaluated} pv {move}"
-                response = f"{info}\nbestmove {move}"
+                if stop_event.is_set():
+                    response = f"bestmove {move}"
+                else:
+                    info = f"info depth {result.depth} nodes {result.nodes_evaluated} pv {move}"
+                    response = f"{info}\nbestmove {move}"
         except SearchCancelled:
             response = "nobestmove"
         except Exception as exc:
