@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+MATE_SCORE = 100000
+MATE_THRESHOLD = MATE_SCORE - 1000
+
+
 class Bound(Enum):
     EXACT = 0
     LOWER = 1
@@ -38,7 +42,23 @@ class TranspositionTable:
     def __len__(self):
         return len(self._table)
 
-    def probe(self, key, depth, alpha, beta):
+    @staticmethod
+    def _score_to_tt(score, ply):
+        if score >= MATE_THRESHOLD:
+            return score + ply
+        if score <= -MATE_THRESHOLD:
+            return score - ply
+        return score
+
+    @staticmethod
+    def _score_from_tt(score, ply):
+        if score >= MATE_THRESHOLD:
+            return score - ply
+        if score <= -MATE_THRESHOLD:
+            return score + ply
+        return score
+
+    def probe(self, key, depth, alpha, beta, ply=0):
         self.probes += 1
         entry = self._table.get(key)
 
@@ -51,21 +71,23 @@ class TranspositionTable:
         if entry.depth < depth:
             return None, preferred_move
 
+        score = self._score_from_tt(entry.score, ply)
+
         if entry.bound is Bound.EXACT:
             self.cutoffs += 1
-            return entry.score, preferred_move
+            return score, preferred_move
 
-        if entry.bound is Bound.LOWER and entry.score >= beta:
+        if entry.bound is Bound.LOWER and score >= beta:
             self.cutoffs += 1
-            return entry.score, preferred_move
+            return score, preferred_move
 
-        if entry.bound is Bound.UPPER and entry.score <= alpha:
+        if entry.bound is Bound.UPPER and score <= alpha:
             self.cutoffs += 1
-            return entry.score, preferred_move
+            return score, preferred_move
 
         return None, preferred_move
 
-    def store(self, key, depth, score, bound, best_move):
+    def store(self, key, depth, score, bound, best_move, ply=0):
         move_key = None
         if best_move is not None:
             move_key = (best_move.from_pos, best_move.to_pos)
@@ -84,7 +106,7 @@ class TranspositionTable:
 
         self._table[key] = TTEntry(
             depth=depth,
-            score=score,
+            score=self._score_to_tt(score, ply),
             bound=bound,
             best_move=move_key,
         )
