@@ -5,13 +5,14 @@ UCCI positions are represented by a FEN plus the move list from that position,
 which also lets GameRecord reconstruct exact-position repetition history.
 """
 
-from threading import Event, Lock, Thread
+from threading import Event, Lock, Thread, Timer
 
 from ..core.board import Board
 from ..core.fen import board_from_fen, board_to_fen
 from ..core.game_record import GameRecord
 from ..core.rule import Rule
 from ..engine.search import SearchCancelled, SearchEngine
+from .search_limits import SearchLimits
 
 
 class UCCIError(ValueError):
@@ -36,6 +37,7 @@ class UCCIEngine:
         self.record = GameRecord.from_board(self.board)
         self.debug = False
         self.quit_requested = False
+        self.use_millisec = False
 
         self._searching = False
         self._search_thread = None
@@ -99,9 +101,11 @@ class UCCIEngine:
             self._reset_position()
             return
         if name == "usemillisec":
-            # Accepted for protocol compatibility. Search currently only
-            # supports depth-based limits, so the value is intentionally not
-            # used yet.
+            if len(args) == 2:
+                raise UCCIError("usemillisec requires a value")
+            if args[2].lower() not in {"true", "false"}:
+                raise UCCIError("usemillisec expects true or false")
+            self.use_millisec = args[2].lower() == "true"
             return
         raise UCCIError(f"Unsupported UCCI option: {args[1]}")
 
@@ -137,19 +141,9 @@ class UCCIEngine:
 
     def _handle_go(self, args):
         self._ensure_not_searching()
+        limits = self._parse_go(args)
 
-        depth = self.search_engine.depth
-        if args:
-            if len(args) != 2 or args[0].lower() != "depth":
-                raise UCCIError("Current UCCI implementation supports only 'go depth N'")
-            try:
-                depth = int(args[1])
-            except ValueError as exc:
-                raise UCCIError("Search depth must be an integer") from exc
-            if depth < 0:
-                raise UCCIError("Search depth cannot be negative")
-
-        if depth == 0:
+        if limits.depth == 0:
             self._publish_response("nobestmove")
             return
 
@@ -160,7 +154,9 @@ class UCCIEngine:
             self._publish_response("nobestmove")
             return
 
-        self.search_engine.depth = depth
+        if limits.depth is not None:
+            self.search_engine.depth = limits.depth
+
         search_fen = board_to_fen(self.board)
         stop_event = Event()
 
@@ -169,17 +165,70 @@ class UCCIEngine:
             self._search_stop_event = stop_event
             self._search_thread = Thread(
                 target=self._search_worker,
-                args=(search_fen, stop_event),
+                args=(search_fen, stop_event, limits),
                 name="AlphaZetaChess-search",
                 daemon=True,
             )
             self._search_thread.start()
 
-    def _search_worker(self, search_fen, stop_event):
+    def _parse_go(self, args):
+        """Parse supported UCCI search controls into normalized milliseconds."""
+        values = {}
+        index = 0
+        integer_fields = {
+            "depth", "time", "opptime", "increment", "oppincrement", "movestogo"
+        }
+
+        while index < len(args):
+            name = args[index].lower()
+            if name not in integer_fields and name != "movetime":
+                raise UCCIError(f"Unsupported UCCI go parameter: {args[index]}")
+            if index + 1 >= len(args):
+                raise UCCIError(f"Missing value for go parameter: {args[index]}")
+            try:
+                value = int(args[index + 1])
+            except ValueError as exc:
+                raise UCCIError(f"Invalid value for go parameter: {args[index]}") from exc
+            if value < 0:
+                raise UCCIError(f"Negative value for go parameter: {args[index]}")
+            values[name] = value
+            index += 2
+
+        if "depth" in values and values["depth"] == 0:
+            return SearchLimits(depth=0)
+        if "movetime" in values and values["movetime"] == 0:
+            return SearchLimits(depth=1, movetime_ms=0)
+        if "movetime" in values and ("time" in values or "opptime" in values):
+            raise UCCIError("movetime cannot be combined with time/opptime")
+
+        def normalize_time(name):
+            if name not in values:
+                return None
+            return values[name] if self.use_millisec else values[name] * 1000
+
+        return SearchLimits(
+            depth=values.get("depth", self.search_engine.depth),
+            movetime_ms=values.get("movetime"),
+            time_ms=normalize_time("time"),
+            opptime_ms=normalize_time("opptime"),
+            increment_ms=normalize_time("increment") or 0,
+            oppincrement_ms=normalize_time("oppincrement") or 0,
+            movestogo=values.get("movestogo"),
+        )
+
+    def _search_worker(self, search_fen, stop_event, limits):
         """Search a private position snapshot and publish one final response."""
+        timer = None
         try:
             board = board_from_fen(search_fen)
             color = board.current_player
+
+            budget_ms = limits.time_budget_ms()
+            if budget_ms is not None:
+                timer = Timer(budget_ms / 1000.0, stop_event.set)
+                timer.daemon = True
+                timer.start()
+
             result = self.search_engine.choose_move(
                 board, color, stop_event=stop_event
             )
@@ -195,6 +244,8 @@ class UCCIEngine:
         except Exception as exc:
             response = f"info string search error {exc}\nnobestmove"
         finally:
+            if timer is not None:
+                timer.cancel()
             self._publish_response(response)
             with self._search_lock:
                 self._searching = False
