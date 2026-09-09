@@ -52,8 +52,7 @@ def test_cannon_requires_exactly_one_screen():
 
     assert AttackDetector.is_attacked(board, 5, 4, Color.RED) is True
 
-    board.board[4][3] = None
-    board.board[4][4] = Piece(PieceType.PAWN, Color.BLACK, 4, 4)
+    board._place(Piece(PieceType.PAWN, Color.BLACK, 4, 4))
     assert AttackDetector.is_attacked(board, 5, 4, Color.RED) is False
 
 
