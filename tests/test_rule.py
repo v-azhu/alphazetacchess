@@ -100,12 +100,19 @@ def test_stalemate_is_a_loss_for_side_to_move():
     board._place(Piece(PieceType.ADVISOR, Color.BLACK, 3, 9))
     board._place(Piece(PieceType.ADVISOR, Color.BLACK, 5, 9))
     board._place(Piece(PieceType.ELEPHANT, Color.BLACK, 4, 8))
-    board._place(Piece(PieceType.ROOK, Color.RED, 2, 6))
-    board._place(Piece(PieceType.ROOK, Color.RED, 6, 6))
-    board._place(Piece(PieceType.KING, Color.RED, 4, 0))
+    board._place(Piece(PieceType.PAWN, Color.BLACK, 2, 6))
+    board._place(Piece(PieceType.PAWN, Color.BLACK, 6, 6))
+    board._place(Piece(PieceType.PAWN, Color.BLACK, 2, 8))
+    board._place(Piece(PieceType.PAWN, Color.BLACK, 6, 8))
+    board._place(Piece(PieceType.PAWN, Color.RED, 2, 5))
+    board._place(Piece(PieceType.PAWN, Color.RED, 6, 5))
+    board._place(Piece(PieceType.PAWN, Color.RED, 2, 7))
+    board._place(Piece(PieceType.PAWN, Color.RED, 6, 7))
+    board._place(Piece(PieceType.KING, Color.RED, 0, 0))
     board.current_player = Color.BLACK
 
     assert Rule.is_in_check(board, Color.BLACK) is False
+    assert Rule.generate_legal_moves(board, Color.BLACK) == []
     assert Rule.is_stalemate(board, Color.BLACK) is True
 
     result = Rule.game_result(board, Color.BLACK)
