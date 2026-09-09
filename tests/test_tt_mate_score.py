@@ -1,4 +1,5 @@
-from alphazetacchess.engine.transposition_table import Bound, MATE_SCORE, TranspositionTable
+from alphazetacchess.engine.search import MATE_SCORE
+from alphazetacchess.engine.transposition_table import Bound, TranspositionTable
 
 
 def test_mate_score_is_normalized_across_search_plies():
