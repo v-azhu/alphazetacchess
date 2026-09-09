@@ -43,8 +43,11 @@ def test_killer_moves_keep_two_slots_and_promote_latest():
 
 def test_killer_moves_ignore_captures():
     table = KillerMoves()
-    capture = Move((0, 0), (0, 1), Piece(PieceType.PAWN, Color.BLACK, 0, 1))
+    capture = Move((0, 0), (0, 1))
+    capture.captured_piece = Piece(PieceType.PAWN, Color.BLACK, 0, 1)
+
     table.record(2, capture)
+
     assert table.get(2) == ()
 
 
@@ -52,10 +55,14 @@ def test_killer_ordering_puts_quiet_killers_before_other_quiet_moves():
     engine = SearchEngine(use_killer_moves=True)
     killer = Move((2, 2), (2, 3))
     other = Move((1, 1), (1, 2))
-    capture = Move((4, 4), (4, 5), Piece(PieceType.PAWN, Color.BLACK, 4, 5))
+
+    capture = Move((4, 4), (4, 5))
+    capture.captured_piece = Piece(PieceType.PAWN, Color.BLACK, 4, 5)
+
     engine.killer_moves.record(3, killer)
 
     ordered = engine._order_moves([other, capture, killer], None, 3)
+
     assert ordered == [killer, other, capture]
 
 
@@ -63,12 +70,17 @@ def test_stale_capture_matching_a_killer_is_not_prioritized():
     engine = SearchEngine(use_killer_moves=True)
     killer = Move((2, 2), (2, 3))
     engine.killer_moves.record(3, killer)
-    now_capture = Move((2, 2), (2, 3), Piece(PieceType.PAWN, Color.BLACK, 2, 3))
+
+    now_capture = Move((2, 2), (2, 3))
+    now_capture.captured_piece = Piece(
+        PieceType.PAWN, Color.BLACK, 2, 3
+    )
+
     other = Move((1, 1), (1, 2))
 
     ordered = engine._order_moves([other, now_capture], None, 3)
-    assert ordered == [other, now_capture]
 
+    assert ordered == [other, now_capture]
 
 def test_killer_moves_preserve_search_result():
     board = small_midgame_position()
