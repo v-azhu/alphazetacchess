@@ -4,7 +4,6 @@ from alphazetacchess.core.attack import AttackDetector
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.move_generator import MoveGenerator
 from alphazetacchess.core.piece import Color, Piece, PieceType
-from alphazetacchess.core.rule import Rule
 
 
 def empty_board():
@@ -93,7 +92,7 @@ def test_advisor_and_king_attacks_are_palace_local():
     board._place(Piece(PieceType.PAWN, Color.BLACK, 4, 1))
 
     assert AttackDetector.is_attacked(board, 4, 1, Color.RED) is True
-    assert AttackDetector.is_attacked(board, 2, 1, Color.RED) is True
+    assert AttackDetector.is_attacked(board, 2, 1, Color.RED) is False
 
     board._place(Piece(PieceType.PAWN, Color.BLACK, 4, 3))
     assert AttackDetector.is_attacked(board, 4, 3, Color.RED) is False
@@ -118,31 +117,63 @@ def test_pawn_attack_changes_after_crossing_river():
     assert AttackDetector.is_attacked(board, 4, 4, Color.RED) is False
 
 
+def _random_position(rng):
+    """Create a pseudo-legal position suitable for move/attack differential tests.
+
+    The random boards do not attempt to enforce every Xiangqi legality rule, but
+    constrained pieces obey their movement regions: kings and advisors stay in
+    their palaces, and elephants stay on their own side of the river.  Exactly
+    one king per side is placed so generator queries remain well-defined.
+    """
+    board = empty_board()
+    occupied = set()
+
+    def random_square(color, piece_type):
+        if piece_type in (PieceType.KING, PieceType.ADVISOR):
+            y_range = range(0, 3) if color is Color.RED else range(7, 10)
+            x = rng.randint(3, 5)
+            y = rng.choice(tuple(y_range))
+            return x, y
+        if piece_type is PieceType.ELEPHANT:
+            y_range = range(0, 5) if color is Color.RED else range(5, 10)
+            return rng.randrange(Board.WIDTH), rng.choice(tuple(y_range))
+        return rng.randrange(Board.WIDTH), rng.randrange(Board.HEIGHT)
+
+    for color in (Color.RED, Color.BLACK):
+        king_square = (4, 0) if color is Color.RED else (4, 9)
+        board._place(Piece(PieceType.KING, color, *king_square))
+        occupied.add(king_square)
+
+        count = rng.randint(1, 12)
+        candidate_types = [piece_type for piece_type in PieceType if piece_type is not PieceType.KING]
+        for _ in range(count):
+            piece_type = rng.choice(candidate_types)
+            for _attempt in range(50):
+                square = random_square(color, piece_type)
+                if square not in occupied:
+                    break
+            else:
+                continue
+            board._place(Piece(piece_type, color, *square))
+            occupied.add(square)
+
+    return board, occupied
+
+
 def test_detector_differential_against_pseudo_moves_on_occupied_targets():
     rng = random.Random(0xA17AC)
-    piece_types = list(PieceType)
     generator = MoveGenerator()
 
     for _ in range(300):
-        board = empty_board()
-        occupied = set()
-        for color in (Color.RED, Color.BLACK):
-            count = rng.randint(1, 12)
-            for _ in range(count):
-                for _attempt in range(20):
-                    x = rng.randrange(Board.WIDTH)
-                    y = rng.randrange(Board.HEIGHT)
-                    if (x, y) not in occupied:
-                        break
-                else:
-                    continue
-                piece_type = rng.choice(piece_types)
-                board._place(Piece(piece_type, color, x, y))
-                occupied.add((x, y))
+        board, occupied = _random_position(rng)
 
         for by_color in (Color.RED, Color.BLACK):
             moves = generator.generate_moves(board, by_color)
-            attacked_by_generator = {move.to_pos for move in moves if move.captured_piece is not None}
+            attacked_by_generator = {
+                move.to_pos
+                for move in moves
+                if move.captured_piece is not None
+            }
             opponent = board.opponent(by_color)
             for target in occupied:
                 piece = board.get(*target)
@@ -151,3 +182,15 @@ def test_detector_differential_against_pseudo_moves_on_occupied_targets():
                 expected = target in attacked_by_generator
                 actual = AttackDetector.is_attacked(board, target[0], target[1], by_color)
                 assert actual is expected, (by_color, target)
+
+
+def test_detector_reports_attacks_on_empty_targets():
+    board = empty_board()
+    place_kings(board)
+    board._place(Piece(PieceType.ROOK, Color.RED, 0, 4))
+    board._place(Piece(PieceType.HORSE, Color.RED, 4, 4))
+    board._place(Piece(PieceType.PAWN, Color.RED, 6, 5))
+
+    assert AttackDetector.is_attacked(board, 0, 7, Color.RED) is True
+    assert AttackDetector.is_attacked(board, 5, 6, Color.RED) is True
+    assert AttackDetector.is_attacked(board, 5, 5, Color.RED) is True
