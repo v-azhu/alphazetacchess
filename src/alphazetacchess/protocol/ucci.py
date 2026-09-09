@@ -98,14 +98,17 @@ class UCCIEngine:
         name = args[1].lower()
         if name == "newgame":
             self._ensure_not_searching()
+            if len(args) > 2:
+                raise UCCIError("newgame does not accept a value")
             self._reset_position()
             return
         if name == "usemillisec":
-            if len(args) == 2:
-                raise UCCIError("usemillisec requires a value")
-            if args[2].lower() not in {"true", "false"}:
+            value_args = args[2:]
+            if value_args and value_args[0].lower() == "value":
+                value_args = value_args[1:]
+            if len(value_args) != 1 or value_args[0].lower() not in {"true", "false"}:
                 raise UCCIError("usemillisec expects true or false")
-            self.use_millisec = args[2].lower() == "true"
+            self.use_millisec = value_args[0].lower() == "true"
             return
         raise UCCIError(f"Unsupported UCCI option: {args[1]}")
 
@@ -196,8 +199,6 @@ class UCCIEngine:
 
         if "depth" in values and values["depth"] == 0:
             return SearchLimits(depth=0)
-        if "movetime" in values and values["movetime"] == 0:
-            return SearchLimits(depth=1, movetime_ms=0)
         if "movetime" in values and ("time" in values or "opptime" in values):
             raise UCCIError("movetime cannot be combined with time/opptime")
 
