@@ -1,4 +1,5 @@
 from alphazetacchess.core.board import Board
+from alphazetacchess.core.fen import board_to_fen
 from alphazetacchess.core.piece import Color
 from alphazetacchess.engine.search import SearchCancelled, SearchEngine
 
@@ -27,7 +28,7 @@ class CancelAtDepthTwoEngine(SearchEngine):
 
 def test_cancelled_search_restores_board_after_an_in_progress_move():
     board = Board()
-    original_fen = board.to_fen() if hasattr(board, "to_fen") else None
+    original_fen = board_to_fen(board)
     original_hash = board.zobrist_hash
     original_player = board.current_player
     original_history = list(board.position_history)
@@ -39,11 +40,10 @@ def test_cancelled_search_restores_board_after_an_in_progress_move():
 
     assert result.best_move is not None
     assert result.depth == 0
+    assert board_to_fen(board) == original_fen
     assert board.zobrist_hash == original_hash
     assert board.current_player == original_player
     assert board.position_history == original_history
-    if original_fen is not None:
-        assert board.to_fen() == original_fen
 
 
 def test_iterative_deepening_keeps_last_completed_depth_when_cancelled():
