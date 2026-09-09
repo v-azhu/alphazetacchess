@@ -3,6 +3,7 @@ from threading import Event
 from ..core.rule import Rule
 from .base import ChessEngine, SearchResult
 from .evaluation import evaluate
+from .killer_moves import KillerMoves
 from .transposition_table import Bound, MATE_SCORE, TranspositionTable
 from ..selfplay.opening_book import select_book_move
 
@@ -21,7 +22,7 @@ class SearchEngine(ChessEngine):
                  use_pawn_structure=False, use_piece_coordination=False,
                  use_endgame_heuristics=False, use_opening_book=False,
                  opening_book=None, opening_book_min_games=3, tt_max_entries=200_000,
-                 eval_fn=None, material_values=None):
+                 eval_fn=None, material_values=None, use_killer_moves=True):
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
         self.iterative_deepening = iterative_deepening
@@ -41,8 +42,10 @@ class SearchEngine(ChessEngine):
         self.opening_book_min_games = opening_book_min_games
         self.eval_fn = eval_fn
         self.material_values = material_values
+        self.use_killer_moves = use_killer_moves
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
+        self.killer_moves = KillerMoves()
         self._stop_event = Event()
 
     def request_stop(self):
@@ -75,6 +78,8 @@ class SearchEngine(ChessEngine):
             stop_event = self._stop_event
         self.nodes_evaluated = 0
         self.tt.reset_stats()
+        if self.use_killer_moves:
+            self.killer_moves.clear()
         self._check_stop(stop_event)
 
         if self.use_opening_book and self.opening_book:
@@ -157,15 +162,35 @@ class SearchEngine(ChessEngine):
                 return [move] + ordered[:index] + ordered[index + 1:]
         return ordered
 
-    @staticmethod
-    def _order_moves(moves, preferred_move):
-        if preferred_move is None:
-            return list(moves)
-        preferred = (preferred_move[0], preferred_move[1])
-        for index, move in enumerate(moves):
-            if (move.from_pos, move.to_pos) == preferred:
-                return [move] + list(moves[:index]) + list(moves[index + 1:])
-        return list(moves)
+    def _order_moves(self, moves, preferred_move, ply=None):
+        ordered = list(moves)
+        if preferred_move is not None:
+            preferred = (preferred_move[0], preferred_move[1])
+            for index, move in enumerate(ordered):
+                if (move.from_pos, move.to_pos) == preferred:
+                    ordered = [move] + ordered[:index] + ordered[index + 1:]
+                    break
+
+        if not self.use_killer_moves or ply is None:
+            return ordered
+
+        killer_keys = self.killer_moves.get(ply)
+        if not killer_keys:
+            return ordered
+
+        # Killer moves are only useful for quiet moves. A stale killer that
+        # has become a capture must not displace the capture ordering.
+        killer_rank = {key: index for index, key in enumerate(killer_keys)}
+        killer_moves = []
+        remaining = []
+        for move in ordered:
+            key = (move.from_pos, move.to_pos)
+            if move.captured_piece is None and key in killer_rank:
+                killer_moves.append((killer_rank[key], move))
+            else:
+                remaining.append(move)
+        killer_moves.sort(key=lambda item: item[0])
+        return [move for _, move in killer_moves] + remaining
 
     def _negamax(self, board, depth, alpha, beta, current_color, root_depth,
                  use_pruning, stop_event=None):
@@ -193,7 +218,7 @@ class SearchEngine(ChessEngine):
                 if self.use_transposition_table:
                     self.tt.store(key, depth, score, Bound.EXACT, None, ply=ply)
             return score
-        legal_moves = self._order_moves(legal_moves, preferred_move)
+        legal_moves = self._order_moves(legal_moves, preferred_move, ply)
         best_score = float("-inf")
         best_move = None
         opponent = board.opponent(current_color)
@@ -218,6 +243,8 @@ class SearchEngine(ChessEngine):
             if use_pruning:
                 alpha = max(alpha, best_score)
                 if alpha >= beta:
+                    if self.use_killer_moves:
+                        self.killer_moves.record(ply, move)
                     break
         if self.use_transposition_table:
             if best_score <= alpha_original:
