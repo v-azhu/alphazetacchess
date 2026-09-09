@@ -1,6 +1,7 @@
 import pytest
 
 from alphazetacchess.core.board import Board
+from alphazetacchess.core.fen import board_from_fen
 from alphazetacchess.tools.perft import perft
 
 
@@ -11,6 +12,8 @@ INITIAL_PERFT = {
     3: 79666,
     4: 3290240,
 }
+
+START_FEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
 
 
 def test_perft_depth_zero():
@@ -25,6 +28,12 @@ def test_initial_position_depth_one():
 
 def test_initial_position_depth_two():
     board = Board()
+    assert perft(board, 2) == INITIAL_PERFT[2]
+
+
+def test_initial_position_fen_matches_native_board():
+    board = board_from_fen(START_FEN)
+    assert perft(board, 1) == INITIAL_PERFT[1]
     assert perft(board, 2) == INITIAL_PERFT[2]
 
 
