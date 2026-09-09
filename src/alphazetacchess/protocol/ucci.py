@@ -32,7 +32,6 @@ class UCCIEngine:
         self.debug = False
         self.quit_requested = False
         self.use_millisec = False
-
         self._searching = False
         self._search_thread = None
         self._search_stop_event = None
@@ -43,18 +42,10 @@ class UCCIEngine:
         line = line.strip()
         if not line:
             return self._drain_responses()
-
         parts = line.split()
         command = parts[0].lower()
-
         if command == "ucci":
-            return self._drain_responses() + [
-                f"id name {self.NAME}",
-                f"id author {self.AUTHOR}",
-                "option usemillisec type check default false",
-                "option newgame type button",
-                "ucciok",
-            ]
+            return self._drain_responses() + [f"id name {self.NAME}", f"id author {self.AUTHOR}", "option usemillisec type check default false", "option newgame type button", "ucciok"]
         if command == "isready":
             return self._drain_responses() + ["readyok"]
         if command == "debug":
@@ -70,27 +61,18 @@ class UCCIEngine:
             return self._drain_responses()
         if command == "go":
             responses = self._drain_responses()
-            immediate = self._handle_go(parts[1:])
-            # Only immediate no-search responses are returned here. A worker
-            # result remains queued until the next protocol command.
-            return responses + immediate
+            return responses + self._handle_go(parts[1:])
         if command == "stop":
             return self._drain_responses() + self._handle_stop()
-        if command == "quit":
+        if command in {"quit", "bye"}:
             self._handle_stop()
             self.quit_requested = True
             return self._drain_responses()
-        if command == "bye":
-            self._handle_stop()
-            self.quit_requested = True
-            return self._drain_responses()
-
         raise UCCIError(f"Unknown UCCI command: {parts[0]}")
 
     def _handle_setoption(self, args):
         if len(args) < 2 or args[0].lower() != "name":
             raise UCCIError("setoption requires 'name'")
-
         name = args[1].lower()
         if name == "newgame":
             self._ensure_not_searching()
@@ -110,74 +92,48 @@ class UCCIEngine:
 
     def _handle_position(self, args):
         self._ensure_not_searching()
-
         if not args or args[0].lower() != "fen":
             raise UCCIError("UCCI requires 'position fen <fen> [moves ...]'")
-
         try:
-            moves_index = next(
-                index for index, token in enumerate(args[1:], start=1)
-                if token.lower() == "moves"
-            )
+            moves_index = next(index for index, token in enumerate(args[1:], start=1) if token.lower() == "moves")
         except StopIteration:
             moves_index = len(args)
-
         fen_fields = args[1:moves_index]
         if len(fen_fields) != 6:
             raise UCCIError("FEN must contain exactly six fields")
-
         fen = " ".join(fen_fields)
         move_texts = args[moves_index + 1:] if moves_index < len(args) else []
-
         try:
             record = GameRecord.from_moves(fen, move_texts)
             board = record.replay()
         except (KeyError, TypeError, ValueError, IndexError) as exc:
             raise UCCIError(f"Invalid position: {exc}") from exc
-
         self.record = record
         self.board = board
 
     def _handle_go(self, args):
         self._ensure_not_searching()
         limits = self._parse_go(args)
-
         if limits.depth == 0:
             return ["nobestmove"]
-
-        legal_moves = Rule.generate_legal_moves(
-            self.board, self.board.current_player
-        )
+        legal_moves = Rule.generate_legal_moves(self.board, self.board.current_player)
         if not legal_moves:
             return ["nobestmove"]
-
         if limits.depth is not None:
             self.search_engine.depth = limits.depth
-
         search_fen = board_to_fen(self.board)
         stop_event = Event()
-
         with self._search_lock:
             self._searching = True
             self._search_stop_event = stop_event
-            self._search_thread = Thread(
-                target=self._search_worker,
-                args=(search_fen, stop_event, limits),
-                name="AlphaZetaChess-search",
-                daemon=True,
-            )
+            self._search_thread = Thread(target=self._search_worker, args=(search_fen, stop_event, limits), name="AlphaZetaChess-search", daemon=True)
             self._search_thread.start()
-
         return []
 
     def _parse_go(self, args):
-        """Parse supported UCCI search controls into normalized milliseconds."""
         values = {}
         index = 0
-        integer_fields = {
-            "depth", "time", "opptime", "increment", "oppincrement", "movestogo"
-        }
-
+        integer_fields = {"depth", "time", "opptime", "increment", "oppincrement", "movestogo"}
         while index < len(args):
             name = args[index].lower()
             if name not in integer_fields and name != "movetime":
@@ -192,52 +148,34 @@ class UCCIEngine:
                 raise UCCIError(f"Negative value for go parameter: {args[index]}")
             values[name] = value
             index += 2
-
         if "depth" in values and values["depth"] == 0:
             return SearchLimits(depth=0)
         if "movetime" in values and ("time" in values or "opptime" in values):
             raise UCCIError("movetime cannot be combined with time/opptime")
-
         def normalize_time(name):
             if name not in values:
                 return None
             return values[name] if self.use_millisec else values[name] * 1000
-
-        return SearchLimits(
-            depth=values.get("depth", self.search_engine.depth),
-            movetime_ms=values.get("movetime"),
-            time_ms=normalize_time("time"),
-            opptime_ms=normalize_time("opptime"),
-            increment_ms=normalize_time("increment") or 0,
-            oppincrement_ms=normalize_time("oppincrement") or 0,
-            movestogo=values.get("movestogo"),
-        )
+        return SearchLimits(depth=values.get("depth", self.search_engine.depth), movetime_ms=values.get("movetime"), time_ms=normalize_time("time"), opptime_ms=normalize_time("opptime"), increment_ms=normalize_time("increment") or 0, oppincrement_ms=normalize_time("oppincrement") or 0, movestogo=values.get("movestogo"))
 
     def _search_worker(self, search_fen, stop_event, limits):
-        """Search a private position snapshot and publish one final response."""
         timer = None
         response = "nobestmove"
         try:
             board = board_from_fen(search_fen)
             color = board.current_player
-
             budget_ms = limits.time_budget_ms()
             if budget_ms is not None:
                 timer = Timer(budget_ms / 1000.0, stop_event.set)
                 timer.daemon = True
                 timer.start()
-
-            result = self.search_engine.choose_move(
-                board, color, stop_event=stop_event
-            )
-
+            result = self.search_engine.choose_move(board, color, stop_event=stop_event)
             if result.best_move is not None:
                 move = GameRecord.move_to_iccs(result.best_move)
                 if stop_event.is_set():
                     response = f"bestmove {move}"
                 else:
-                    info = f"info depth {result.depth} nodes {result.nodes_evaluated} pv {move}"
-                    response = f"{info}\nbestmove {move}"
+                    response = f"info depth {result.depth} nodes {result.nodes_evaluated} pv {move}\nbestmove {move}"
         except SearchCancelled:
             response = "nobestmove"
         except Exception as exc:
@@ -255,10 +193,8 @@ class UCCIEngine:
         with self._search_lock:
             thread = self._search_thread
             stop_event = self._search_stop_event
-
         if thread is None:
             return self._drain_responses()
-
         if stop_event is not None:
             stop_event.set()
         thread.join()
@@ -282,3 +218,20 @@ class UCCIEngine:
     def _reset_position(self):
         self.board = Board()
         self.record = GameRecord.from_board(self.board)
+
+    def current_fen(self):
+        """Return the current UCCI position as FEN."""
+        return board_to_fen(self.board)
+
+
+def run_ucci(input_stream, output_stream, engine=None):
+    """Run a line-oriented UCCI loop over file-like streams."""
+    engine = engine or UCCIEngine()
+    for line in input_stream:
+        responses = engine.handle_line(line)
+        for response in responses:
+            for output_line in response.splitlines():
+                output_stream.write(output_line + "\n")
+            output_stream.flush()
+        if engine.quit_requested:
+            break
