@@ -34,10 +34,10 @@ def test_rook_and_cannon_attacks():
     board._place(Piece(PieceType.CANNON, Color.RED, 8, 4))
     board._place(Piece(PieceType.PAWN, Color.BLACK, 4, 4))
     board._place(Piece(PieceType.PAWN, Color.BLACK, 6, 4))
-    board._place(Piece(PieceType.PAWN, Color.BLACK, 7, 4))
 
     assert AttackDetector.is_attacked(board, 4, 4, Color.RED) is True
-    assert AttackDetector.is_attacked(board, 7, 4, Color.RED) is True
+    # The cannon has no screen immediately before the target, so it cannot
+    # attack the pawn at (6, 4).
     assert AttackDetector.is_attacked(board, 6, 4, Color.RED) is False
 
 
@@ -45,19 +45,21 @@ def test_cannon_requires_exactly_one_screen():
     board = empty_board()
     place_kings(board)
     board._place(Piece(PieceType.CANNON, Color.RED, 0, 4))
-    board._place(Piece(PieceType.PAWN, Color.BLACK, 3, 4))
+    board._place(Piece(PieceType.PAWN, Color.RED, 3, 4))
     board._place(Piece(PieceType.PAWN, Color.BLACK, 5, 4))
 
-    assert AttackDetector.is_attacked(board, 5, 4, Color.RED) is False
+    assert AttackDetector.is_attacked(board, 5, 4, Color.RED) is True
 
     board.board[4][3] = None
-    assert AttackDetector.is_attacked(board, 5, 4, Color.RED) is True
+    board.board[4][4] = Piece(PieceType.PAWN, Color.BLACK, 4, 4)
+    assert AttackDetector.is_attacked(board, 5, 4, Color.RED) is False
 
 
 def test_horse_attack_respects_leg_block():
     board = empty_board()
     place_kings(board)
     board._place(Piece(PieceType.HORSE, Color.RED, 4, 4))
+    board._place(Piece(PieceType.PAWN, Color.RED, 4, 5))
     board._place(Piece(PieceType.PAWN, Color.BLACK, 5, 6))
 
     assert AttackDetector.is_attacked(board, 5, 6, Color.RED) is False
@@ -70,16 +72,17 @@ def test_elephant_attack_respects_eye_and_river():
     board = empty_board()
     place_kings(board)
     board._place(Piece(PieceType.ELEPHANT, Color.RED, 2, 0))
+    board._place(Piece(PieceType.PAWN, Color.RED, 3, 1))
     board._place(Piece(PieceType.PAWN, Color.BLACK, 4, 2))
 
     assert AttackDetector.is_attacked(board, 4, 2, Color.RED) is False
 
-    board.board[2][3] = None
+    board.board[1][3] = None
     assert AttackDetector.is_attacked(board, 4, 2, Color.RED) is True
 
-    board.board[2][3] = None
-    board.board[4][4] = Piece(PieceType.PAWN, Color.BLACK, 4, 4)
-    assert AttackDetector.is_attacked(board, 4, 4, Color.RED) is False
+    board._place(Piece(PieceType.ELEPHANT, Color.RED, 2, 4))
+    board._place(Piece(PieceType.PAWN, Color.BLACK, 4, 6))
+    assert AttackDetector.is_attacked(board, 4, 6, Color.RED) is False
 
 
 def test_advisor_and_king_attacks_are_palace_local():
@@ -108,7 +111,8 @@ def test_pawn_attack_changes_after_crossing_river():
     assert AttackDetector.is_attacked(board, 4, 5, Color.RED) is True
     assert AttackDetector.is_attacked(board, 3, 4, Color.RED) is False
 
-    board.board[4][4].y = 5
+    board.board[4][4] = None
+    board._place(Piece(PieceType.PAWN, Color.RED, 4, 5))
     assert AttackDetector.is_attacked(board, 3, 5, Color.RED) is True
     assert AttackDetector.is_attacked(board, 4, 4, Color.RED) is False
 
