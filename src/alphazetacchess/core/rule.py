@@ -3,6 +3,7 @@ from enum import Enum
 
 from .piece import Color
 from .move_generator import MoveGenerator
+from .attack import AttackDetector
 
 
 class TerminationReason(Enum):
@@ -55,10 +56,7 @@ class Rule:
 
     @classmethod
     def is_square_attacked(cls, board, x, y, by_color):
-        for move in cls._generator.generate_moves(board, by_color):
-            if move.to_pos == (x, y):
-                return True
-        return False
+        return AttackDetector.is_attacked(board, x, y, by_color)
 
     @classmethod
     def is_in_check(cls, board, color):
