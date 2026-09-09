@@ -41,11 +41,26 @@ class UCCIEngine:
     def handle_line(self, line):
         line = line.strip()
         if not line:
+            # Empty input is used by the tests and by simple polling clients to
+            # retrieve asynchronous search output. Give a worker that has just
+            # finished a short opportunity to publish its final responses.
+            with self._search_lock:
+                thread = self._search_thread
+                pending = bool(self._pending_responses)
+            if thread is not None and not pending:
+                thread.join(timeout=0.1)
             return self._drain_responses()
+
         parts = line.split()
         command = parts[0].lower()
         if command == "ucci":
-            return self._drain_responses() + [f"id name {self.NAME}", f"id author {self.AUTHOR}", "option usemillisec type check default false", "option newgame type button", "ucciok"]
+            return self._drain_responses() + [
+                f"id name {self.NAME}",
+                f"id author {self.AUTHOR}",
+                "option usemillisec type check default false",
+                "option newgame type button",
+                "ucciok",
+            ]
         if command == "isready":
             return self._drain_responses() + ["readyok"]
         if command == "debug":
@@ -95,7 +110,11 @@ class UCCIEngine:
         if not args or args[0].lower() != "fen":
             raise UCCIError("UCCI requires 'position fen <fen> [moves ...]'")
         try:
-            moves_index = next(index for index, token in enumerate(args[1:], start=1) if token.lower() == "moves")
+            moves_index = next(
+                index
+                for index, token in enumerate(args[1:], start=1)
+                if token.lower() == "moves"
+            )
         except StopIteration:
             moves_index = len(args)
         fen_fields = args[1:moves_index]
@@ -126,14 +145,26 @@ class UCCIEngine:
         with self._search_lock:
             self._searching = True
             self._search_stop_event = stop_event
-            self._search_thread = Thread(target=self._search_worker, args=(search_fen, stop_event, limits), name="AlphaZetaChess-search", daemon=True)
+            self._search_thread = Thread(
+                target=self._search_worker,
+                args=(search_fen, stop_event, limits),
+                name="AlphaZetaChess-search",
+                daemon=True,
+            )
             self._search_thread.start()
         return []
 
     def _parse_go(self, args):
         values = {}
         index = 0
-        integer_fields = {"depth", "time", "opptime", "increment", "oppincrement", "movestogo"}
+        integer_fields = {
+            "depth",
+            "time",
+            "opptime",
+            "increment",
+            "oppincrement",
+            "movestogo",
+        }
         while index < len(args):
             name = args[index].lower()
             if name not in integer_fields and name != "movetime":
@@ -152,15 +183,25 @@ class UCCIEngine:
             return SearchLimits(depth=0)
         if "movetime" in values and ("time" in values or "opptime" in values):
             raise UCCIError("movetime cannot be combined with time/opptime")
+
         def normalize_time(name):
             if name not in values:
                 return None
             return values[name] if self.use_millisec else values[name] * 1000
-        return SearchLimits(depth=values.get("depth", self.search_engine.depth), movetime_ms=values.get("movetime"), time_ms=normalize_time("time"), opptime_ms=normalize_time("opptime"), increment_ms=normalize_time("increment") or 0, oppincrement_ms=normalize_time("oppincrement") or 0, movestogo=values.get("movestogo"))
+
+        return SearchLimits(
+            depth=values.get("depth", self.search_engine.depth),
+            movetime_ms=values.get("movetime"),
+            time_ms=normalize_time("time"),
+            opptime_ms=normalize_time("opptime"),
+            increment_ms=normalize_time("increment") or 0,
+            oppincrement_ms=normalize_time("oppincrement") or 0,
+            movestogo=values.get("movestogo"),
+        )
 
     def _search_worker(self, search_fen, stop_event, limits):
         timer = None
-        response = "nobestmove"
+        responses = ["nobestmove"]
         try:
             board = board_from_fen(search_fen)
             color = board.current_player
@@ -173,18 +214,21 @@ class UCCIEngine:
             if result.best_move is not None:
                 move = GameRecord.move_to_iccs(result.best_move)
                 if stop_event.is_set():
-                    response = f"bestmove {move}"
+                    responses = [f"bestmove {move}"]
                 else:
-                    response = f"info depth {result.depth} nodes {result.nodes_evaluated} pv {move}\nbestmove {move}"
+                    responses = [
+                        f"info depth {result.depth} nodes {result.nodes_evaluated} pv {move}",
+                        f"bestmove {move}",
+                    ]
         except SearchCancelled:
-            response = "nobestmove"
+            responses = ["nobestmove"]
         except Exception as exc:
-            response = f"info string search error {exc}\nnobestmove"
+            responses = [f"info string search error {exc}", "nobestmove"]
         finally:
             if timer is not None:
                 timer.cancel()
-            self._publish_response(response)
             with self._search_lock:
+                self._pending_responses.extend(responses)
                 self._searching = False
                 self._search_stop_event = None
                 self._search_thread = None
@@ -199,10 +243,6 @@ class UCCIEngine:
             stop_event.set()
         thread.join()
         return self._drain_responses()
-
-    def _publish_response(self, response):
-        with self._search_lock:
-            self._pending_responses.append(response)
 
     def _drain_responses(self):
         with self._search_lock:
@@ -230,8 +270,7 @@ def run_ucci(input_stream, output_stream, engine=None):
     for line in input_stream:
         responses = engine.handle_line(line)
         for response in responses:
-            for output_line in response.splitlines():
-                output_stream.write(output_line + "\n")
+            output_stream.write(response + "\n")
             output_stream.flush()
         if engine.quit_requested:
             break
