@@ -156,7 +156,9 @@ class UCCIEngine:
         if result.best_move is None:
             return ["nobestmove"]
 
-        return [f"bestmove {GameRecord.move_to_iccs(result.best_move)}"]
+        move = GameRecord.move_to_iccs(result.best_move)
+        info = f"info depth {result.depth} nodes {result.nodes_evaluated} pv {move}"
+        return [info, f"bestmove {move}"]
 
     def _reset_position(self):
         self.board = Board()
