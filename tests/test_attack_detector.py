@@ -18,13 +18,15 @@ def place_kings(board):
     board._place(Piece(PieceType.KING, Color.BLACK, 4, 9))
 
 
-def test_attack_detector_matches_rule_for_initial_position():
+def test_attack_detector_matches_pseudo_moves_for_initial_kings():
     board = Board()
-    for color in (Color.RED, Color.BLACK):
-        king = board.find_king(color)
-        opponent = board.opponent(color)
-        expected = Rule.is_square_attacked(board, king.x, king.y, opponent)
-        assert AttackDetector.is_attacked(board, king.x, king.y, opponent) is expected
+    generator = MoveGenerator()
+    for by_color in (Color.RED, Color.BLACK):
+        target = board.find_king(board.opponent(by_color)).position()
+        moves = generator.generate_moves(board, by_color)
+        expected = any(move.to_pos == target and move.captured_piece is not None for move in moves)
+        actual = AttackDetector.is_attacked(board, target[0], target[1], by_color)
+        assert actual is expected
 
 
 def test_rook_and_cannon_attacks():
