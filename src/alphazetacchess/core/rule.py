@@ -1,5 +1,32 @@
+from dataclasses import dataclass
+from enum import Enum
+
 from .piece import Color
 from .move_generator import MoveGenerator
+
+
+class TerminationReason(Enum):
+    """Why a Xiangqi game has ended."""
+
+    CHECKMATE = "checkmate"
+    STALEMATE = "stalemate"
+    REPETITION = "repetition"
+
+
+@dataclass(frozen=True)
+class GameResult:
+    """Structured game status returned by :meth:`Rule.game_result`.
+
+    ``winner`` is the player who wins the game.  It is ``None`` for an
+    ongoing game and for a repetition draw.
+    """
+
+    reason: TerminationReason | None = None
+    winner: Color | None = None
+
+    @property
+    def is_over(self):
+        return self.reason is not None
 
 
 class Rule:
@@ -11,12 +38,13 @@ class Rule:
       moves, by rejecting any move that would leave the mover's own
       general in check, or cause the two generals to face each other
       directly ("flying general");
-    - detect check, checkmate, and stalemate.
+    - detect check, checkmate, and stalemate;
+    - provide a structured terminal-game result for the search/game loop.
 
     Note on stalemate: unlike International Chess, in Chinese Chess a
     player who has no legal move available LOSES the game -- it is
-    not a draw. is_stalemate() below simply reports "no legal moves
-    and not currently in check"; the game loop decides the outcome.
+    not a draw. ``is_stalemate()`` reports the rule condition; the
+    structured ``game_result()`` therefore awards the win to the opponent.
     """
 
     _generator = MoveGenerator()
@@ -86,5 +114,29 @@ class Rule:
         )
 
     @classmethod
+    def game_result(cls, board, color=None):
+        """Return the structured terminal status for ``color`` to move.
+
+        Checkmate and stalemate are evaluated before repetition because a
+        position with no legal move is an immediate game termination.
+        Repetition is currently represented as a draw; the more nuanced
+        Xiangqi long-check/long-capture adjudication is intentionally kept
+        separate for a later rules layer.
+        """
+        if color is None:
+            color = board.current_player
+
+        legal_moves = cls.generate_legal_moves(board, color)
+        if not legal_moves:
+            if cls.is_in_check(board, color):
+                return GameResult(TerminationReason.CHECKMATE, board.opponent(color))
+            return GameResult(TerminationReason.STALEMATE, board.opponent(color))
+
+        if board.is_repetition():
+            return GameResult(TerminationReason.REPETITION, None)
+
+        return GameResult()
+
+    @classmethod
     def is_game_over(cls, board, color):
-        return len(cls.generate_legal_moves(board, color)) == 0
+        return cls.game_result(board, color).is_over
