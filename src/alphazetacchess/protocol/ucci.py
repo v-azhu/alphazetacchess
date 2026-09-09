@@ -20,13 +20,7 @@ class UCCIError(ValueError):
 
 
 class UCCIEngine:
-    """UCCI command processor with an asynchronous search worker.
-
-    ``handle_line`` remains a line-oriented command processor, while ``go``
-    starts a worker thread so that the protocol loop can receive ``stop``.
-    The worker searches a private board snapshot and publishes exactly one
-    final ``bestmove`` or ``nobestmove`` response.
-    """
+    """UCCI command processor with an asynchronous search worker."""
 
     NAME = "AlphaZetaChess"
     AUTHOR = "v-azhu"
@@ -76,10 +70,10 @@ class UCCIEngine:
             return self._drain_responses()
         if command == "go":
             responses = self._drain_responses()
-            self._handle_go(parts[1:])
-            # ``go`` is asynchronous. Do not race the worker by draining its
-            # result here; the protocol loop will collect it on a later line.
-            return responses
+            immediate = self._handle_go(parts[1:])
+            # Only immediate no-search responses are returned here. A worker
+            # result remains queued until the next protocol command.
+            return responses + immediate
         if command == "stop":
             return self._drain_responses() + self._handle_stop()
         if command == "quit":
@@ -149,15 +143,13 @@ class UCCIEngine:
         limits = self._parse_go(args)
 
         if limits.depth == 0:
-            self._publish_response("nobestmove")
-            return
+            return ["nobestmove"]
 
         legal_moves = Rule.generate_legal_moves(
             self.board, self.board.current_player
         )
         if not legal_moves:
-            self._publish_response("nobestmove")
-            return
+            return ["nobestmove"]
 
         if limits.depth is not None:
             self.search_engine.depth = limits.depth
@@ -175,6 +167,8 @@ class UCCIEngine:
                 daemon=True,
             )
             self._search_thread.start()
+
+        return []
 
     def _parse_go(self, args):
         """Parse supported UCCI search controls into normalized milliseconds."""
@@ -263,15 +257,16 @@ class UCCIEngine:
             stop_event = self._search_stop_event
 
         if thread is None:
-            return []
+            return self._drain_responses()
 
-        stop_event.set()
+        if stop_event is not None:
+            stop_event.set()
         thread.join()
         return self._drain_responses()
 
     def _publish_response(self, response):
         with self._search_lock:
-            self._pending_responses.extend(response.splitlines())
+            self._pending_responses.append(response)
 
     def _drain_responses(self):
         with self._search_lock:
@@ -287,24 +282,3 @@ class UCCIEngine:
     def _reset_position(self):
         self.board = Board()
         self.record = GameRecord.from_board(self.board)
-
-    def current_fen(self):
-        """Return the engine's current position as FEN."""
-        return board_to_fen(self.board)
-
-
-def run_ucci(input_stream, output_stream):
-    """Run a line-oriented UCCI loop over file-like streams."""
-    engine = UCCIEngine()
-    for line in input_stream:
-        try:
-            responses = engine.handle_line(line)
-        except UCCIError as exc:
-            responses = [f"info string error {exc}"]
-
-        for response in responses:
-            output_stream.write(response + "\n")
-            output_stream.flush()
-
-        if engine.quit_requested:
-            break
