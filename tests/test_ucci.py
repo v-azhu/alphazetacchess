@@ -4,6 +4,7 @@ from threading import Event
 import pytest
 
 from alphazetacchess.core.game_record import GameRecord
+from alphazetacchess.core.rule import Rule
 from alphazetacchess.engine.base import SearchResult
 from alphazetacchess.protocol.ucci import UCCIEngine, UCCIError, run_ucci
 
@@ -15,8 +16,6 @@ class FakeSearchEngine:
     depth = 3
 
     def choose_move(self, board, color, stop_event=None):
-        from alphazetacchess.core.rule import Rule
-
         move = Rule.generate_legal_moves(board, color)[0]
         return SearchResult(move, 0, 1, self.depth)
 
