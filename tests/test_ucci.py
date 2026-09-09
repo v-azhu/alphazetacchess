@@ -15,19 +15,25 @@ INITIAL_FEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - -
 class FakeSearchEngine:
     depth = 3
 
+    def __init__(self):
+        self.finished = Event()
+
     def choose_move(self, board, color, stop_event=None):
         move = Rule.generate_legal_moves(board, color)[0]
+        self.finished.set()
         return SearchResult(move, 0, 1, self.depth)
 
 
 class BlockingSearchEngine(FakeSearchEngine):
     def __init__(self):
+        super().__init__()
         self.started = Event()
 
     def choose_move(self, board, color, stop_event=None):
         self.started.set()
         stop_event.wait()
         move = Rule.generate_legal_moves(board, color)[0]
+        self.finished.set()
         return SearchResult(move, 0, 1, 0)
 
 
@@ -68,17 +74,17 @@ def test_position_rejects_startpos():
 
 
 def test_go_depth_starts_async_search_and_publishes_bestmove():
-    engine = UCCIEngine(FakeSearchEngine())
+    search_engine = FakeSearchEngine()
+    engine = UCCIEngine(search_engine)
 
     assert engine.handle_line("go depth 1") == []
-    thread = engine._search_thread
-    assert thread is not None
-    thread.join()
+    assert search_engine.finished.wait(timeout=1)
 
     responses = engine.handle_line("")
-    assert len(responses) == 1
-    assert responses[0].startswith("bestmove ")
-    move = responses[0].split()[1]
+    assert len(responses) == 2
+    assert responses[0].startswith("info depth ")
+    assert responses[1].startswith("bestmove ")
+    move = responses[1].split()[1]
     assert len(move) == 4
     GameRecord.move_from_iccs(move)
 
