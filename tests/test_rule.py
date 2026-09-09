@@ -1,4 +1,5 @@
 from alphazetacchess.core.board import Board
+from alphazetacchess.core.fen import board_from_fen
 from alphazetacchess.core.move_generator import MoveGenerator
 from alphazetacchess.core.piece import Piece, PieceType, Color
 from alphazetacchess.core.rule import Rule, TerminationReason
@@ -95,21 +96,9 @@ def test_horse_delivers_checkmate():
 
 
 def test_stalemate_is_a_loss_for_side_to_move():
-    board = empty_board()
-    board._place(Piece(PieceType.KING, Color.BLACK, 4, 9))
-    board._place(Piece(PieceType.ADVISOR, Color.BLACK, 3, 9))
-    board._place(Piece(PieceType.ADVISOR, Color.BLACK, 5, 9))
-    board._place(Piece(PieceType.ELEPHANT, Color.BLACK, 4, 8))
-    board._place(Piece(PieceType.PAWN, Color.BLACK, 2, 6))
-    board._place(Piece(PieceType.PAWN, Color.BLACK, 6, 6))
-    board._place(Piece(PieceType.PAWN, Color.BLACK, 2, 8))
-    board._place(Piece(PieceType.PAWN, Color.BLACK, 6, 8))
-    board._place(Piece(PieceType.PAWN, Color.RED, 2, 5))
-    board._place(Piece(PieceType.PAWN, Color.RED, 6, 5))
-    board._place(Piece(PieceType.PAWN, Color.RED, 2, 7))
-    board._place(Piece(PieceType.PAWN, Color.RED, 6, 7))
-    board._place(Piece(PieceType.KING, Color.RED, 0, 0))
-    board.current_player = Color.BLACK
+    # Known Xiangqi stalemate position. Stalemate is a loss for the side
+    # to move, so Black must have no legal moves while not being in check.
+    board = board_from_fen("3aca3/1Cnrk4/b3r4/2p1n4/2b6/9/9/9/4C4/ppppcK3 b - - 0 1")
 
     assert Rule.is_in_check(board, Color.BLACK) is False
     assert Rule.generate_legal_moves(board, Color.BLACK) == []
@@ -127,8 +116,6 @@ def test_repetition_becomes_a_draw_after_three_occurrences():
     board._place(Piece(PieceType.KING, Color.BLACK, 5, 9))
     board._place(Piece(PieceType.HORSE, Color.RED, 1, 0))
     board._place(Piece(PieceType.HORSE, Color.BLACK, 7, 9))
-
-    from alphazetacchess.core.fen import board_from_fen
 
     board = board_from_fen("4k4/7n1/9/9/9/9/9/9/1N7/3K5 w - - 0 1")
 
