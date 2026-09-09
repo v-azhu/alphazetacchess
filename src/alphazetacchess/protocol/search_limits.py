@@ -50,9 +50,9 @@ class SearchLimits:
         moves = self.movestogo or 20
         base = self.time_ms / moves
 
-        # Spend only 80% of the nominal per-move allocation and add half of
-        # the increment. The remaining clock reserve protects against future
-        # moves, scheduling jitter, and protocol overhead.
-        budget = base * 0.8 + self.increment_ms * 0.5
+        # Reserve 20% of the nominal per-move allocation and only a small
+        # portion of the increment. This intentionally favors clock safety
+        # over spending the full nominal allocation on one move.
+        budget = base * 0.8 + self.increment_ms * 0.05
 
         return max(1, min(int(budget), max(1, int(self.time_ms * 0.8))))
