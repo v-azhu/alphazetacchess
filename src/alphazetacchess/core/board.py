@@ -15,10 +15,16 @@ class Board:
             [None for _ in range(self.WIDTH)]
             for _ in range(self.HEIGHT)
         ]
+        # Move history is used by undo(). Position history stores the
+        # incremental Zobrist key after every ply, including the initial
+        # position. The side-to-move bit is part of the key, so this is an
+        # exact-position history rather than a board-only repetition check.
         self.history = []
+        self.position_history = []
         self.current_player = Color.RED
         self.setup()
         self.zobrist_hash = Zobrist.board_hash(self)
+        self.position_history.append(self.zobrist_hash)
 
     def setup(self):
         self._place_back_rank(0, Color.RED)
@@ -138,6 +144,7 @@ class Board:
 
         self.history.append((from_pos, to_pos, piece, captured))
         self.current_player = self.opponent(self.current_player)
+        self.position_history.append(self.zobrist_hash)
 
     def undo(self):
         if not self.history:
@@ -171,6 +178,19 @@ class Board:
             ]
 
         self.current_player = self.opponent(self.current_player)
+        self.position_history.pop()
+
+    def repetition_count(self, position_hash=None):
+        """Return how many times a position occurred on the current path."""
+        if position_hash is None:
+            position_hash = self.zobrist_hash
+        return sum(h == position_hash for h in self.position_history)
+
+    def is_repetition(self, position_hash=None, minimum=3):
+        """Return True when the exact position occurred at least ``minimum`` times."""
+        if minimum < 1:
+            raise ValueError("minimum must be at least 1")
+        return self.repetition_count(position_hash) >= minimum
 
     def __str__(self):
         lines = []
