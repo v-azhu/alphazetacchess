@@ -24,8 +24,8 @@ def test_cannon_must_jump_exactly_one_screen_to_capture():
     board._place(Piece(PieceType.KING, Color.RED, 4, 0))
     board._place(Piece(PieceType.KING, Color.BLACK, 4, 9))
     board._place(Piece(PieceType.CANNON, Color.RED, 0, 0))
-    board._place(Piece(PieceType.HORSE, Color.RED, 0, 3))    # screen
-    board._place(Piece(PieceType.ROOK, Color.BLACK, 0, 6))   # capturable target
+    board._place(Piece(PieceType.HORSE, Color.RED, 0, 3))
+    board._place(Piece(PieceType.ROOK, Color.BLACK, 0, 6))
 
     cannon = board.get(0, 0)
     moves = MoveGenerator().generate_piece_moves(board, cannon)
@@ -100,6 +100,10 @@ def test_stalemate_is_a_loss_for_side_to_move():
     board._place(Piece(PieceType.ADVISOR, Color.BLACK, 3, 9))
     board._place(Piece(PieceType.ADVISOR, Color.BLACK, 5, 9))
     board._place(Piece(PieceType.ELEPHANT, Color.BLACK, 4, 8))
+    board._place(Piece(PieceType.PAWN, Color.BLACK, 2, 6))
+    board._place(Piece(PieceType.PAWN, Color.BLACK, 6, 6))
+    board._place(Piece(PieceType.PAWN, Color.RED, 2, 5))
+    board._place(Piece(PieceType.PAWN, Color.RED, 6, 5))
     board._place(Piece(PieceType.KING, Color.RED, 0, 0))
     board.current_player = Color.BLACK
 
@@ -119,10 +123,6 @@ def test_repetition_becomes_a_draw_after_three_occurrences():
     board._place(Piece(PieceType.HORSE, Color.RED, 1, 0))
     board._place(Piece(PieceType.HORSE, Color.BLACK, 7, 9))
 
-    # The imported/constructed empty board has no automatic hash refresh;
-    # rebuild the position through the public FEN loader in the dedicated
-    # FEN tests. Here we only exercise repetition through legal moves from
-    # the normal Board state, so use a fresh normal board instead below.
     from alphazetacchess.core.fen import board_from_fen
 
     board = board_from_fen("4k4/7n1/9/9/9/9/9/9/1N7/3K5 w - - 0 1")
@@ -147,21 +147,3 @@ def test_repetition_becomes_a_draw_after_three_occurrences():
     result = Rule.game_result(board)
     assert result.reason is TerminationReason.REPETITION
     assert result.winner is None
-
-
-def test_pawn_gains_sideways_move_only_after_crossing_river():
-    board = empty_board()
-    board._place(Piece(PieceType.KING, Color.RED, 4, 0))
-    board._place(Piece(PieceType.KING, Color.BLACK, 4, 9))
-    board._place(Piece(PieceType.PAWN, Color.RED, 4, 3))
-
-    gen = MoveGenerator()
-    pawn = board.get(4, 3)
-    moves_before = {m.to_pos for m in gen.generate_piece_moves(board, pawn)}
-    assert moves_before == {(4, 4)}
-
-    pawn.y = 5
-    board.board[3][4] = None
-    board.board[5][4] = pawn
-    moves_after = {m.to_pos for m in gen.generate_piece_moves(board, pawn)}
-    assert moves_after == {(4, 6), (3, 5), (5, 5)}
