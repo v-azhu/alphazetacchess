@@ -49,7 +49,10 @@ class SearchLimits:
 
         moves = self.movestogo or 20
         base = self.time_ms / moves
-        budget = base + self.increment_ms * 0.5
 
-        # Keep a reserve for the remainder of the game and protocol overhead.
+        # Spend only 80% of the nominal per-move allocation and add half of
+        # the increment. The remaining clock reserve protects against future
+        # moves, scheduling jitter, and protocol overhead.
+        budget = base * 0.8 + self.increment_ms * 0.5
+
         return max(1, min(int(budget), max(1, int(self.time_ms * 0.8))))
