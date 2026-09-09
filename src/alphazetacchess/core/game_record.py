@@ -1,11 +1,11 @@
 """Standardized Xiangqi game-record container.
 
 The engine internally represents moves as ``Move`` objects with absolute
-board coordinates.  This module adds a stable, serializable game-level
+board coordinates. This module adds a stable, serializable game-level
 representation using ICCS/UCCI coordinate moves (for example ``b2e2``).
 
 A game record deliberately stores the initial FEN and the complete move list
-rather than trying to reconstruct a game from the final position.  This makes
+rather than trying to reconstruct a game from the final position. This makes
 records suitable for self-play, engine-vs-engine matches, regression tests,
 and later ML dataset generation.
 """
@@ -14,9 +14,17 @@ from dataclasses import dataclass, field
 
 from .fen import board_from_fen, board_to_fen
 from .move import Move
+from .piece import Color
 from .rule import Rule
 
 _FILES = "abcdefghi"
+RESULT_RED_WIN = "1-0"
+RESULT_DRAW = "1/2-1/2"
+RESULT_BLACK_WIN = "0-1"
+
+TERMINATION_CHECKMATE = "checkmate"
+TERMINATION_STALEMATE = "stalemate"
+TERMINATION_REPETITION = "repetition"
 
 
 @dataclass
@@ -42,8 +50,6 @@ class GameRecord:
             result=result,
             termination=termination,
         )
-        # Validate the complete sequence immediately.  A record is intended
-        # to be a reliable experiment artifact, not an unchecked text log.
         record.replay()
         return record
 
@@ -74,17 +80,49 @@ class GameRecord:
             raise ValueError(f"Invalid ICCS rank in move {text!r}")
         return Move((fx, fy), (tx, ty))
 
+    @staticmethod
+    def _terminal_state(board):
+        """Return ``(result, termination)`` or ``(None, None)``.
+
+        The repetition rule here intentionally reflects the engine's current
+        exact-position threefold infrastructure. Xiangqi's full perpetual-
+        check/perpetual-chase adjudication will be added separately rather
+        than being incorrectly conflated with generic threefold repetition.
+        """
+        side = board.current_player
+        if Rule.is_checkmate(board, side):
+            winner = board.opponent(side)
+            result = RESULT_RED_WIN if winner == Color.RED else RESULT_BLACK_WIN
+            return result, TERMINATION_CHECKMATE
+
+        if Rule.is_stalemate(board, side):
+            # In Xiangqi, having no legal move while not in check is a loss.
+            result = RESULT_RED_WIN if side == Color.BLACK else RESULT_BLACK_WIN
+            return result, TERMINATION_STALEMATE
+
+        if board.is_repetition(minimum=3):
+            return RESULT_DRAW, TERMINATION_REPETITION
+
+        return None, None
+
     def append_move(self, board, move):
-        """Validate and append one legal move to this record.
+        """Validate, apply, record, and adjudicate one move.
 
         The supplied board must represent the position after all existing
-        record moves have been played.
+        record moves have been played. A finished record cannot accept more
+        moves.
         """
+        if self.result is not None:
+            raise ValueError("Cannot append a move to a finished game record")
+        if board_to_fen(board) != self.final_fen():
+            raise ValueError("Board does not match the record's current position")
         if not Rule.is_legal_move(board, move, board.current_player):
             raise ValueError(f"Illegal move for current position: {self.move_to_iccs(move)}")
+
         notation = self.move_to_iccs(move)
         board.move(move.from_pos, move.to_pos)
         self.moves.append(notation)
+        self.result, self.termination = self._terminal_state(board)
         return notation
 
     def replay(self):
@@ -99,6 +137,16 @@ class GameRecord:
                 raise ValueError(f"Illegal move at ply {index}: {notation!r}")
             board.move(move.from_pos, move.to_pos)
         return board
+
+    def status(self):
+        """Return the adjudication implied by the current move sequence."""
+        board = self.replay()
+        return self._terminal_state(board)
+
+    def finalize(self):
+        """Adjudicate the current record and persist its result fields."""
+        self.result, self.termination = self.status()
+        return self.result, self.termination
 
     def final_fen(self):
         """Return the FEN reached after replaying the complete record."""
