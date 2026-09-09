@@ -15,27 +15,27 @@ def test_move_to_iccs_uses_absolute_coordinates():
     board = Board()
     record = GameRecord.from_board(board)
 
-    move = record.move_from_iccs("b0e0")
-    assert record.move_to_iccs(move) == "b0e0"
+    move = record.move_from_iccs("b0c2")
+    assert record.move_to_iccs(move) == "b0c2"
 
 
 def test_record_append_and_replay():
     board = Board()
     record = GameRecord.from_board(board)
 
-    record.append_move(board, record.move_from_iccs("b0e0"))
-    record.append_move(board, record.move_from_iccs("b9e9"))
+    record.append_move(board, record.move_from_iccs("b0c2"))
+    record.append_move(board, record.move_from_iccs("b9c7"))
 
     replayed = record.replay()
     assert board_to_fen(replayed) == board_to_fen(board)
-    assert record.moves == ["b0e0", "b9e9"]
+    assert record.moves == ["b0c2", "b9c7"]
     assert record.result is None
     assert record.termination is None
 
 
 def test_record_round_trip_dict():
     record = GameRecord.from_board(Board())
-    record.moves = ["b0e0", "b9e9"]
+    record.moves = ["b0c2", "b9c7"]
     restored = GameRecord.from_dict(record.to_dict())
 
     assert restored.to_dict() == record.to_dict()
