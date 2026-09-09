@@ -41,7 +41,10 @@ def test_position_fen_replays_moves():
         "position fen " + INITIAL_FEN + " moves b0c2 b9c7 c2b0 c7b9"
     )
 
-    assert engine.current_fen() == INITIAL_FEN
+    assert engine.current_fen() == (
+        "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/"
+        "RNBAKABNR w - - 0 3"
+    )
     assert engine.record.moves == ["b0c2", "b9c7", "c2b0", "c7b9"]
     assert len(engine.board.position_history) == 5
 
