@@ -61,6 +61,7 @@ select for what's good for the *opponent*, not the side to move.
 """
 
 import math
+from threading import Event
 
 from ..core.board import Board
 from ..core.rule import Rule
@@ -151,19 +152,64 @@ class MCTSEngine(ChessEngine):
         # value regardless of which evaluator produced it.
         self.eval_fn = eval_fn
         self.nodes_evaluated = 0
+        self._stop_event = Event()
 
-    def choose_move(self, board, color):
+    def request_stop(self):
+        self._stop_event.set()
+
+    def clear_stop(self):
+        self._stop_event.clear()
+
+    def choose_move(self, board, color, stop_event=None):
+        """V0.9.1: cooperative cancellation, mirroring SearchEngine's
+        V0.7.1 contract (same stop_event=None -> internal Event
+        convention) so MCTSEngine is drop-in usable behind UCCIEngine's
+        async search worker (protocol/ucci.py calls
+        `self.search_engine.choose_move(board, color,
+        stop_event=stop_event)` regardless of which ChessEngine it was
+        constructed with).
+
+        Unlike SearchEngine's alpha-beta search, MCTS does not need a
+        "discard this iteration, fall back to the last fully completed
+        one" strategy on cancellation: alpha-beta's bounds are only
+        sound once every root move at the current depth has been
+        explored, so a partial iteration is unusable, but PUCT's root
+        visit-count distribution is meaningful after *any* number of
+        completed simulations -- more simulations only refine it, they
+        never invalidate it. So cancellation here simply stops the
+        simulation loop early and reports on whatever tree already
+        exists, with one exception: if not even the very first
+        simulation completed (cancelled before the root could be
+        expanded at all), there is no tree to report on, so this falls
+        back to the first legal move -- exactly SearchEngine's own
+        pre-depth-1 fallback, for the same reason (never return a None
+        best_move when a legal move exists).
+        """
+        if stop_event is None:
+            self.clear_stop()
+            stop_event = self._stop_event
         self.nodes_evaluated = 0
+
+        legal_moves = Rule.generate_legal_moves(board, color)
+        if not legal_moves:
+            # No legal moves for `color` before any search even starts
+            # -- the game is already over. Mirrors SearchEngine's own
+            # SearchResult(None, ...) convention for this case, and
+            # _MCTSNode's own terminal_value=-1.0 convention (see
+            # module docstring): "no legal moves" is always a certain
+            # loss for the side to move in Xiangqi.
+            return SearchResult(None, -1.0, self.nodes_evaluated, 0)
+
         root = _MCTSNode(prior=1.0)
-
+        completed_simulations = 0
         for _ in range(self.simulations):
+            if stop_event.is_set():
+                break
             self._simulate(board, color, root)
+            completed_simulations += 1
 
-        if root.is_terminal or not root.children:
-            # No legal moves for `color` even before any search -- the
-            # game is already over. Mirrors SearchEngine's own
-            # SearchResult(None, ...) convention for this case.
-            return SearchResult(None, root.terminal_value or 0.0, self.nodes_evaluated, self.simulations)
+        if not root.expanded:
+            return SearchResult(legal_moves[0], 0.0, self.nodes_evaluated, completed_simulations)
 
         best_move, best_child = max(
             root.children.items(), key=lambda item: item[1].visit_count
@@ -173,7 +219,7 @@ class MCTSEngine(ChessEngine):
             if best_child.visit_count > 0
             else 0.0
         )
-        return SearchResult(best_move, score, self.nodes_evaluated, self.simulations)
+        return SearchResult(best_move, score, self.nodes_evaluated, completed_simulations)
 
     def _simulate(self, board, color, node):
         """
