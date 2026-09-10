@@ -20,7 +20,9 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.4 | COMPLETE | Advanced evaluation |
 | V0.5 | CURRENT | Self-play / training data |
 | V0.6+ | PLANNED | Neural evaluation / MCTS |
-| V0.7 | PLANNED | Hybrid engine |
+| V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
+| V0.8 | V0.8.1-8.2 COMPLETE | Search performance: specialized attack detector, killer move ordering |
+| V0.9 | PLANNED | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -566,9 +568,102 @@ machine), and the trained-network story isn't wired into `SearchEngine`/`MCTSEng
 deliberately deferred until there's a real network worth plugging in. Full design and
 exact next commands in `docs/v0.6.2.md`.
 
-## V0.7 — Hybrid Engine — PLANNED
+## V0.7 — UCCI Protocol & Search Foundation — COMPLETE
 
-Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine.
+**Scope note:** this roadmap originally labeled V0.7 "Hybrid Engine" (Neural Network +
+MCTS/Alpha-Beta + Traditional Evaluation). The work actually built under `dev/v0.7-*`
+was UCCI protocol control and the search-cancellation/time-control foundation it needs
+-- a prerequisite for real engine-vs-engine and engine-vs-GUI play, not the hybrid
+evaluation merge. The original "hybrid engine" scope is renamed forward rather than
+dropped -- see the new V0.9 placeholder below.
+
+### V0.7.1 — Cooperative Search Cancellation — COMPLETE
+
+`SearchEngine` gained a `threading.Event`-based cooperative cancellation contract
+(`request_stop()`/`clear_stop()`, an externally-owned `stop_event` parameter on
+`choose_move()`) so the UCCI layer can implement a real `go`/`stop` cycle without
+force-killing a thread -- Python has no safe general mechanism for that. Every
+search-side `board.move()` is paired with `board.undo()` in `try/finally`, so a
+cancellation can never leave the caller's board mid-search. Iterative deepening keeps
+the last **fully completed** depth's result on cancellation (`SearchResult.depth`
+reports that, not the requested depth); a cancellation before depth 1 completes falls
+back to the first legal move at `depth=0`. Cancelled/incomplete nodes are never written
+to the TT. `tests/test_search_cancellation.py` covers exact board-state restoration
+after a mid-search cancellation and the iterative-deepening fallback boundary, using
+deterministic test doubles rather than wall-clock sleeps. Full design in
+`docs/v0.7.1.md`.
+
+### V0.7.2 — UCCI Asynchronous Search Worker — COMPLETE
+
+The UCCI adapter's `go` now starts a daemon worker thread (reconstructing its own board
+from a FEN snapshot, never mutating the live UCCI board directly) and returns
+immediately to the protocol loop, so `stop` can actually be received and acted on while
+a search is running -- closing the gap V0.7.1 made possible but didn't itself wire into
+the protocol layer. `stop` sets the shared event and waits for the worker to unwind
+naturally; a small lock-protected pending-response queue ensures exactly one final
+`bestmove`/`nobestmove` is published. Commands that would change the searched position
+(`position`, a `newgame`-equivalent reset, another `go`) are rejected while a worker is
+active -- the client must `stop` first. Full design in `docs/v0.7.2.md`.
+
+### V0.7.3 — UCCI Time Control — COMPLETE
+
+`protocol/search_limits.py`'s `SearchLimits` normalizes UCCI's `depth`/`movetime`/
+`time`/`opptime`/`increment`/`oppincrement`/`movestogo`/`usemillisec` fields into a
+single millisecond time budget: `0.8 * (remaining / moves_to_go) + 0.05 * increment`,
+capped at 80% of remaining time, `movestogo` defaulting to 20 when omitted -- a
+deliberately conservative policy, not an attempt at full tournament time-allocation
+modeling. A daemon `Timer` sets the same cooperative stop event V0.7.1/V0.7.2 already
+use once the budget expires, so clock-based cancellation reuses the existing safe
+unwind path rather than introducing a second mechanism. Full design in `docs/v0.7.3.md`.
+
+### V0.7.4 — Final Audit & Regression Baseline — COMPLETE
+
+Closing checkpoint for the V0.7 protocol/search-foundation phase: locks down the
+time-budget semantics (`tests/test_search_limits.py`), the V0.7.1 cancellation
+invariants, and UCCI worker/timing behavior as the stable contract V0.8's move-ordering
+work builds on top of, without changing any of them further. No new optimization is
+added at this step by design. Full scope in `docs/v0.7.4.md`.
+
+## V0.8 — Search Performance (Move Ordering & Attack Detection) — V0.8.1-8.2 COMPLETE
+
+### V0.8.1 — Specialized Attack Detector — COMPLETE
+
+`core/attack.py`'s `AttackDetector` answers "is square (x,y) attacked by `by_color`"
+directly via per-piece source-square/ray checks (no `Move` object construction, no
+apply/undo), replacing the `MoveGenerator.generate_moves()`-based path
+`Rule.is_in_check()` previously used inside the legality-filtering hot path (called
+after every candidate move in `Rule.generate_legal_moves()`). Handles cannon's
+one-screen requirement, elephant eye/river boundary, horse leg-blocking, and pawn's
+pre/post-river attack directions explicitly; flying-general remains a separate
+board-level check in `Rule.is_in_check()`, not something the detector attempts.
+Validated two ways: targeted per-piece geometry tests, and deterministic differential
+testing against `MoveGenerator` restricted to captures-onto-occupied-squares (the two
+tools answer different questions -- pseudo-legal movement vs. actual-attack -- so only
+that intersection is directly comparable). Full design in `docs/v0.8.1.md`.
+
+### V0.8.2 — Killer Move Ordering — COMPLETE
+
+`engine/killer_moves.py`'s `KillerMoves`, a two-slot per-ply table of quiet moves that
+previously caused a beta cutoff, tried before other quiet moves at the same ply.
+Captures are never recorded or promoted by a stale coordinate match (tested
+explicitly), since capture ordering already has its own signal. `use_killer_moves`
+defaults `True` -- justified not by the packaged `tools/benchmark_killer_moves.py`
+fixture (a tiny 8-piece position where it shows a **regression**, +44-48% nodes) but by
+re-running the same on/off comparison against the project's established
+`initial`/`early_development`/`central_development` reference positions, where it gives
+a real 16-57% node reduction at depth 3 (small overhead under 10% at depth 2, the same
+"needs depth to pay back its own cost" pattern V0.3.3 documented for PVS), identical
+best move/score in every case. Full design, the complete benchmark table, and the
+explanation for why the packaged fixture is misleading are in `docs/v0.8.2.md`.
+
+## V0.9 — Hybrid Engine — PLANNED
+
+Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine. This
+is the scope originally labeled V0.7 before V0.7 was used for UCCI protocol/search-
+foundation work instead (see the V0.7 scope note above). Builds on the existing
+`eval_fn`/`MCTSEngine` pluggability from V0.6.1/V0.6.2 and the calibrated-material
+finding from V0.6.3, none of which are superseded by V0.7/V0.8's protocol/search-layer
+work -- V0.9 combines them rather than starting over.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -1112,5 +1207,35 @@ Current hand-off:
     near-zero pawn-structure/piece-coordination coefficients before
     drawing conclusions, and V0.6.1's MCTSEngine still has no real
     strength benchmark against SearchEngine at any depth.
+        ↓
+    Separately, on dev/v0.7-foundation -> dev/v0.7-ucci-control ->
+    dev/v0.8.1-attack-detector (a single linear chain, each an ancestor
+    of the next): V0.7.1-7.4 (cooperative search cancellation, async
+    UCCI go/stop worker, UCCI time control, final audit -- see the V0.7
+    section above and docs/v0.7.1.md-v0.7.4.md) and V0.8.1-8.2
+    (specialized attack detector, killer move ordering -- see the V0.8
+    section above and docs/v0.8.1.md/v0.8.2.md) were built without this
+    roadmap being updated as each step landed, breaking this file's own
+    "update the roadmap" rule. Reviewed and merged into main in this
+    session: chain confirmed linear and fast-forward-only (no conflicts
+    possible), full suite 266/266 green on the merge tip, two stray
+    AI-tool citation artifacts found and removed from docs/v0.8.1.md,
+    docs/v0.8.2.md written retroactively (the killer-move benchmark tool
+    existed but had never actually been run -- see that doc for why its
+    packaged fixture looked like a regression when the established
+    reference positions show a real improvement), and this roadmap
+    backfilled with the V0.7/V0.8 sections above plus the V0.7 naming
+    correction (the original V0.7 slot was "Hybrid Engine"; actual V0.7
+    work was UCCI/search-foundation, so "Hybrid Engine" moved to the new
+    V0.9 placeholder rather than being silently dropped).
+        ↓
+    Next: (a) V0.9 Hybrid Engine -- wire V0.6.1's MCTSEngine and/or
+    V0.6.2's NeuralEvaluator behind the now-complete UCCI protocol layer
+    for real engine-vs-GUI play, or (b) continue V0.8 with history
+    heuristic / SEE-MVV-LVA capture ordering per docs/v0.8.1.md's own
+    scope boundary, or (c) the still-open V0.6.3 material-calibration
+    and MCTSEngine-strength questions noted above. Whichever is picked,
+    update this roadmap at the end of the step -- see the rule this
+    entry itself is following.
 
-Last updated: 2026-09-06
+Last updated: 2026-09-10
