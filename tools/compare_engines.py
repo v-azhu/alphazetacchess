@@ -22,6 +22,7 @@ Usage:
     python tools/compare_engines.py --a-use-opening-book --random-opening-prob 0 --games 20
     python tools/compare_engines.py --a-use-neural-eval --random-opening-prob 0 --games 20
     python tools/compare_engines.py --a-use-calibrated-material --games 20
+    python tools/compare_engines.py --a-engine mcts --a-simulations 200 --games 20
 
 Note on --use-opening-book + opening randomization: both can be on at
 once (random opening's job is data diversity, the book's job is move
@@ -50,6 +51,7 @@ sys.path.insert(
 )
 
 from alphazetacchess.engine.search import SearchEngine
+from alphazetacchess.engine.mcts import MCTSEngine
 from alphazetacchess.engine.evaluation import CALIBRATED_MATERIAL_VALUES
 from alphazetacchess.selfplay.opening_book import load_book
 from alphazetacchess.selfplay.opening_randomization import RandomizedOpeningEngine
@@ -58,6 +60,24 @@ from alphazetacchess.neural.evaluator import NeuralEvaluator
 
 
 def add_side_args(parser, prefix):
+    parser.add_argument(
+        f"--{prefix}-engine", choices=["search", "mcts"], default="search",
+        help=f"which engine side {prefix.upper()} plays as -- 'search' "
+             f"(SearchEngine, alpha-beta, the default) or 'mcts' (MCTSEngine, "
+             f"V0.6.1's PUCT skeleton, V0.9.1 wired into UCCI; see docs/v0.9.2.md). "
+             f"When 'mcts', --{prefix}-depth/no-killer-moves/use-mvv-lva/"
+             f"use-opening-book/use-calibrated-material are all ignored (none of "
+             f"those are meaningful concepts for MCTSEngine) -- use "
+             f"--{prefix}-simulations instead of --{prefix}-depth to control its "
+             f"search effort. --{prefix}-use-mobility/pawn-structure/piece-"
+             f"coordination/endgame-heuristics and --{prefix}-use-neural-eval still "
+             f"apply, since MCTSEngine shares evaluate()/eval_fn with SearchEngine.",
+    )
+    parser.add_argument(
+        f"--{prefix}-simulations", type=int, default=200,
+        help=f"MCTSEngine simulation count for side {prefix.upper()} -- only used "
+             f"when --{prefix}-engine mcts (default 200, MCTSEngine's own default).",
+    )
     parser.add_argument(f"--{prefix}-depth", type=int, default=2)
     parser.add_argument(f"--{prefix}-use-mobility", action="store_true")
     parser.add_argument(f"--{prefix}-use-pawn-structure", action="store_true")
@@ -99,6 +119,8 @@ def add_side_args(parser, prefix):
 
 def config_from_args(args, prefix):
     return {
+        "engine": getattr(args, f"{prefix}_engine"),
+        "simulations": getattr(args, f"{prefix}_simulations"),
         "depth": getattr(args, f"{prefix}_depth"),
         "use_mobility": getattr(args, f"{prefix}_use_mobility"),
         "use_pawn_structure": getattr(args, f"{prefix}_use_pawn_structure"),
@@ -112,24 +134,55 @@ def config_from_args(args, prefix):
     }
 
 
+def _mcts_ignored_flag_warnings(config, prefix):
+    """Flags that were explicitly set to a non-default value but don't apply
+    to MCTSEngine (no killer-move table, no MVV-LVA, no opening book, no
+    material_values override -- see docs/v0.9.2.md). Only flags the ones
+    actually toggled away from their default, not every unsupported flag
+    unconditionally, so a plain --{prefix}-engine mcts with no other flags
+    stays quiet."""
+    warnings = []
+    if not config["use_killer_moves"]:
+        warnings.append(f"--{prefix}-no-killer-moves")
+    if config["use_mvv_lva"]:
+        warnings.append(f"--{prefix}-use-mvv-lva")
+    if config["use_opening_book"]:
+        warnings.append(f"--{prefix}-use-opening-book")
+    if config["use_calibrated_material"]:
+        warnings.append(f"--{prefix}-use-calibrated-material")
+    return warnings
+
+
 def build_engine(
     config, random_opening_plies, random_opening_prob,
     opening_book=None, opening_book_min_games=3, neural_evaluator=None,
 ):
-    engine = SearchEngine(
-        depth=config["depth"],
-        use_mobility=config["use_mobility"],
-        use_pawn_structure=config["use_pawn_structure"],
-        use_piece_coordination=config["use_piece_coordination"],
-        use_endgame_heuristics=config["use_endgame_heuristics"],
-        use_killer_moves=config["use_killer_moves"],
-        use_mvv_lva=config["use_mvv_lva"],
-        use_opening_book=config["use_opening_book"],
-        opening_book=opening_book if config["use_opening_book"] else None,
-        opening_book_min_games=opening_book_min_games,
-        eval_fn=neural_evaluator if config["use_neural_eval"] else None,
-        material_values=CALIBRATED_MATERIAL_VALUES if config["use_calibrated_material"] else None,
-    )
+    eval_fn = neural_evaluator if config["use_neural_eval"] else None
+
+    if config["engine"] == "mcts":
+        engine = MCTSEngine(
+            simulations=config["simulations"],
+            use_mobility=config["use_mobility"],
+            use_pawn_structure=config["use_pawn_structure"],
+            use_piece_coordination=config["use_piece_coordination"],
+            use_endgame_heuristics=config["use_endgame_heuristics"],
+            eval_fn=eval_fn,
+        )
+    else:
+        engine = SearchEngine(
+            depth=config["depth"],
+            use_mobility=config["use_mobility"],
+            use_pawn_structure=config["use_pawn_structure"],
+            use_piece_coordination=config["use_piece_coordination"],
+            use_endgame_heuristics=config["use_endgame_heuristics"],
+            use_killer_moves=config["use_killer_moves"],
+            use_mvv_lva=config["use_mvv_lva"],
+            use_opening_book=config["use_opening_book"],
+            opening_book=opening_book if config["use_opening_book"] else None,
+            opening_book_min_games=opening_book_min_games,
+            eval_fn=eval_fn,
+            material_values=CALIBRATED_MATERIAL_VALUES if config["use_calibrated_material"] else None,
+        )
 
     if random_opening_plies > 0 and random_opening_prob > 0:
         engine = RandomizedOpeningEngine(
@@ -211,6 +264,12 @@ def main():
     print(f"AlphaZetaChess strength comparison: {args.games} games")
     print(f"  A: {a_config}")
     print(f"  B: {b_config}")
+    for prefix, config in (("a", a_config), ("b", b_config)):
+        if config["engine"] == "mcts":
+            ignored = _mcts_ignored_flag_warnings(config, prefix)
+            if ignored:
+                print(f"  Note: side {prefix.upper()} is --{prefix}-engine mcts, "
+                      f"so {', '.join(ignored)} will be ignored (see docs/v0.9.2.md)")
     if args.output:
         print(f"  Appending records to {args.output}")
     print()
