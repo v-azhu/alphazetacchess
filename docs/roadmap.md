@@ -21,7 +21,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.5 | CURRENT | Self-play / training data |
 | V0.6+ | PLANNED | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
-| V0.8 | V0.8.1-8.2 COMPLETE | Search performance: specialized attack detector, killer move ordering |
+| V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
 | V0.9 | PLANNED | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
@@ -624,7 +624,7 @@ invariants, and UCCI worker/timing behavior as the stable contract V0.8's move-o
 work builds on top of, without changing any of them further. No new optimization is
 added at this step by design. Full scope in `docs/v0.7.4.md`.
 
-## V0.8 — Search Performance (Move Ordering & Attack Detection) — V0.8.1-8.2 COMPLETE
+## V0.8 — Search Performance (Move Ordering & Attack Detection) — V0.8.1-8.3 COMPLETE
 
 ### V0.8.1 — Specialized Attack Detector — COMPLETE
 
@@ -655,6 +655,24 @@ a real 16-57% node reduction at depth 3 (small overhead under 10% at depth 2, th
 "needs depth to pay back its own cost" pattern V0.3.3 documented for PVS), identical
 best move/score in every case. Full design, the complete benchmark table, and the
 explanation for why the packaged fixture is misleading are in `docs/v0.8.2.md`.
+
+### V0.8.3 — MVV-LVA Capture Ordering — COMPLETE
+
+`SearchEngine._order_captures_by_mvv_lva` ranks captures by
+`victim_value * 1000 - attacker_value` (using `self.material_values or
+MATERIAL_VALUES`, consistent with `_evaluate`'s own override), tried before other
+quiet moves. Killer promotion (V0.8.2) runs first, unchanged, so `use_mvv_lva=False`
+reproduces V0.8.2's exact prior behavior; MVV-LVA then pulls captures ahead of
+everything else including an already-promoted killer when enabled, giving the standard
+hash-move > captures > killers > other-quiets priority. Unlike V0.8.2,
+`use_mvv_lva` defaults **False**: benchmarked against the established reference
+positions it shows a small *regression* (opening-phase positions have few captures, so
+the per-node sort overhead isn't repaid), but a real +36-37% node reduction on a
+capture-dense midgame fixture -- a genuinely mixed, position-dependent result, not the
+broad win V0.8.2 had, so per this project's "off until proven" rule it stays off pending
+a real multi-game strength comparison. `--{a,b}-use-mvv-lva` and the previously-missing
+`--{a,b}-no-killer-moves` flags were added to `tools/compare_engines.py` for that future
+run. Full design and both benchmark tables in `docs/v0.8.3.md`.
 
 ## V0.9 — Hybrid Engine — PLANNED
 
@@ -1237,5 +1255,32 @@ Current hand-off:
     and MCTSEngine-strength questions noted above. Whichever is picked,
     update this roadmap at the end of the step -- see the rule this
     entry itself is following.
+        ↓
+    Picked (b): V0.8.3 MVV-LVA capture ordering (see the V0.8 section
+    above and docs/v0.8.3.md). 274/274 green. Benchmarked the same way
+    V0.8.2 was -- and the same lesson applied in reverse: the established
+    opening-phase reference positions show a small *regression* (few
+    captures near the root, so the per-node sort cost isn't repaid), but
+    the capture-dense fixture V0.8.2 found misleading (too few *quiet*
+    moves for a killer-move test) turned out to be exactly the right kind
+    of position for a *capture*-ordering test, and shows a real +36-37%
+    node reduction there. Given that mixed, position-dependent picture --
+    unlike V0.8.2's broad win -- use_mvv_lva defaults False, following
+    this project's standing "off until proven" rule for anything short
+    of a clear win. Also added --{a,b}-use-mvv-lva and the
+    previously-missing --{a,b}-no-killer-moves flags to
+    tools/compare_engines.py, since settling whether V0.8.3 is worth
+    defaulting on for real games needs an actual multi-game comparison,
+    not another node count on a handful of fixed positions.
+        ↓
+    Next: that multi-game compare_engines.py run is now the natural
+    next step for V0.8.3 specifically, and it shares its "needs a real
+    multi-game run, not just node counts" blocker with two other still-
+    open items: V0.6.1's MCTSEngine-strength question and V0.6.3's
+    larger material-calibration comparison. Whoever picks this up next
+    could reasonably batch two or three of those into one longer
+    compare_engines.py session rather than three separate ones. Absent
+    that, (a) V0.9 Hybrid Engine remains open per the note above.
+    Update this roadmap at the end of the step, as always.
 
 Last updated: 2026-09-10
