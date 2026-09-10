@@ -484,9 +484,9 @@ targeted test file: **130/130 green.** Smoke-tested end to end (small real match
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
 design and known limitations in `docs/v0.5.4.md`.
 
-## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis only)
+## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis + real-game result: leans negative)
 
-### V0.6.3 — Calibrating the Heuristic's Constants Against Real Data — COMPLETE (analysis)
+### V0.6.3 — Calibrating the Heuristic's Constants Against Real Data — COMPLETE (analysis + real-game result)
 
 Rather than a fourth iteration of V0.6.2's "more data/capacity/features" pattern (three attempts,
 each showing the same small, exhausted return), used the same 94,872 real labeled positions
@@ -511,8 +511,18 @@ correlation vs. 760cp/0.786) -- expected, and not the point: the goal is better 
 existing, fast, interpretable heuristic, not a more accurate predictor in isolation.
 
 7 new tests (`tests/test_evaluation_components_v063.py`). Combined total: **191/191 green**.
-**Not yet applied back into `evaluate()` or benchmarked in real play** -- this checkpoint
-produced and validated the analysis, not a tested improvement. See `docs/v0.6.3.md`.
+
+**Real-game result (100 games, updated 2026-09-10, combined with an earlier 20-game run
+for 120 total)**: calibrated material scores 42.5%, Elo ~-53, 95% CI [33.7%, 51.3%],
+p~=0.10 vs. a 50% null -- leans toward a real negative effect (worse, not better play),
+not fully conclusive at conventional significance but no longer plausibly "probably
+neutral" the way the earlier n=20 result was. A concrete instance of `docs/v0.6.2.md`'s
+own caution that correlating better with a strong reference engine's static scores
+doesn't guarantee playing better inside this engine's own alpha-beta search.
+`use_calibrated_material` stays `False` by default -- this result supports that, not a
+new decision. See `docs/v0.6.3.md`'s second addendum for the full numbers, the
+draw-rate data-quality note, and two untested hypotheses for why (isolated material
+change vs. the rest of `evaluate()`'s weighting; possible depth=2 shallowness effect).
 
 Policy/value network, neural evaluation and MCTS integration.
 
@@ -1345,11 +1355,10 @@ Current hand-off:
     other, proceed separately" instruction -- worth checking both hand-
     off entries are still consistent with each other (they don't touch
     overlapping files) before treating this as the sole latest entry.
-    A larger (100+ game) V0.8.3 MVV-LVA comparison was also started
-    locally outside this session around the same time as this step;
-    whoever picks this up next should check whether that run has
-    landed and merge its results into docs/v0.8.3.md if so, rather than
-    treating the 26-game result as final.
+    A larger multi-game comparison was also started locally outside
+    this session around the same time as this step, for one of the
+    still-open questions this hand-off trail had flagged -- see the
+    next entry for which one it turned out to be and what it found.
         ↓
     Next: (a) wire an actual --engine mcts style choice into
     UCCIEngine/tools/compare_engines.py/tools/self_play.py now that the
@@ -1361,5 +1370,31 @@ Current hand-off:
     (c) start wiring V0.6.2's NeuralEvaluator into the same --engine
     style choice alongside MCTS. Update this roadmap at the end of the
     step.
+        ↓
+    The comparison mentioned above turned out to be V0.6.3's material-
+    calibration question, not V0.8.3's MVV-LVA one (worth noting since
+    the previous entry guessed it might be the latter -- it wasn't; the
+    V0.8.3 MVV-LVA question is still exactly where the n=26 entry above
+    left it). 100 real games (calibrated material vs. default, depth 2),
+    combined with the earlier 20-game run for 120 total: 42.5% score
+    rate, Elo ~-53, 95% CI [33.7%, 51.3%], p~=0.10 vs. a 50% null --
+    leans toward a real negative effect, not fully conclusive but no
+    longer plausibly neutral the way n=20 was. use_calibrated_material
+    stays False (already the default; this adds evidence for it, not a
+    new decision). Full numbers, a draw-rate data-quality note, and two
+    untested hypotheses for *why* calibration hurts despite fitting
+    Pikafish's scores better are in docs/v0.6.3.md's newest addendum;
+    roadmap's V0.6.3 section above updated to match.
+        ↓
+    Next: still open, in no particular order -- (a) the --engine mcts
+    wiring from the previous entry, (b) V0.8.3's MVV-LVA question still
+    sitting at n=26, (c) V0.6.1's MCTSEngine-strength question, (d) the
+    two untested hypotheses docs/v0.6.3.md's newest addendum raises for
+    *why* calibrated material underperforms (a depth=3 re-run, or
+    applying the PST/king-safety coefficients alongside the material
+    ones). All four are real, independent threads at this point rather
+    than one linear next step -- whoever picks this up should choose
+    based on available compute/session time rather than assume an
+    ordering. Update this roadmap at the end of whichever is picked.
 
 Last updated: 2026-09-10
