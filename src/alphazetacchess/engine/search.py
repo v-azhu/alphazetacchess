@@ -2,7 +2,7 @@ from threading import Event
 
 from ..core.rule import Rule
 from .base import ChessEngine, SearchResult
-from .evaluation import evaluate
+from .evaluation import evaluate, MATERIAL_VALUES
 from .killer_moves import KillerMoves
 from .transposition_table import Bound, MATE_SCORE, TranspositionTable
 from ..selfplay.opening_book import select_book_move
@@ -22,7 +22,8 @@ class SearchEngine(ChessEngine):
                  use_pawn_structure=False, use_piece_coordination=False,
                  use_endgame_heuristics=False, use_opening_book=False,
                  opening_book=None, opening_book_min_games=3, tt_max_entries=200_000,
-                 eval_fn=None, material_values=None, use_killer_moves=True):
+                 eval_fn=None, material_values=None, use_killer_moves=True,
+                 use_mvv_lva=False):
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
         self.iterative_deepening = iterative_deepening
@@ -43,6 +44,7 @@ class SearchEngine(ChessEngine):
         self.eval_fn = eval_fn
         self.material_values = material_values
         self.use_killer_moves = use_killer_moves
+        self.use_mvv_lva = use_mvv_lva
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
         self.killer_moves = KillerMoves()
@@ -163,17 +165,72 @@ class SearchEngine(ChessEngine):
         return ordered
 
     def _order_moves(self, moves, preferred_move, ply=None):
+        """Order moves for a non-root node: preferred (TT) move first, then
+        captures ranked by MVV-LVA, then killer quiet moves, then the rest.
+
+        This priority order (hash move > captures > killers > other quiets)
+        is the standard ordering used by essentially every alpha-beta engine.
+        Internally, killer promotion (V0.8.2) runs before MVV-LVA (V0.8.3) so
+        that `use_mvv_lva=False` reproduces V0.8.2's exact prior behavior
+        unchanged; MVV-LVA then pulls captures ahead of everything else,
+        including an already-promoted killer, whenever it is enabled. Each
+        layer is independently toggleable (`use_mvv_lva`/`use_killer_moves`)
+        and, like every prior ordering feature in this project (TT move
+        ordering since V0.3.2, killer moves in V0.8.2), changes only how
+        quickly the search converges, never the final score/best move -- see
+        `test_mvv_lva_preserves_search_result`/`test_killer_moves_preserve_search_result`.
+        """
         ordered = list(moves)
+        preferred = None
         if preferred_move is not None:
-            preferred = (preferred_move[0], preferred_move[1])
+            target = (preferred_move[0], preferred_move[1])
             for index, move in enumerate(ordered):
-                if (move.from_pos, move.to_pos) == preferred:
-                    ordered = [move] + ordered[:index] + ordered[index + 1:]
+                if (move.from_pos, move.to_pos) == target:
+                    preferred = ordered.pop(index)
                     break
 
-        if not self.use_killer_moves or ply is None:
-            return ordered
+        # Killer promotion runs first, exactly as in V0.8.2 (pulling any
+        # matching quiet move to the very front of whatever list it is
+        # given) -- this keeps use_mvv_lva=False bit-for-bit identical to
+        # the original V0.8.2 behavior. MVV-LVA then runs on top and pulls
+        # captures ahead of everything else, including a promoted killer,
+        # which produces the standard hash-move > captures > killers >
+        # other-quiets priority when both features are enabled together.
+        if self.use_killer_moves and ply is not None:
+            ordered = self._promote_killer_moves(ordered, ply)
 
+        if self.use_mvv_lva:
+            ordered = self._order_captures_by_mvv_lva(ordered)
+
+        if preferred is not None:
+            ordered = [preferred] + ordered
+        return ordered
+
+    def _mvv_lva_score(self, move):
+        """Most Valuable Victim - Least Valuable Attacker score for a capture.
+
+        Ranks by victim value first (a Rook capture is tried well before a
+        Pawn capture regardless of what took it), then prefers the least
+        valuable attacker among equally valuable victims (a Pawn taking a
+        Rook is tried before a Rook taking a Rook -- the Pawn recapture risks
+        less material if the capture turns out to be unsound). Uses
+        `self.material_values` when set (e.g. `CALIBRATED_MATERIAL_VALUES`),
+        the same override already threaded through `_evaluate`, so MVV-LVA
+        stays consistent with whatever material scale the rest of the engine
+        is using rather than silently falling back to a different one.
+        """
+        values = self.material_values or MATERIAL_VALUES
+        victim_value = values.get(move.captured_piece.type, 0)
+        attacker_value = values.get(move.moved_piece.type, 0) if move.moved_piece else 0
+        return victim_value * 1000 - attacker_value
+
+    def _order_captures_by_mvv_lva(self, moves):
+        captures = [move for move in moves if move.captured_piece is not None]
+        quiets = [move for move in moves if move.captured_piece is None]
+        captures.sort(key=self._mvv_lva_score, reverse=True)
+        return captures + quiets
+
+    def _promote_killer_moves(self, ordered, ply):
         killer_keys = self.killer_moves.get(ply)
         if not killer_keys:
             return ordered
