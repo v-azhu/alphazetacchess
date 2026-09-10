@@ -138,7 +138,14 @@ class UCCIEngine:
         legal_moves = Rule.generate_legal_moves(self.board, self.board.current_player)
         if not legal_moves:
             return ["nobestmove"]
-        if limits.depth is not None:
+        if limits.depth is not None and hasattr(self.search_engine, "depth"):
+            # Only engines with an actual notion of search depth (e.g.
+            # SearchEngine's Negamax ply count) are affected by UCCI's
+            # `go depth N` -- V0.9.1's MCTSEngine measures effort in
+            # simulations instead, so for that engine `go depth N` is
+            # accepted (never raises) but is a no-op; `go movetime`/
+            # `go time` still work for any engine, since both engines
+            # honor stop_event the same way.
             self.search_engine.depth = limits.depth
         search_fen = board_to_fen(self.board)
         stop_event = Event()
@@ -190,7 +197,7 @@ class UCCIEngine:
             return values[name] if self.use_millisec else values[name] * 1000
 
         return SearchLimits(
-            depth=values.get("depth", self.search_engine.depth),
+            depth=values.get("depth", getattr(self.search_engine, "depth", None)),
             movetime_ms=values.get("movetime"),
             time_ms=normalize_time("time"),
             opptime_ms=normalize_time("opptime"),
