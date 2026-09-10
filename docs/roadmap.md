@@ -22,7 +22,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.6+ | PLANNED | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
-| V0.9 | PLANNED | Hybrid engine (renamed from this table's original V0.7 slot) |
+| V0.9 | V0.9.1 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -674,7 +674,7 @@ a real multi-game strength comparison. `--{a,b}-use-mvv-lva` and the previously-
 `--{a,b}-no-killer-moves` flags were added to `tools/compare_engines.py` for that future
 run. Full design and both benchmark tables in `docs/v0.8.3.md`.
 
-## V0.9 — Hybrid Engine — PLANNED
+## V0.9 — Hybrid Engine — V0.9.1 COMPLETE
 
 Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine. This
 is the scope originally labeled V0.7 before V0.7 was used for UCCI protocol/search-
@@ -682,6 +682,28 @@ foundation work instead (see the V0.7 scope note above). Builds on the existing
 `eval_fn`/`MCTSEngine` pluggability from V0.6.1/V0.6.2 and the calibrated-material
 finding from V0.6.3, none of which are superseded by V0.7/V0.8's protocol/search-layer
 work -- V0.9 combines them rather than starting over.
+
+### V0.9.1 — MCTS Cooperative Cancellation & UCCI Wiring — COMPLETE
+
+`MCTSEngine.choose_move` gained the same `stop_event=None`
+`request_stop()`/`clear_stop()` cooperative-cancellation contract `SearchEngine` has
+had since V0.7.1/V0.7.2 -- the concrete prerequisite for plugging `MCTSEngine` into
+`UCCIEngine` at all. Cancellation strategy deliberately differs from `SearchEngine`'s:
+PUCT's root visit-count distribution stays meaningful after any number of completed
+simulations (unlike a partially-searched alpha-beta iteration, which is unsound), so
+cancellation just stops the simulation loop early and reports on the partial tree,
+falling back to the first legal move only if cancelled before the very first simulation
+could expand the root. Also fixed a real, previously-latent bug this surfaced:
+`UCCIEngine._parse_go`/`_handle_go` unconditionally read/wrote
+`self.search_engine.depth`, which crashed immediately for any engine without a
+`.depth` attribute (MCTS measures effort in `simulations` instead) -- now
+`getattr`/`hasattr`-guarded, so `go depth N` is accepted for any engine and simply a
+no-op for ones without a depth concept, while `go movetime`/`go time` continue working
+identically for every engine via the shared `stop_event` mechanism. Verified with a
+real (not fake) `MCTSEngine` plugged into `UCCIEngine` end-to-end -- a full
+`go`/bestmove cycle, and `go`/`stop` actually interrupting a long-running MCTS search --
+specifically because a fake double would have silently passed without exercising the
+`.depth` bug. Full design in `docs/v0.9.1.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -1304,5 +1326,40 @@ Current hand-off:
     material-calibration run -- same batching suggestion as before.
     Otherwise, (a) V0.9 Hybrid Engine is next in line. Update this
     roadmap at the end of the step.
+        ↓
+    Picked (a): V0.9.1 MCTS cooperative cancellation & UCCI wiring (see
+    the V0.9 section above and docs/v0.9.1.md). 281/281 green. Gave
+    MCTSEngine the same stop_event contract SearchEngine has had since
+    V0.7.1/V0.7.2, with a cancellation strategy that's deliberately
+    different (report the partial tree instead of discarding the
+    iteration, since PUCT stays sound after any number of completed
+    simulations -- unlike a partially-searched alpha-beta depth). Also
+    fixed a real bug this surfaced: UCCIEngine unconditionally read/
+    wrote self.search_engine.depth, which crashed immediately for any
+    engine without one (MCTSEngine uses simulations instead). Verified
+    with a real MCTSEngine plugged into UCCIEngine end-to-end, not a
+    fake double, specifically so the .depth bug couldn't hide behind a
+    test double that happened to satisfy the interface. NOTE: this
+    session's V0.8.3 MVV-LVA thread and this V0.9.1 thread were worked
+    independently in parallel per an explicit "these don't block each
+    other, proceed separately" instruction -- worth checking both hand-
+    off entries are still consistent with each other (they don't touch
+    overlapping files) before treating this as the sole latest entry.
+    A larger (100+ game) V0.8.3 MVV-LVA comparison was also started
+    locally outside this session around the same time as this step;
+    whoever picks this up next should check whether that run has
+    landed and merge its results into docs/v0.8.3.md if so, rather than
+    treating the 26-game result as final.
+        ↓
+    Next: (a) wire an actual --engine mcts style choice into
+    UCCIEngine/tools/compare_engines.py/tools/self_play.py now that the
+    interface mismatch is fixed (docs/v0.9.1.md's own scope boundary),
+    (b) the still-open V0.6.1 MCTSEngine-strength and V0.6.3 material-
+    calibration multi-game comparisons, now joined by V0.8.3's
+    already-started-but-not-yet-100+-games MVV-LVA comparison as a
+    third candidate for the same batched compare_engines.py session, or
+    (c) start wiring V0.6.2's NeuralEvaluator into the same --engine
+    style choice alongside MCTS. Update this roadmap at the end of the
+    step.
 
 Last updated: 2026-09-10
