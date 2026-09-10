@@ -1282,5 +1282,27 @@ Current hand-off:
     compare_engines.py session rather than three separate ones. Absent
     that, (a) V0.9 Hybrid Engine remains open per the note above.
     Update this roadmap at the end of the step, as always.
+        ↓
+    Ran that compare_engines.py comparison for V0.8.3 specifically: 26
+    games at depth 2 (baseline vs. use_mvv_lva on), run in a few
+    batches to fit the available session time, full records in
+    data/v0.8.3_mvv_lva_compare.jsonl. Result: 12-12-2, a 50.0% score
+    rate, ~0 Elo difference -- consistent with the node-count story
+    above, where a real early-game cost and a real midgame benefit turn
+    out to roughly cancel out over a full game. use_mvv_lva stays False
+    by default; this adds real-game evidence for that call rather than
+    changing it. 26 games is a start, not a conclusion (95% CI is
+    roughly 31-69%, wide enough to hide a real few-dozen-Elo effect) --
+    see docs/v0.8.3.md's updated "Real-game benchmark" section for the
+    full numbers and caveats.
+        ↓
+    Next: a larger version of that same run (100+ games, and/or depth 3
+    where the node-count effect was even bigger) would narrow the
+    confidence interval enough to say more. Still shares its "needs
+    real compute time, not another quick script" nature with V0.6.1's
+    MCTSEngine-strength question and V0.6.3's own 100+ game
+    material-calibration run -- same batching suggestion as before.
+    Otherwise, (a) V0.9 Hybrid Engine is next in line. Update this
+    roadmap at the end of the step.
 
 Last updated: 2026-09-10
