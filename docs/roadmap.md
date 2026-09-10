@@ -22,7 +22,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.6+ | PLANNED | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
-| V0.9 | V0.9.1 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
+| V0.9 | V0.9.1-9.2 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -684,7 +684,7 @@ a real multi-game strength comparison. `--{a,b}-use-mvv-lva` and the previously-
 `--{a,b}-no-killer-moves` flags were added to `tools/compare_engines.py` for that future
 run. Full design and both benchmark tables in `docs/v0.8.3.md`.
 
-## V0.9 — Hybrid Engine — V0.9.1 COMPLETE
+## V0.9 — Hybrid Engine — V0.9.1-9.2 COMPLETE
 
 Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine. This
 is the scope originally labeled V0.7 before V0.7 was used for UCCI protocol/search-
@@ -714,6 +714,31 @@ real (not fake) `MCTSEngine` plugged into `UCCIEngine` end-to-end -- a full
 `go`/bestmove cycle, and `go`/`stop` actually interrupting a long-running MCTS search --
 specifically because a fake double would have silently passed without exercising the
 `.depth` bug. Full design in `docs/v0.9.1.md`.
+
+### V0.9.2 — `--engine mcts` Wiring in `tools/compare_engines.py` — COMPLETE
+
+`--{a,b}-engine {search,mcts}` and `--{a,b}-simulations` let either side of a
+`compare_engines.py` comparison play as `MCTSEngine` instead of `SearchEngine` (default
+`search`, so every prior invocation is unaffected). Flags that don't apply to MCTS
+(no killer table, no MVV-LVA, no opening book, no `material_values`) are accepted
+without crashing but explicitly warned about when set to a non-default value, rather
+than silently ignored. No dedicated unit tests, matching this project's existing
+"`tools/` scripts are thin CLI wrappers" convention and the precedent already set by
+V0.6.3's/V0.8.3's own additions to this same file -- verified by a real smoke-test run
+instead.
+
+**Immediately used to settle V0.6.1's long-open strength question**: 28 games,
+`MCTSEngine` (200 simulations, V0.6.1's default) vs. `SearchEngine` (depth 2) -- **1
+win, 27 losses, 0 draws** (95% CI on score rate: [0.0%, 10.4%], no larger sample needed
+to be confident this is real, unlike V0.8.3's/V0.6.3's near-50% findings). A follow-up
+10 games at 5x the simulation budget (1000 sims) went **0-10** -- rules out "just needs
+more simulations." Not surprising in retrospect: V0.6.1's MCTS has uniform move priors
+(no policy network yet) and reuses `SearchEngine`'s own `evaluate()` as its only leaf
+signal, the same well-known gap that AlphaZero-style engines need a trained policy/value
+network to close. Makes V0.9's neural-network step the more consequential remaining item
+over further fixed-prior MCTS tuning. Full numbers and caveats (including why the
+~-570 Elo figure is a rough scale indicator, not a precise one, given how unstable the
+log-odds formula is near 0%/100%) in `docs/v0.9.2.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -1396,5 +1421,31 @@ Current hand-off:
     than one linear next step -- whoever picks this up should choose
     based on available compute/session time rather than assume an
     ordering. Update this roadmap at the end of whichever is picked.
+        ↓
+    Picked (a)+(c) together, since they directly unblock each other:
+    V0.9.2 --engine mcts wiring in tools/compare_engines.py (see the
+    V0.9 section above and docs/v0.9.2.md), then immediately used it to
+    settle (c). Result was decisive, not close: MCTSEngine (200 sims)
+    vs. SearchEngine (depth 2), 28 games, 1-27-0 -- no larger sample
+    needed, 95% CI [0.0%, 10.4%] doesn't come close to 50%. A 1000-sim
+    follow-up (5x the budget) still went 0-10, ruling out "just needs
+    more simulations." Consistent with V0.6.1's own stated scope
+    (uniform priors, no policy network yet, reusing SearchEngine's own
+    evaluate() as the only leaf signal) -- not a bug, the expected shape
+    of the gap a policy network is meant to close. 281/281 full suite
+    unaffected throughout (only tools/compare_engines.py touched for
+    the wiring itself).
+        ↓
+    Next: still open -- (b) V0.8.3's MVV-LVA question at n=26, (d)
+    docs/v0.6.3.md's two untested material-calibration hypotheses. This
+    session's MCTS result also sharpens the case for a genuinely new
+    thread: a real policy/value network wired into MCTSEngine (V0.6.2's
+    NeuralEvaluator already plugs into eval_fn identically for both
+    engines, but a *policy* head replacing MCTS's uniform priors is new
+    work, not yet started anywhere in this project) -- per
+    docs/v0.9.2.md's own "practical implication," this is now the more
+    consequential of the two remaining V0.9 directions compared to
+    further fixed-prior MCTS tuning. Update this roadmap at the end of
+    whichever is picked next.
 
 Last updated: 2026-09-10
