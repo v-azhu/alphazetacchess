@@ -52,7 +52,11 @@ def test_killer_moves_ignore_captures():
 
 
 def test_killer_ordering_puts_quiet_killers_before_other_quiet_moves():
-    engine = SearchEngine(use_killer_moves=True)
+    # use_mvv_lva=False isolates killer-move ordering from V0.8.3's capture
+    # ordering (also active inside _order_moves by default) -- see
+    # tests/test_mvv_lva.py for the capture-ranking behavior itself and
+    # tests/test_move_ordering.py for the two features combined.
+    engine = SearchEngine(use_killer_moves=True, use_mvv_lva=False)
     killer = Move((2, 2), (2, 3))
     other = Move((1, 1), (1, 2))
 
@@ -67,7 +71,12 @@ def test_killer_ordering_puts_quiet_killers_before_other_quiet_moves():
 
 
 def test_stale_capture_matching_a_killer_is_not_prioritized():
-    engine = SearchEngine(use_killer_moves=True)
+    # use_mvv_lva=False for the same reason as above: this test isolates
+    # the killer table's own "captures are never promoted by a stale
+    # coordinate match" rule from V0.8.3's independent capture-first
+    # ordering, which would otherwise also move now_capture ahead of
+    # other and make this test pass for the wrong reason.
+    engine = SearchEngine(use_killer_moves=True, use_mvv_lva=False)
     killer = Move((2, 2), (2, 3))
     engine.killer_moves.record(3, killer)
 
