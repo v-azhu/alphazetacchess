@@ -64,6 +64,18 @@ def add_side_args(parser, prefix):
     parser.add_argument(f"--{prefix}-use-piece-coordination", action="store_true")
     parser.add_argument(f"--{prefix}-use-endgame-heuristics", action="store_true")
     parser.add_argument(
+        f"--{prefix}-no-killer-moves", action="store_true",
+        help=f"disable side {prefix.upper()}'s killer-move ordering (V0.8.2, on by "
+             f"default -- see docs/v0.8.2.md).",
+    )
+    parser.add_argument(
+        f"--{prefix}-use-mvv-lva", action="store_true",
+        help=f"let side {prefix.upper()} use MVV-LVA capture ordering (V0.8.3, off "
+             f"by default -- mixed on the standard opening-phase reference "
+             f"positions but a clear win on capture-dense midgame positions, see "
+             f"docs/v0.8.3.md).",
+    )
+    parser.add_argument(
         f"--{prefix}-use-opening-book", action="store_true",
         help=f"let side {prefix.upper()} consult --opening-book for its opening moves",
     )
@@ -92,6 +104,8 @@ def config_from_args(args, prefix):
         "use_pawn_structure": getattr(args, f"{prefix}_use_pawn_structure"),
         "use_piece_coordination": getattr(args, f"{prefix}_use_piece_coordination"),
         "use_endgame_heuristics": getattr(args, f"{prefix}_use_endgame_heuristics"),
+        "use_killer_moves": not getattr(args, f"{prefix}_no_killer_moves"),
+        "use_mvv_lva": getattr(args, f"{prefix}_use_mvv_lva"),
         "use_opening_book": getattr(args, f"{prefix}_use_opening_book"),
         "use_neural_eval": getattr(args, f"{prefix}_use_neural_eval"),
         "use_calibrated_material": getattr(args, f"{prefix}_use_calibrated_material"),
@@ -108,6 +122,8 @@ def build_engine(
         use_pawn_structure=config["use_pawn_structure"],
         use_piece_coordination=config["use_piece_coordination"],
         use_endgame_heuristics=config["use_endgame_heuristics"],
+        use_killer_moves=config["use_killer_moves"],
+        use_mvv_lva=config["use_mvv_lva"],
         use_opening_book=config["use_opening_book"],
         opening_book=opening_book if config["use_opening_book"] else None,
         opening_book_min_games=opening_book_min_games,
