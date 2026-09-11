@@ -4,7 +4,7 @@ self-play endgame-analysis tests (selfplay/endgame_analysis.py)."""
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color, Piece, PieceType
 from alphazetacchess.core.zobrist import Zobrist
-from alphazetacchess.engine.evaluation import evaluate
+from alphazetacchess.engine.evaluation import evaluate, MATERIAL_VALUES
 from alphazetacchess.engine.endgame import (
     is_endgame,
     endgame_score,
@@ -145,8 +145,10 @@ def test_search_engine_use_endgame_heuristics_toggle_reaches_evaluation():
     put(board, PieceType.KING, Color.BLACK, 4, 9)
     put(board, PieceType.ROOK, Color.RED, 0, 0)
 
-    with_eg = SearchEngine(use_endgame_heuristics=True)
-    without_eg = SearchEngine(use_endgame_heuristics=False)
+    with_eg = SearchEngine(use_endgame_heuristics=True,
+                            material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
+    without_eg = SearchEngine(use_endgame_heuristics=False,
+                               material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
 
     score_with = with_eg._quiescence(
         board, float("-inf"), float("inf"), Color.RED, root_depth=0, qply=0,

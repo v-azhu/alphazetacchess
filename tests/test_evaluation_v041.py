@@ -106,8 +106,15 @@ def test_search_engine_use_piece_square_tables_toggle_reaches_evaluation():
     board._place(Piece(PieceType.KING, Color.BLACK, 3, 9))
     board._place(Piece(PieceType.HORSE, Color.RED, 0, 0))  # corner
 
-    with_pst = SearchEngine(use_piece_square_tables=True)
-    without_pst = SearchEngine(use_piece_square_tables=False)
+    # material_values/pst_weight/king_safety_weight pinned to the pre-V0.6.5
+    # hand-guessed baseline here -- this test is about whether
+    # use_piece_square_tables reaches evaluate(), not about which
+    # material/weight defaults SearchEngine currently ships with, so it's
+    # decoupled from that (see docs/v0.6.5.md).
+    with_pst = SearchEngine(use_piece_square_tables=True,
+                             material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
+    without_pst = SearchEngine(use_piece_square_tables=False,
+                                material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
 
     score_with = with_pst._quiescence(
         board, float("-inf"), float("inf"), Color.RED, root_depth=0, qply=0,

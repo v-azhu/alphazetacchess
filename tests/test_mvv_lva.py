@@ -1,7 +1,7 @@
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.move import Move
 from alphazetacchess.core.piece import Color, Piece, PieceType
-from alphazetacchess.engine.evaluation import CALIBRATED_MATERIAL_VALUES
+from alphazetacchess.engine.evaluation import CALIBRATED_MATERIAL_VALUES, MATERIAL_VALUES
 from alphazetacchess.engine.search import SearchEngine
 
 
@@ -80,17 +80,21 @@ def test_preferred_tt_move_still_ranks_first_over_captures():
 
 
 def test_material_values_override_is_used_for_scoring():
-    default_engine = SearchEngine(use_mvv_lva=True)
+    # SearchEngine defaults to CALIBRATED_MATERIAL_VALUES since V0.6.5
+    # (see docs/v0.6.5.md), so the baseline side here pins the pre-V0.6.5
+    # hand-guessed table explicitly to keep this a real override test
+    # rather than comparing calibrated-vs-calibrated.
+    baseline_engine = SearchEngine(use_mvv_lva=True, material_values=MATERIAL_VALUES)
     calibrated_engine = SearchEngine(use_mvv_lva=True, material_values=CALIBRATED_MATERIAL_VALUES)
     take_rook = capture((0, 0), (0, 1), PieceType.HORSE, PieceType.ROOK)
 
-    default_score = default_engine._mvv_lva_score(take_rook)
+    baseline_score = baseline_engine._mvv_lva_score(take_rook)
     calibrated_score = calibrated_engine._mvv_lva_score(take_rook)
 
     # CALIBRATED_MATERIAL_VALUES rates a Rook well above the default table
     # (900 -> 1500, see engine/evaluation.py); the override must actually
     # change the score, not silently fall back to the module default.
-    assert calibrated_score > default_score
+    assert calibrated_score > baseline_score
 
 
 def test_disabling_mvv_lva_preserves_prior_generator_order():

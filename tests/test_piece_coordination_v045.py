@@ -3,7 +3,7 @@
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color, Piece, PieceType
 from alphazetacchess.core.zobrist import Zobrist
-from alphazetacchess.engine.evaluation import evaluate
+from alphazetacchess.engine.evaluation import evaluate, MATERIAL_VALUES
 from alphazetacchess.engine.piece_coordination import (
     piece_coordination_score,
     piece_coordination_balance,
@@ -147,8 +147,10 @@ def test_search_engine_use_piece_coordination_toggle_reaches_evaluation():
     put(board, PieceType.ROOK, Color.RED, 0, 0)
     put(board, PieceType.ROOK, Color.RED, 0, 5)
 
-    with_pc = SearchEngine(use_piece_coordination=True)
-    without_pc = SearchEngine(use_piece_coordination=False)
+    with_pc = SearchEngine(use_piece_coordination=True,
+                            material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
+    without_pc = SearchEngine(use_piece_coordination=False,
+                               material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
 
     score_with = with_pc._quiescence(
         board, float("-inf"), float("inf"), Color.RED, root_depth=0, qply=0,

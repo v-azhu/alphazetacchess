@@ -14,7 +14,7 @@ not re-derived by hand), and SearchEngine threads the override through
 to _evaluate().
 """
 from alphazetacchess.core.board import Board
-from alphazetacchess.core.piece import Color, PieceType
+from alphazetacchess.core.piece import Color, Piece, PieceType
 from alphazetacchess.engine.evaluation import (
     evaluate,
     evaluate_components,
@@ -25,8 +25,24 @@ from alphazetacchess.engine.search import SearchEngine
 
 
 def asymmetric_board():
+    # Deliberately built (not Board()'s default starting layout) to give
+    # material_rook, pst_balance, AND king_safety_balance all nonzero --
+    # an earlier version of this fixture (Board() minus one Black Rook)
+    # gave 0 for pst_balance/king_safety_balance on this project's actual
+    # tables, which made several of this file's delta assertions pass
+    # vacuously (0 == 0) rather than by genuinely exercising the weight
+    # scaling. The Horse/Rook are placed off the King's own file (x=4)
+    # specifically so they don't block Black's Cannon's line to the King
+    # (see _open_file_exposure_score) -- an earlier draft placed the
+    # Horse on that file and silently zeroed king_safety_balance again.
     board = Board()
-    board.board[9][0] = None  # remove a Black Rook -- breaks symmetry
+    board.board = [[None for _ in range(Board.WIDTH)] for _ in range(Board.HEIGHT)]
+    board._place(Piece(PieceType.KING, Color.RED, 4, 0))
+    board._place(Piece(PieceType.KING, Color.BLACK, 3, 9))
+    board._place(Piece(PieceType.HORSE, Color.RED, 2, 2))
+    board._place(Piece(PieceType.HORSE, Color.BLACK, 0, 9))
+    board._place(Piece(PieceType.ROOK, Color.RED, 8, 5))
+    board._place(Piece(PieceType.CANNON, Color.BLACK, 4, 8))  # open file to Red's King, not a check
     return board
 
 
@@ -75,8 +91,18 @@ def test_weights_combine_independently_with_material_values():
         king_safety_weight=CALIBRATED_KING_SAFETY_WEIGHT,
     )
 
-    expected_material_delta = components["material_rook"] * (
-        CALIBRATED_MATERIAL_VALUES[PieceType.ROOK] - MATERIAL_VALUES[PieceType.ROOK]
+    # Sum over every piece type CALIBRATED_MATERIAL_VALUES actually
+    # changes (Rook, Cannon, Horse -- see engine/evaluation.py), not
+    # just Rook: this fixture's Cannon-count asymmetry (Black has one,
+    # Red has none) means the Cannon term is nonzero too, and an
+    # earlier version of this test only accounted for Rook, silently
+    # passing by coincidence on a fixture where the Cannon/Horse terms
+    # happened to cancel out.
+    expected_material_delta = sum(
+        components[f"material_{piece_type.name.lower()}"]
+        * (CALIBRATED_MATERIAL_VALUES[piece_type] - MATERIAL_VALUES[piece_type])
+        for piece_type in CALIBRATED_MATERIAL_VALUES
+        if piece_type != PieceType.KING
     )
     expected_pst_delta = (CALIBRATED_PST_WEIGHT - 1) * components["pst_balance"]
     expected_king_safety_delta = (
@@ -89,15 +115,20 @@ def test_weights_combine_independently_with_material_values():
 
 
 def test_search_engine_threads_weights_to_evaluate():
+    # baseline_engine pins the pre-V0.6.5 hand-guessed weights explicitly --
+    # SearchEngine() with no args now defaults to the CALIBRATED_* weights
+    # itself (see docs/v0.6.5.md), so leaving this at bare SearchEngine()
+    # would make both sides identical and the delta assertion vacuously
+    # true (0 == 0) rather than actually testing the threading.
     board = asymmetric_board()
 
-    default_engine = SearchEngine()
+    baseline_engine = SearchEngine(pst_weight=1, king_safety_weight=1)
     calibrated_engine = SearchEngine(
         pst_weight=CALIBRATED_PST_WEIGHT,
         king_safety_weight=CALIBRATED_KING_SAFETY_WEIGHT,
     )
 
-    default_score = default_engine._evaluate(board, Color.RED)
+    baseline_score = baseline_engine._evaluate(board, Color.RED)
     calibrated_score = calibrated_engine._evaluate(board, Color.RED)
 
     components = evaluate_components(board, Color.RED)
@@ -105,7 +136,7 @@ def test_search_engine_threads_weights_to_evaluate():
         (CALIBRATED_PST_WEIGHT - 1) * components["pst_balance"]
         + (CALIBRATED_KING_SAFETY_WEIGHT - 1) * components["king_safety_balance"]
     )
-    assert calibrated_score - default_score == expected_delta
+    assert calibrated_score - baseline_score == expected_delta
 
 
 def test_recombined_components_match_evaluate_with_calibrated_weights():

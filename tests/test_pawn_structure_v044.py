@@ -3,7 +3,7 @@
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color, Piece, PieceType
 from alphazetacchess.core.zobrist import Zobrist
-from alphazetacchess.engine.evaluation import evaluate
+from alphazetacchess.engine.evaluation import evaluate, MATERIAL_VALUES
 from alphazetacchess.engine.pawn_structure import (
     pawn_structure_score,
     pawn_structure_balance,
@@ -135,8 +135,10 @@ def test_search_engine_use_pawn_structure_toggle_reaches_evaluation():
     put(board, PieceType.PAWN, Color.RED, 3, 3)
     put(board, PieceType.PAWN, Color.RED, 4, 3)
 
-    with_ps = SearchEngine(use_pawn_structure=True)
-    without_ps = SearchEngine(use_pawn_structure=False)
+    with_ps = SearchEngine(use_pawn_structure=True,
+                            material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
+    without_ps = SearchEngine(use_pawn_structure=False,
+                               material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
 
     score_with = with_ps._quiescence(
         board, float("-inf"), float("inf"), Color.RED, root_depth=0, qply=0,

@@ -9,6 +9,7 @@ from alphazetacchess.core.piece import Color, Piece, PieceType
 from alphazetacchess.core.zobrist import Zobrist
 from alphazetacchess.engine.evaluation import (
     evaluate,
+    MATERIAL_VALUES,
     ADVISOR_ALIVE_BONUS,
     ELEPHANT_ALIVE_BONUS,
     OPEN_FILE_ROOK_PENALTY,
@@ -173,8 +174,14 @@ def test_search_engine_use_king_safety_toggle_reaches_evaluation():
     board._place(Piece(PieceType.KING, Color.BLACK, 3, 9))
     board._place(Piece(PieceType.CANNON, Color.BLACK, 4, 8))  # open-file threat, not a check
 
-    with_king_safety = SearchEngine(use_king_safety=True)
-    without_king_safety = SearchEngine(use_king_safety=False)
+    # material_values/pst_weight/king_safety_weight pinned to the pre-V0.6.5
+    # hand-guessed baseline -- this test is about whether use_king_safety
+    # reaches evaluate(), decoupled from whatever SearchEngine's current
+    # defaults are (see docs/v0.6.5.md).
+    with_king_safety = SearchEngine(use_king_safety=True,
+                                     material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
+    without_king_safety = SearchEngine(use_king_safety=False,
+                                        material_values=MATERIAL_VALUES, pst_weight=1, king_safety_weight=1)
 
     score_with = with_king_safety._quiescence(
         board, float("-inf"), float("inf"), Color.RED, root_depth=0, qply=0,
