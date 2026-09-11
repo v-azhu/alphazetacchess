@@ -42,6 +42,31 @@ CALIBRATED_MATERIAL_VALUES[PieceType.ROOK] = 1500
 CALIBRATED_MATERIAL_VALUES[PieceType.CANNON] = 750
 CALIBRATED_MATERIAL_VALUES[PieceType.HORSE] = 700
 
+# V0.6.4 -- the same V0.6.3 regression also fit pst_balance and
+# king_safety_balance to roughly 9.9x and 8.3x their current implicit
+# weight of 1 (see docs/v0.6.3.md's Results section) -- flagged there
+# as "suggestive" and deliberately NOT applied alongside
+# CALIBRATED_MATERIAL_VALUES, to isolate the material finding (the
+# most confident one) from this more speculative one. The real 100+
+# game comparison docs/v0.6.3.md's second addendum ran (calibrated
+# material ALONE, ~-53 Elo, leans negative) raised a specific untested
+# hypothesis for why: the material table might now be inconsistent
+# with the rest of evaluate()'s weighting, since the regression's
+# other coefficients were never applied alongside it. These two
+# constants let that hypothesis actually be tested --
+# CALIBRATED_PST_WEIGHT/CALIBRATED_KING_SAFETY_WEIGHT rounded from the
+# exact fitted 9.9/8.3 to the nearest integer, same "plausible,
+# testable constant, not because the extra precision was shown to
+# matter" rounding convention CALIBRATED_MATERIAL_VALUES already used.
+# NOT enabled by default -- opt in via evaluate()'s own
+# pst_weight/king_safety_weight parameters, or
+# `tools/compare_engines.py --a-use-calibrated-weights` (turns on all
+# three -- material, pst, king-safety -- together, which is the actual
+# point: testing them combined, not just material in isolation again).
+# Real strength impact not yet measured; see docs/v0.6.4.md.
+CALIBRATED_PST_WEIGHT = 10
+CALIBRATED_KING_SAFETY_WEIGHT = 8
+
 # V0.4.1 -- Piece-Square Tables.
 _HORSE_COLUMN_BONUS = [0, 4, 8, 12, 14, 12, 8, 4, 0]
 _HORSE_DEV_BONUS = [-6, 0, 0, 4, 4, 8, 8, 4, 4, 2]
@@ -96,15 +121,23 @@ def _center_bonus(piece):
     return (4 - distance_from_center) * CENTER_FILE_BONUS
 
 
-def _piece_score(piece, use_piece_square_tables, material_values=MATERIAL_VALUES):
+def _piece_score(piece, material_values=MATERIAL_VALUES):
+    """Material + crossed-river-pawn bonus only. PST/center-bonus is a
+    separate, independently-weightable component -- see
+    `_pst_component` -- split out in V0.6.4 so `pst_weight` can scale
+    it without touching material at all (previously combined here)."""
     score = material_values[piece.type]
     if piece.type == PieceType.PAWN and Board.has_crossed_river(piece.y, piece.color):
         score += PAWN_CROSSED_RIVER_BONUS
-    if use_piece_square_tables:
-        score += _pst_lookup(piece)
-    elif piece.type in (PieceType.HORSE, PieceType.CANNON, PieceType.ROOK):
-        score += _center_bonus(piece)
     return score
+
+
+def _pst_component(piece, use_piece_square_tables):
+    if use_piece_square_tables:
+        return _pst_lookup(piece)
+    elif piece.type in (PieceType.HORSE, PieceType.CANNON, PieceType.ROOK):
+        return _center_bonus(piece)
+    return 0
 
 
 # V0.4.2 -- King Safety.
@@ -217,6 +250,8 @@ def evaluate(
     perspective_color,
     use_piece_square_tables=True,
     use_king_safety=True,
+    pst_weight=1,
+    king_safety_weight=1,
     use_mobility=False,
     mobility_weight=1,
     use_pawn_structure=False,
@@ -250,6 +285,13 @@ def evaluate(
     module's own constant, fit via `tools/calibrate_evaluation.py`
     against real Pikafish data) to try the data-informed Rook/Cannon/
     Horse values instead. See docs/v0.6.3.md.
+
+    V0.6.4 adds `pst_weight`/`king_safety_weight` (both default 1,
+    exactly reproducing every prior version's behavior) so the same
+    regression's PST/king-safety scaling findings can be tested
+    alongside `material_values`, not just material in isolation. See
+    `CALIBRATED_PST_WEIGHT`/`CALIBRATED_KING_SAFETY_WEIGHT` and
+    docs/v0.6.4.md.
     """
     if material_values is None:
         material_values = MATERIAL_VALUES
@@ -261,7 +303,8 @@ def evaluate(
             if piece is None:
                 continue
 
-            piece_score = _piece_score(piece, use_piece_square_tables, material_values)
+            piece_score = _piece_score(piece, material_values)
+            piece_score += pst_weight * _pst_component(piece, use_piece_square_tables)
 
             if piece.color == perspective_color:
                 score += piece_score
@@ -270,8 +313,8 @@ def evaluate(
 
     if use_king_safety:
         opponent_color = Board.opponent(perspective_color)
-        score += _king_safety_score(board, perspective_color)
-        score -= _king_safety_score(board, opponent_color)
+        score += king_safety_weight * _king_safety_score(board, perspective_color)
+        score -= king_safety_weight * _king_safety_score(board, opponent_color)
 
     if use_mobility:
         score += mobility_weight * mobility_balance(board, perspective_color)

@@ -18,7 +18,8 @@ class SearchEngine(ChessEngine):
     def __init__(self, depth=3, use_alpha_beta=True, iterative_deepening=True,
                  use_transposition_table=True, use_pvs=True, use_quiescence=True,
                  quiescence_max_ply=8, use_piece_square_tables=True,
-                 use_king_safety=True, use_mobility=False, mobility_weight=1,
+                 use_king_safety=True, pst_weight=1, king_safety_weight=1,
+                 use_mobility=False, mobility_weight=1,
                  use_pawn_structure=False, use_piece_coordination=False,
                  use_endgame_heuristics=False, use_opening_book=False,
                  opening_book=None, opening_book_min_games=3, tt_max_entries=200_000,
@@ -33,6 +34,8 @@ class SearchEngine(ChessEngine):
         self.quiescence_max_ply = quiescence_max_ply
         self.use_piece_square_tables = use_piece_square_tables
         self.use_king_safety = use_king_safety
+        self.pst_weight = pst_weight
+        self.king_safety_weight = king_safety_weight
         self.use_mobility = use_mobility
         self.mobility_weight = mobility_weight
         self.use_pawn_structure = use_pawn_structure
@@ -67,6 +70,8 @@ class SearchEngine(ChessEngine):
         return evaluate(board, color,
                         use_piece_square_tables=self.use_piece_square_tables,
                         use_king_safety=self.use_king_safety,
+                        pst_weight=self.pst_weight,
+                        king_safety_weight=self.king_safety_weight,
                         use_mobility=self.use_mobility,
                         mobility_weight=self.mobility_weight,
                         use_pawn_structure=self.use_pawn_structure,
