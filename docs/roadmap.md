@@ -484,7 +484,7 @@ targeted test file: **130/130 green.** Smoke-tested end to end (small real match
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
 design and known limitations in `docs/v0.5.4.md`.
 
-## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis + real-game result: leans negative)
+## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis + real-game result: leans negative); V0.6.4 mechanism COMPLETE (real-game result pending)
 
 ### V0.6.3 — Calibrating the Heuristic's Constants Against Real Data — COMPLETE (analysis + real-game result)
 
@@ -523,6 +523,32 @@ doesn't guarantee playing better inside this engine's own alpha-beta search.
 new decision. See `docs/v0.6.3.md`'s second addendum for the full numbers, the
 draw-rate data-quality note, and two untested hypotheses for why (isolated material
 change vs. the rest of `evaluate()`'s weighting; possible depth=2 shallowness effect).
+
+### V0.6.4 — Combined Calibrated Weights (Material + PST + King Safety) — mechanism COMPLETE, real-game result pending
+
+Builds infrastructure to test the first of V0.6.3's two untested hypotheses:
+`evaluate()` gains `pst_weight=1`/`king_safety_weight=1` (both default 1, exactly
+reproducing every prior version's behavior), required splitting `_piece_score`
+(previously combined material + PST) into separate pieces so `pst_weight` can scale
+PST independently -- a pure refactor, verified behavior-preserving before the new
+parameters were even added. `CALIBRATED_PST_WEIGHT = 10`/`CALIBRATED_KING_SAFETY_WEIGHT
+= 8` (rounded from the same V0.6.3 regression's fitted 9.9/8.3, same rounding rationale
+`CALIBRATED_MATERIAL_VALUES` already used). `SearchEngine` threads both through
+identically to `material_values`. `tools/compare_engines.py
+--{prefix}-use-calibrated-weights` turns on all three calibrated findings together
+(material + PST + king-safety), not material alone -- the actual point, since testing
+them combined is exactly what V0.6.3's real-game result didn't do. 6 new tests
+(`tests/test_pst_king_safety_weights_v064.py`), following V0.6.3's own test pattern
+exactly, including confirming the V0.6.3 correctness gate (raw components recombined
+with the constants in force reproduce `evaluate()`'s own output) still holds for a
+non-default weighting. Full suite: **287/287 green.**
+
+**Not yet run**: the actual multi-game comparison this mechanism was built to enable.
+`docs/v0.6.4.md`'s "Script to run" section has both commands ready (combined weights vs.
+default at depth 2, directly comparable to V0.6.3's own -53 Elo material-alone result;
+and the same at depth 3, testing V0.6.3's second hypothesis -- possible depth=2
+shallowness effect -- at the same time), plus the same interrupt/resume and
+parallel-process-needs-separate-output-files guidance V0.6.3's own 100-game run used.
 
 Policy/value network, neural evaluation and MCTS integration.
 
@@ -1447,5 +1473,30 @@ Current hand-off:
     consequential of the two remaining V0.9 directions compared to
     further fixed-prior MCTS tuning. Update this roadmap at the end of
     whichever is picked next.
+        ↓
+    User asked specifically for (d)'s first hypothesis (combined
+    calibrated weights, not depth) -- built the mechanism: V0.6.4
+    (see the V0.6.3 section above and docs/v0.6.4.md).
+    pst_weight/king_safety_weight added to evaluate()/SearchEngine
+    (default 1, behavior-preserving), CALIBRATED_PST_WEIGHT=10/
+    CALIBRATED_KING_SAFETY_WEIGHT=8 from the same V0.6.3 regression,
+    tools/compare_engines.py --use-calibrated-weights turns on all
+    three findings together. 6 new tests, 287/287 full suite green,
+    smoke-tested with a real 2-game run. THE REAL COMPARISON ITSELF
+    WAS NOT RUN IN THIS SESSION -- docs/v0.6.4.md's "Script to run"
+    has both commands (depth 2, directly comparable to V0.6.3's -53
+    Elo material-alone result; and depth 3, testing the *other*
+    untested hypothesis at the same time) ready for the user to run
+    locally, same division of labor as V0.6.3's and V0.8.3's own
+    100-game results.
+        ↓
+    Next: whoever picks this up should first check whether the
+    docs/v0.6.4.md script has been run and its result analyzed/merged
+    in (check for data/v0.6.4_combined_weights_compare.jsonl and
+    data/v0.6.4_combined_weights_depth3_compare.jsonl) before treating
+    V0.6.4 as still open. If it has landed, still open: (b) V0.8.3's
+    MVV-LVA question at n=26, and the new MCTS policy-network thread
+    flagged in the previous entry. Update this roadmap at the end of
+    whichever is picked.
 
 Last updated: 2026-09-10
