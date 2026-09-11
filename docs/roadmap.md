@@ -592,10 +592,13 @@ king-safety components all genuinely nonzero, verified by direct computation rat
 assumed; this also surfaced a second bug in one test's own expected-delta formula (only
 accounted for the Rook term of `CALIBRATED_MATERIAL_VALUES`'s change, silently missing
 that Cannon and Horse also differ by 300 each). Full suite: **287/287 green.** Full
-writeup, including a small flagged-but-not-yet-fixed follow-up
-(`tools/compare_engines.py` currently has no flag left to explicitly request the
-pre-V0.6.5 baseline, since "no flags" now means "new calibrated defaults" on both
-sides), in `docs/v0.6.5.md`.
+writeup in `docs/v0.6.5.md` -- including a follow-up this doc initially flagged (a
+missing `tools/compare_engines.py` flag to explicitly request the pre-V0.6.5 baseline)
+that turned out, on checking, to be based on an incorrect claim: `build_engine` always
+passes `material_values`/`pst_weight`/`king_safety_weight` explicitly regardless of
+calibration flags, so `compare_engines.py`'s "no flags" case was never affected by
+`SearchEngine`'s own default changing, and no new flag was actually needed. Left the
+mistaken section in the doc with a correction above it rather than deleting it.
 
 Policy/value network, neural evaluation and MCTS integration.
 
@@ -1591,15 +1594,15 @@ Current hand-off:
     coincidence made two delta assertions trivially 0==0), plus a
     related bug in one test's expected-delta formula the fixture fix
     surfaced (only accounted for Rook, silently missing Cannon/Horse).
-    287/287 green throughout. One small follow-up flagged, not fixed:
-    compare_engines.py now has no flag to explicitly request the
-    pre-V0.6.5 baseline, since "no flags" changed meaning.
+    287/287 green throughout. One small follow-up flagged initially,
+    then found to be based on an incorrect claim and corrected in the
+    same doc (see docs/v0.6.5.md): compare_engines.py's "no flags"
+    case was never affected by SearchEngine's default changing, since
+    build_engine always passes these params explicitly regardless.
         ↓
     Next: still open -- (b) V0.8.3's MVV-LVA question at n=26, (c) the
-    MCTS policy-network thread, (d) docs/v0.6.5.md's own small
-    follow-up (a --{prefix}-use-baseline-weights style flag for
-    compare_engines.py). No item is currently more urgent than another
-    -- pick based on available time. Update this roadmap at the end of
-    whichever is picked.
+    MCTS policy-network thread. No item is currently more urgent than
+    another -- pick based on available time. Update this roadmap at
+    the end of whichever is picked.
 
 Last updated: 2026-09-11
