@@ -19,7 +19,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.3.5 | COMPLETE | Benchmark / regression consolidation |
 | V0.4 | COMPLETE | Advanced evaluation |
 | V0.5 | CURRENT | Self-play / training data |
-| V0.6+ | V0.6.1-6.4 COMPLETE | Neural evaluation / MCTS |
+| V0.6+ | V0.6.1-6.5 COMPLETE | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
 | V0.9 | V0.9.1-9.2 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
@@ -484,7 +484,7 @@ targeted test file: **130/130 green.** Smoke-tested end to end (small real match
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
 design and known limitations in `docs/v0.5.4.md`.
 
-## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis + real-game result: leans negative); V0.6.4 COMPLETE (real-game result: clearly positive, first positive tuning result in project history)
+## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis + real-game result: leans negative); V0.6.4 COMPLETE (real-game result: clearly positive, first positive tuning result in project history); V0.6.5 COMPLETE (calibrated weights promoted to SearchEngine's actual defaults)
 
 ### V0.6.3 — Calibrating the Heuristic's Constants Against Real Data — COMPLETE (analysis + real-game result)
 
@@ -555,9 +555,47 @@ internally consistent than material alone (hypothesis a), and that consistency p
 more clearly with more search depth (hypothesis b). `docs/v0.6.4.md`'s newest addendum
 has the full numbers and explicitly flags the natural next step -- promoting
 `CALIBRATED_MATERIAL_VALUES`/`CALIBRATED_PST_WEIGHT`/`CALIBRATED_KING_SAFETY_WEIGHT` to
-`SearchEngine`'s actual constructor defaults -- as a real recommendation, deliberately
-not yet acted on in this session given how consequential changing every
-default-constructed `SearchEngine`'s behavior (including `UCCIEngine`'s) would be.
+`SearchEngine`'s actual constructor defaults -- as a real recommendation, acted on next
+in V0.6.5 below.
+
+### V0.6.5 — Promote Calibrated Weights to `SearchEngine`'s Actual Defaults — COMPLETE
+
+Acts on V0.6.4's recommendation: `SearchEngine.__init__`'s actual parameter defaults
+for `material_values`/`pst_weight`/`king_safety_weight` move from the old hand-guessed
+baseline (`None`/1/1) to `CALIBRATED_MATERIAL_VALUES`/`CALIBRATED_PST_WEIGHT`/
+`CALIBRATED_KING_SAFETY_WEIGHT` -- exactly the configuration V0.6.4's 200-game real
+result already tested, not a new untested one, so no additional confirmatory run was
+needed (re-running the same comparison would reproduce the same result rather than test
+something new). Every default-constructed `SearchEngine()`, including `UCCIEngine`'s
+own default, now uses it automatically. `evaluate()`'s own defaults are deliberately
+unchanged -- only `SearchEngine`'s constructor moved, keeping the change's blast radius
+to one call site rather than the shared lower-level function every direct `evaluate()`
+caller (tests, `evaluate_components()`) also depends on.
+
+Verified (not assumed) that `tools/compare_engines.py`'s existing A/B comparisons are
+unaffected: every `SearchEngine(...)` call site there passes these three parameters
+explicitly one way or the other, never relying on `SearchEngine`'s own default, so every
+existing and future invocation means exactly what it always meant.
+
+Broke 6 existing tests immediately, all the same shape (bare `SearchEngine()` compared
+against a bare `evaluate()` call, which still defaults to the old baseline) -- fixed by
+pinning the pre-V0.6.5 baseline explicitly on those `SearchEngine` constructions, since
+those tests are about whether a specific toggle reaches `evaluate()`, not about which
+defaults are currently in effect. **Also found and fixed a real, pre-existing bug while
+fixing those 6**: two of V0.6.4's own tests
+(`tests/test_pst_king_safety_weights_v064.py`) turned out to have been passing
+*vacuously* since the previous session -- their shared fixture happened to produce
+`pst_balance == 0`/`king_safety_balance == 0` on this project's actual tables, making
+several delta assertions trivially `0 == 0` regardless of whether the weight scaling
+being tested actually worked. Rebuilt the fixture to give material, PST, and
+king-safety components all genuinely nonzero, verified by direct computation rather than
+assumed; this also surfaced a second bug in one test's own expected-delta formula (only
+accounted for the Rook term of `CALIBRATED_MATERIAL_VALUES`'s change, silently missing
+that Cannon and Horse also differ by 300 each). Full suite: **287/287 green.** Full
+writeup, including a small flagged-but-not-yet-fixed follow-up
+(`tools/compare_engines.py` currently has no flag left to explicitly request the
+pre-V0.6.5 baseline, since "no flags" now means "new calibrated defaults" on both
+sides), in `docs/v0.6.5.md`.
 
 Policy/value network, neural evaluation and MCTS integration.
 
@@ -1535,5 +1573,33 @@ Current hand-off:
     available-but-off flag; (b) V0.8.3's MVV-LVA question still at
     n=26; (c) the MCTS policy-network thread. Update this roadmap at
     the end of whichever is picked.
+        ↓
+    Picked (a) -- user confirmed, proceed. V0.6.5 (see the V0.6+
+    section above and docs/v0.6.5.md): SearchEngine's actual
+    material_values/pst_weight/king_safety_weight defaults now ARE the
+    CALIBRATED_* constants -- exactly what V0.6.4's 200 real games
+    already tested, so no new confirmatory run was needed (would just
+    reproduce the same result). evaluate()'s own defaults deliberately
+    left unchanged, keeping the blast radius to one call site.
+    Verified tools/compare_engines.py's existing A/B comparisons are
+    unaffected (every call site there already passes these params
+    explicitly). Broke 6 tests immediately (bare SearchEngine() vs.
+    bare evaluate() comparisons); fixed by pinning the old baseline
+    explicitly where the test's actual point was a different toggle.
+    Also found and fixed two tests in V0.6.4's own test file that had
+    been passing VACUOUSLY since the previous session (a fixture
+    coincidence made two delta assertions trivially 0==0), plus a
+    related bug in one test's expected-delta formula the fixture fix
+    surfaced (only accounted for Rook, silently missing Cannon/Horse).
+    287/287 green throughout. One small follow-up flagged, not fixed:
+    compare_engines.py now has no flag to explicitly request the
+    pre-V0.6.5 baseline, since "no flags" changed meaning.
+        ↓
+    Next: still open -- (b) V0.8.3's MVV-LVA question at n=26, (c) the
+    MCTS policy-network thread, (d) docs/v0.6.5.md's own small
+    follow-up (a --{prefix}-use-baseline-weights style flag for
+    compare_engines.py). No item is currently more urgent than another
+    -- pick based on available time. Update this roadmap at the end of
+    whichever is picked.
 
 Last updated: 2026-09-11
