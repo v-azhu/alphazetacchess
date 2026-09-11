@@ -2,7 +2,13 @@ from threading import Event
 
 from ..core.rule import Rule
 from .base import ChessEngine, SearchResult
-from .evaluation import evaluate, MATERIAL_VALUES
+from .evaluation import (
+    evaluate,
+    MATERIAL_VALUES,
+    CALIBRATED_MATERIAL_VALUES,
+    CALIBRATED_PST_WEIGHT,
+    CALIBRATED_KING_SAFETY_WEIGHT,
+)
 from .killer_moves import KillerMoves
 from .transposition_table import Bound, MATE_SCORE, TranspositionTable
 from ..selfplay.opening_book import select_book_move
@@ -13,18 +19,30 @@ class SearchCancelled(Exception):
 
 
 class SearchEngine(ChessEngine):
-    """V0.4.2 Negamax + PVS + Quiescence search with iterative deepening and TT."""
+    """V0.4.2 Negamax + PVS + Quiescence search with iterative deepening and TT.
+
+    V0.6.5: material_values/pst_weight/king_safety_weight default to the
+    CALIBRATED_* constants (engine/evaluation.py), not the hand-guessed
+    MATERIAL_VALUES/weight-1 baseline -- a real, measured strength gain
+    (Elo ~+49 at depth 2, ~+81 at depth 3 and statistically significant
+    there, 200 real games; see docs/v0.6.5.md), not a cosmetic default
+    change. Pass material_values=MATERIAL_VALUES,
+    pst_weight=1, king_safety_weight=1 explicitly to reproduce the
+    pre-V0.6.5 hand-guessed baseline (e.g. for A/B comparison --
+    tools/compare_engines.py's "B" side does exactly this by default).
+    """
 
     def __init__(self, depth=3, use_alpha_beta=True, iterative_deepening=True,
                  use_transposition_table=True, use_pvs=True, use_quiescence=True,
                  quiescence_max_ply=8, use_piece_square_tables=True,
-                 use_king_safety=True, pst_weight=1, king_safety_weight=1,
+                 use_king_safety=True, pst_weight=CALIBRATED_PST_WEIGHT,
+                 king_safety_weight=CALIBRATED_KING_SAFETY_WEIGHT,
                  use_mobility=False, mobility_weight=1,
                  use_pawn_structure=False, use_piece_coordination=False,
                  use_endgame_heuristics=False, use_opening_book=False,
                  opening_book=None, opening_book_min_games=3, tt_max_entries=200_000,
-                 eval_fn=None, material_values=None, use_killer_moves=True,
-                 use_mvv_lva=False):
+                 eval_fn=None, material_values=CALIBRATED_MATERIAL_VALUES,
+                 use_killer_moves=True, use_mvv_lva=False):
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
         self.iterative_deepening = iterative_deepening
