@@ -23,6 +23,7 @@ Usage:
     python tools/compare_engines.py --a-use-neural-eval --random-opening-prob 0 --games 20
     python tools/compare_engines.py --a-use-calibrated-material --games 20
     python tools/compare_engines.py --a-engine mcts --a-simulations 200 --games 20
+    python tools/compare_engines.py --a-use-calibrated-weights --a-depth 3 --b-depth 3 --games 20
 
 Note on --use-opening-book + opening randomization: both can be on at
 once (random opening's job is data diversity, the book's job is move
@@ -52,7 +53,11 @@ sys.path.insert(
 
 from alphazetacchess.engine.search import SearchEngine
 from alphazetacchess.engine.mcts import MCTSEngine
-from alphazetacchess.engine.evaluation import CALIBRATED_MATERIAL_VALUES
+from alphazetacchess.engine.evaluation import (
+    CALIBRATED_MATERIAL_VALUES,
+    CALIBRATED_PST_WEIGHT,
+    CALIBRATED_KING_SAFETY_WEIGHT,
+)
 from alphazetacchess.selfplay.opening_book import load_book
 from alphazetacchess.selfplay.opening_randomization import RandomizedOpeningEngine
 from alphazetacchess.selfplay.strength_comparison import run_comparison_match
@@ -115,6 +120,19 @@ def add_side_args(parser, prefix):
              f"of the default hand-guessed MATERIAL_VALUES. Ignored if this side "
              f"also has --{prefix}-use-neural-eval set.",
     )
+    parser.add_argument(
+        f"--{prefix}-use-calibrated-weights", action="store_true",
+        help=f"let side {prefix.upper()} use ALL THREE of the V0.6.3 regression's "
+             f"calibrated findings together -- CALIBRATED_MATERIAL_VALUES plus "
+             f"CALIBRATED_PST_WEIGHT/CALIBRATED_KING_SAFETY_WEIGHT (~10x/~8x their "
+             f"default weight of 1) -- rather than material alone, which "
+             f"docs/v0.6.3.md's real-game result found leans negative (~-53 Elo). "
+             f"Tests the hypothesis that the material table alone is inconsistent "
+             f"with the rest of evaluate()'s un-recalibrated weighting; see "
+             f"docs/v0.6.4.md. Implies --{prefix}-use-calibrated-material (setting "
+             f"both is redundant, not an error). Ignored if this side also has "
+             f"--{prefix}-use-neural-eval set.",
+    )
 
 
 def config_from_args(args, prefix):
@@ -131,6 +149,7 @@ def config_from_args(args, prefix):
         "use_opening_book": getattr(args, f"{prefix}_use_opening_book"),
         "use_neural_eval": getattr(args, f"{prefix}_use_neural_eval"),
         "use_calibrated_material": getattr(args, f"{prefix}_use_calibrated_material"),
+        "use_calibrated_weights": getattr(args, f"{prefix}_use_calibrated_weights"),
     }
 
 
@@ -150,6 +169,8 @@ def _mcts_ignored_flag_warnings(config, prefix):
         warnings.append(f"--{prefix}-use-opening-book")
     if config["use_calibrated_material"]:
         warnings.append(f"--{prefix}-use-calibrated-material")
+    if config["use_calibrated_weights"]:
+        warnings.append(f"--{prefix}-use-calibrated-weights")
     return warnings
 
 
@@ -169,6 +190,7 @@ def build_engine(
             eval_fn=eval_fn,
         )
     else:
+        use_calibrated_material = config["use_calibrated_material"] or config["use_calibrated_weights"]
         engine = SearchEngine(
             depth=config["depth"],
             use_mobility=config["use_mobility"],
@@ -181,7 +203,9 @@ def build_engine(
             opening_book=opening_book if config["use_opening_book"] else None,
             opening_book_min_games=opening_book_min_games,
             eval_fn=eval_fn,
-            material_values=CALIBRATED_MATERIAL_VALUES if config["use_calibrated_material"] else None,
+            material_values=CALIBRATED_MATERIAL_VALUES if use_calibrated_material else None,
+            pst_weight=CALIBRATED_PST_WEIGHT if config["use_calibrated_weights"] else 1,
+            king_safety_weight=CALIBRATED_KING_SAFETY_WEIGHT if config["use_calibrated_weights"] else 1,
         )
 
     if random_opening_plies > 0 and random_opening_prob > 0:
