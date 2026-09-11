@@ -19,7 +19,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.3.5 | COMPLETE | Benchmark / regression consolidation |
 | V0.4 | COMPLETE | Advanced evaluation |
 | V0.5 | CURRENT | Self-play / training data |
-| V0.6+ | PLANNED | Neural evaluation / MCTS |
+| V0.6+ | V0.6.1-6.4 COMPLETE | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
 | V0.9 | V0.9.1-9.2 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
@@ -484,7 +484,7 @@ targeted test file: **130/130 green.** Smoke-tested end to end (small real match
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
 design and known limitations in `docs/v0.5.4.md`.
 
-## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis + real-game result: leans negative); V0.6.4 mechanism COMPLETE (real-game result pending)
+## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis + real-game result: leans negative); V0.6.4 COMPLETE (real-game result: clearly positive, first positive tuning result in project history)
 
 ### V0.6.3 — Calibrating the Heuristic's Constants Against Real Data — COMPLETE (analysis + real-game result)
 
@@ -524,7 +524,7 @@ new decision. See `docs/v0.6.3.md`'s second addendum for the full numbers, the
 draw-rate data-quality note, and two untested hypotheses for why (isolated material
 change vs. the rest of `evaluate()`'s weighting; possible depth=2 shallowness effect).
 
-### V0.6.4 — Combined Calibrated Weights (Material + PST + King Safety) — mechanism COMPLETE, real-game result pending
+### V0.6.4 — Combined Calibrated Weights (Material + PST + King Safety) — COMPLETE (mechanism + real-game result: clearly positive)
 
 Builds infrastructure to test the first of V0.6.3's two untested hypotheses:
 `evaluate()` gains `pst_weight=1`/`king_safety_weight=1` (both default 1, exactly
@@ -543,12 +543,21 @@ exactly, including confirming the V0.6.3 correctness gate (raw components recomb
 with the constants in force reproduce `evaluate()`'s own output) still holds for a
 non-default weighting. Full suite: **287/287 green.**
 
-**Not yet run**: the actual multi-game comparison this mechanism was built to enable.
-`docs/v0.6.4.md`'s "Script to run" section has both commands ready (combined weights vs.
-default at depth 2, directly comparable to V0.6.3's own -53 Elo material-alone result;
-and the same at depth 3, testing V0.6.3's second hypothesis -- possible depth=2
-shallowness effect -- at the same time), plus the same interrupt/resume and
-parallel-process-needs-separate-output-files guidance V0.6.3's own 100-game run used.
+**Real-game result (2026-09-11, 100 games each depth)**: reverses V0.6.3's material-alone
+finding. Depth 2: 57.0% score rate, Elo ~+49, 95% CI [47.3%, 66.7%], p=0.162 (leans
+positive, not independently significant). Depth 3: 61.5% score rate, Elo ~+81, 95% CI
+[52.0%, 71.0%], p=0.021 (significant at the conventional 0.05 level). Combined via
+Fisher's method across both independent runs: p~=0.023. **This is the first clearly
+positive result from any evaluation-tuning checkpoint in this project's history**
+(V0.6.2 neural eval: -269 Elo; V0.6.3 material alone: ~-53 Elo) -- confirms both of
+V0.6.3's untested hypotheses weren't mutually exclusive: the combined weighting is more
+internally consistent than material alone (hypothesis a), and that consistency pays off
+more clearly with more search depth (hypothesis b). `docs/v0.6.4.md`'s newest addendum
+has the full numbers and explicitly flags the natural next step -- promoting
+`CALIBRATED_MATERIAL_VALUES`/`CALIBRATED_PST_WEIGHT`/`CALIBRATED_KING_SAFETY_WEIGHT` to
+`SearchEngine`'s actual constructor defaults -- as a real recommendation, deliberately
+not yet acted on in this session given how consequential changing every
+default-constructed `SearchEngine`'s behavior (including `UCCIEngine`'s) would be.
 
 Policy/value network, neural evaluation and MCTS integration.
 
@@ -1498,5 +1507,33 @@ Current hand-off:
     MVV-LVA question at n=26, and the new MCTS policy-network thread
     flagged in the previous entry. Update this roadmap at the end of
     whichever is picked.
+        ↓
+    It had landed -- user ran and pushed both files. Result: a clear
+    reversal of V0.6.3's material-alone finding. Depth 2: 57.0% score
+    rate, Elo ~+49, p=0.162 (leans positive, not independently
+    significant). Depth 3: 61.5%, Elo ~+81, p=0.021 (significant).
+    Fisher-combined across both independent runs: p~=0.023. First
+    clearly positive evaluation-tuning result in this project's whole
+    history (V0.6.2: -269 Elo; V0.6.3 material alone: ~-53 Elo) --
+    confirms V0.6.3's two untested hypotheses aren't mutually
+    exclusive: combining all three calibrated findings is more
+    internally consistent than material alone AND that consistency
+    pays off more clearly with search depth. Full numbers in
+    docs/v0.6.4.md's newest addendum; roadmap's V0.6.4 section above
+    updated to match.
+        ↓
+    Next, in rough priority order given this result: (a) the
+    recommendation docs/v0.6.4.md's addendum explicitly flags but
+    deliberately didn't act on -- promoting
+    CALIBRATED_MATERIAL_VALUES/CALIBRATED_PST_WEIGHT/
+    CALIBRATED_KING_SAFETY_WEIGHT to SearchEngine's actual constructor
+    defaults, which needs its own doc entry and its own before/after
+    confirmation given how consequential changing every
+    default-constructed SearchEngine's behavior (UCCIEngine included)
+    would be -- a real candidate for the next step precisely because
+    this result is strong enough to justify it, not just another
+    available-but-off flag; (b) V0.8.3's MVV-LVA question still at
+    n=26; (c) the MCTS policy-network thread. Update this roadmap at
+    the end of whichever is picked.
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
