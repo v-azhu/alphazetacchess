@@ -22,7 +22,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.6+ | V0.6.1-6.5 COMPLETE | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
-| V0.9 | V0.9.1-9.2 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
+| V0.9 | V0.9.1-9.3 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -770,7 +770,7 @@ moved from the initial n=26 result (50.0%) despite more than doubling the sample
 `use_mvv_lva=False` stays the default. Full design, both node-count benchmark tables,
 and the full game-level result in `docs/v0.8.3.md`.
 
-## V0.9 — Hybrid Engine — V0.9.1-9.2 COMPLETE
+## V0.9 — Hybrid Engine — V0.9.1-9.3 COMPLETE
 
 Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine. This
 is the scope originally labeled V0.7 before V0.7 was used for UCCI protocol/search-
@@ -825,6 +825,36 @@ network to close. Makes V0.9's neural-network step the more consequential remain
 over further fixed-prior MCTS tuning. Full numbers and caveats (including why the
 ~-570 Elo figure is a rough scale indicator, not a precise one, given how unstable the
 log-odds formula is near 0%/100%) in `docs/v0.9.2.md`.
+
+### V0.9.3 — Heuristic-Informed MCTS Priors — COMPLETE
+
+Replaces `_MCTSNode.prior`'s uniform `1/N` (V0.6.1's own placeholder, explicitly flagged
+as "exactly the parameter a future policy network would replace") with a cheap,
+non-learned first attempt: `_heuristic_priors` makes each candidate move, evaluates the
+result from the mover's own perspective, undoes it, and softmax-normalizes -- not a
+trained policy network, but a real, if crude, non-uniform signal, meant to answer
+"is the better-priors direction worth pursuing at all" before considering anything more
+expensive. `use_heuristic_priors=False` default reproduces V0.6.1's exact uniform-prior
+behavior. No correctness invariant the way `SearchEngine`'s ordering features have --
+MCTS is inherently approximate, so a different prior genuinely changes outcomes, which
+is the point, not a bug. 7 new tests
+(`tests/test_mcts_heuristic_priors_v093.py`). Full suite: **294/294 green.**
+
+**Real cost**: ~2.6x slower per simulation (extra `evaluate()` calls at every
+expansion). **Real benefit, measured two ways**: at equal simulation count, a clear win
+(24 games, 75.0% score rate, 95% CI [57.7%, 92.3%] entirely above 50%, Elo ~+191); at
+equal wall-clock time (200 heuristic-prior sims vs. 520 uniform-prior sims, matching the
+speed ratio), leans clearly positive but doesn't independently clear conventional
+significance at n=24 (24 games, 62.5%, 95% CI [43.1%, 81.9%], Elo ~+89). Does not close
+the large gap to `SearchEngine` found in V0.9.2 (a quick 4-game check still went 0-4).
+`use_heuristic_priors` stays `False` by default, per the same "off until proven" bar
+V0.6.5 held V0.6.4's combined weights to before promoting them -- the equal-time result
+leans positive but isn't independently conclusive yet. The real conclusion: the
+prior-quality direction is a genuine, measurable lever on MCTS's own strength, not a
+dead end -- worth continued investment (up to and including a trained policy network),
+though this checkpoint alone doesn't settle how far. Full numbers, both comparisons, and
+the scope boundary (no learning, `prior_temperature` not independently tuned) in
+`docs/v0.9.3.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -1646,5 +1676,35 @@ Current hand-off:
     (500+ game) run, which is a legitimate option but a step change in
     compute commitment rather than an obvious next increment. Update
     this roadmap at the end of whichever is picked.
+        ↓
+    Picked (c), scoped as a first, cheap increment rather than jumping
+    straight to a trained network: V0.9.3 heuristic-informed MCTS
+    priors (see the V0.9 section above and docs/v0.9.3.md) -- one-ply
+    lookahead + softmax, replacing V0.6.1's uniform 1/N prior, meant to
+    answer "is the better-priors direction worth pursuing at all"
+    before investing in anything more expensive. 294/294 green.
+    Real ~2.6x per-simulation speed cost measured directly. Real
+    benefit measured two ways: equal simulation count is an
+    unambiguous win (75.0%, 95% CI entirely above 50%, Elo ~+191);
+    equal wall-clock time (accounting for the speed cost) leans clearly
+    positive but doesn't independently clear significance at n=24
+    (62.5%, CI [43.1%, 81.9%]). Does not close V0.9.2's large gap to
+    SearchEngine (still 0-4 in a quick check). use_heuristic_priors
+    stays False by default -- same "off until proven" bar V0.6.5 held
+    V0.6.4's result to -- but the real takeaway is that prior quality
+    is a genuine, measurable lever on MCTS's own strength, not a dead
+    end, making a trained policy network a better-justified next
+    investment than it was before this checkpoint.
+        ↓
+    Next: (a) a larger confirmatory run of V0.9.3's equal-time
+    comparison specifically (n=24 leans positive but isn't conclusive
+    alone), (b) start on an actual trained policy network now that
+    V0.9.3 gives a real, if modest, positive signal that the direction
+    is worth it -- the more consequential and much larger undertaking
+    V0.9.2's own "practical implication" originally pointed at, (c)
+    V0.8.3's MVV-LVA question, which could still use a much larger
+    (500+ game) run if someone wants full confidence rather than the
+    current "leans neutral" read. Update this roadmap at the end of
+    whichever is picked.
 
-Last updated: 2026-09-11
+Last updated: 2026-09-12
