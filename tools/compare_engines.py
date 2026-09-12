@@ -83,6 +83,14 @@ def add_side_args(parser, prefix):
         help=f"MCTSEngine simulation count for side {prefix.upper()} -- only used "
              f"when --{prefix}-engine mcts (default 200, MCTSEngine's own default).",
     )
+    parser.add_argument(
+        f"--{prefix}-use-heuristic-priors", action="store_true",
+        help=f"let side {prefix.upper()}'s MCTSEngine use a one-ply-lookahead + "
+             f"softmax prior instead of uniform (V0.9.3, off by default -- roughly "
+             f"2.6x slower per simulation, see docs/v0.9.3.md for the real "
+             f"strength/speed tradeoff this was measured against). Only used when "
+             f"--{prefix}-engine mcts.",
+    )
     parser.add_argument(f"--{prefix}-depth", type=int, default=2)
     parser.add_argument(f"--{prefix}-use-mobility", action="store_true")
     parser.add_argument(f"--{prefix}-use-pawn-structure", action="store_true")
@@ -139,6 +147,7 @@ def config_from_args(args, prefix):
     return {
         "engine": getattr(args, f"{prefix}_engine"),
         "simulations": getattr(args, f"{prefix}_simulations"),
+        "use_heuristic_priors": getattr(args, f"{prefix}_use_heuristic_priors"),
         "depth": getattr(args, f"{prefix}_depth"),
         "use_mobility": getattr(args, f"{prefix}_use_mobility"),
         "use_pawn_structure": getattr(args, f"{prefix}_use_pawn_structure"),
@@ -188,6 +197,7 @@ def build_engine(
             use_piece_coordination=config["use_piece_coordination"],
             use_endgame_heuristics=config["use_endgame_heuristics"],
             eval_fn=eval_fn,
+            use_heuristic_priors=config["use_heuristic_priors"],
         )
     else:
         use_calibrated_material = config["use_calibrated_material"] or config["use_calibrated_weights"]
