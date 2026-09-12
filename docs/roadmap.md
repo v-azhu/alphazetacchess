@@ -845,7 +845,10 @@ expansion). **Real benefit, measured two ways**: at equal simulation count, a cl
 (24 games, 75.0% score rate, 95% CI [57.7%, 92.3%] entirely above 50%, Elo ~+191); at
 equal wall-clock time (200 heuristic-prior sims vs. 520 uniform-prior sims, matching the
 speed ratio), leans clearly positive but doesn't independently clear conventional
-significance at n=24 (24 games, 62.5%, 95% CI [43.1%, 81.9%], Elo ~+89). Does not close
+significance at n=48 (final total after 4 batches, 62.5%, 95% CI [48.8%, 76.2%],
+p=0.083; a stable point estimate across independent halves, worth reading
+`docs/v0.9.3.md`'s own transparency note on an interim n=36 batch that briefly looked
+significant before more data pulled it back). Does not close
 the large gap to `SearchEngine` found in V0.9.2 (a quick 4-game check still went 0-4).
 `use_heuristic_priors` stays `False` by default, per the same "off until proven" bar
 V0.6.5 held V0.6.4's combined weights to before promoting them -- the equal-time result
@@ -1706,5 +1709,30 @@ Current hand-off:
     (500+ game) run if someone wants full confidence rather than the
     current "leans neutral" read. Update this roadmap at the end of
     whichever is picked.
+        ↓
+    Picked (a): ran two more 12-game batches of V0.9.3's equal-time
+    comparison (final total: 48 games). Worth recording transparently,
+    not just the end number: after the first 24 it read 62.5%; a third
+    batch pushed the running total to n=36 at 69.4%, p=0.02 --
+    independently significant; a fourth batch then pulled the full
+    n=48 total back down to exactly 62.5% again, the same point
+    estimate as the first 24 alone. The apparent n=36 significance did
+    not hold up -- a real, concrete instance of why stopping at a
+    lucky interim result ("it just crossed p<0.05") is a mistake, not
+    a strategy. Final, honest number: 62.5%, 95% CI [48.8%, 76.2%],
+    p=0.083 -- still leans positive (a stable point estimate across
+    independent halves is informative on its own), still doesn't
+    independently clear conventional significance. use_heuristic_priors
+    stays False; docs/v0.9.3.md and this roadmap's V0.9.3 section above
+    updated with the complete picture and the interim-result lesson.
+        ↓
+    Next: still open -- (b) the trained policy network (the larger,
+    more consequential undertaking), (c) V0.8.3's MVV-LVA question at
+    a much larger sample if full confidence is wanted, or a genuinely
+    larger (200+ game) confirmatory run of V0.9.3's equal-time question
+    specifically if that's judged more valuable than moving on. No
+    item is obviously more urgent than another at this point -- pick
+    based on available compute/session time. Update this roadmap at
+    the end of whichever is picked.
 
 Last updated: 2026-09-12
