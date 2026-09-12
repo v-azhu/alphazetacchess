@@ -121,6 +121,8 @@ class MCTSEngine(ChessEngine):
         use_piece_coordination=False,
         use_endgame_heuristics=False,
         eval_fn=None,
+        use_heuristic_priors=False,
+        prior_temperature=200,
     ):
         self.simulations = simulations
         self.c_puct = c_puct
@@ -153,6 +155,30 @@ class MCTSEngine(ChessEngine):
         self.eval_fn = eval_fn
         self.nodes_evaluated = 0
         self._stop_event = Event()
+        # V0.9.3: replaces the uniform 1/N prior with a cheap one-ply
+        # lookahead -- evaluate() (or eval_fn) the position *after* each
+        # candidate move, from the mover's own perspective, then
+        # softmax-normalize those scores into a probability
+        # distribution. This is exactly the "future policy network"
+        # V0.6.1's own module docstring flagged _MCTSNode.prior as
+        # waiting for -- a real, if crude, non-uniform prior, not a
+        # trained one. Off by default (use_heuristic_priors=False
+        # reproduces V0.6.1's exact uniform-prior behavior bit-for-bit),
+        # per this project's standing "off until proven" rule -- see
+        # docs/v0.9.3.md for the real strength/speed tradeoff this was
+        # measured against.
+        self.use_heuristic_priors = use_heuristic_priors
+        # Same role as value_scale, for the same reason (see this
+        # class's own comment on value_scale): scales evaluate()-style
+        # points into the softmax's exponent so the resulting
+        # distribution is meaningfully peaked without being either
+        # near-uniform (temperature too high) or a near-one-hot pick of
+        # whatever move evaluate() likes best (temperature too low,
+        # which would defeat PUCT's own exploration term). 200 (two
+        # pawns' worth) is a first guess in the same "principled, not
+        # yet data-validated" spirit as value_scale=500, not
+        # independently tuned.
+        self.prior_temperature = prior_temperature
 
     def request_stop(self):
         self._stop_event.set()
@@ -253,6 +279,42 @@ class MCTSEngine(ChessEngine):
         node.value_sum += value
         return value
 
+    def _heuristic_priors(self, board, color, legal_moves):
+        """One-ply lookahead prior: evaluate the position immediately
+        after each candidate move, from the mover's own perspective
+        (not negated -- evaluate(board, color) already means "how good
+        is this position for color", and color is still whoever is
+        choosing among these moves regardless of whose turn `board`
+        says it is after the move), then softmax-normalize. Always
+        restores `board` via move()/undo() around each candidate,
+        matching `_simulate`'s own restoration promise -- this method
+        must leave `board` exactly as it found it, since it runs
+        *during* expansion, before the tree-search's own move/undo for
+        this ply has happened.
+        """
+        scores = []
+        for move in legal_moves:
+            board.move(move.from_pos, move.to_pos)
+            raw_score = (
+                self.eval_fn(board, color)
+                if self.eval_fn is not None
+                else evaluate(board, color, **self.eval_kwargs)
+            )
+            board.undo()
+            scores.append(raw_score)
+
+        # Numerically-stable softmax: subtract the max before
+        # exponentiating so large evaluate() scores (material swings
+        # can be in the thousands) don't overflow math.exp.
+        scaled = [score / self.prior_temperature for score in scores]
+        peak = max(scaled)
+        weights = [math.exp(value - peak) for value in scaled]
+        total = sum(weights)
+        return {
+            move: weight / total
+            for move, weight in zip(legal_moves, weights)
+        }
+
     def _expand_and_evaluate(self, board, color, node):
         legal_moves = Rule.generate_legal_moves(board, color)
 
@@ -263,8 +325,12 @@ class MCTSEngine(ChessEngine):
             node.terminal_value = -1.0
             return node.terminal_value
 
-        prior = 1.0 / len(legal_moves)
-        node.children = {move: _MCTSNode(prior=prior) for move in legal_moves}
+        if self.use_heuristic_priors:
+            priors = self._heuristic_priors(board, color, legal_moves)
+        else:
+            uniform = 1.0 / len(legal_moves)
+            priors = {move: uniform for move in legal_moves}
+        node.children = {move: _MCTSNode(prior=priors[move]) for move in legal_moves}
 
         self.nodes_evaluated += 1
         raw_score = (
