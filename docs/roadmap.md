@@ -18,7 +18,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.3.4 | COMPLETE | Quiescence search |
 | V0.3.5 | COMPLETE | Benchmark / regression consolidation |
 | V0.4 | COMPLETE | Advanced evaluation |
-| V0.5 | CURRENT | Self-play / training data |
+| V0.5 | COMPLETE | Self-play / training data |
 | V0.6+ | V0.6.1-6.5 COMPLETE | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
@@ -384,7 +384,7 @@ every other genuinely slow operation in this project.
 `data/` (gitignored `*.jsonl`, with a `README.md` explaining the directory) is where
 `tools/self_play.py` writes by default.
 
-### V0.5.2 — Opening Book from Self-Play — COMPLETE (mechanism); needs a real corpus
+### V0.5.2 — Opening Book from Self-Play — COMPLETE (mechanism + real corpus)
 
 `src/alphazetacchess/selfplay/opening_book.py`: books are keyed by (Zobrist hash, color to
 move) rather than move sequence, so transpositions share statistics instead of being
@@ -405,9 +405,11 @@ learn from) are in `docs/v0.5.2.md`.
 9 new correctness tests (`tests/test_opening_book_v052.py`). Combined with every other
 targeted V0.4.x/V0.5.x test file: **60/60 green, 1.42s.** Smoke-tested end to end
 (self-play → book → book-driven `SearchEngine` move) this session with a small,
-fully-deterministic sample — confirms the mechanism works, but **no book has been built
-from a real, larger self-play corpus yet**, since that depends on V0.5.1's own "run
-locally" step having actually been run at a useful scale.
+fully-deterministic sample — confirms the mechanism works. **Update**: a real book now
+exists at `data/opening_book.json` (1330 entries, built from real accumulated self-play
+data across many later sessions -- e.g. one popular opening move alone has 79 recorded
+games with real win/draw/loss counts, not toy/mechanism-test numbers), closing the gap
+this paragraph originally flagged.
 
 ### V0.5.2b — Opening Randomization — COMPLETE (confirmed necessary with real data)
 
@@ -460,7 +462,7 @@ the phase threshold's placement is reasonable (depth=1, 40-move-capped games ess
 never reach it; a 100-move-capped game did, at ply 70). Full design, exact test list, and
 known limitations in `docs/v0.5.3.md`.
 
-### V0.5.4 — Automated Strength Comparison — COMPLETE (mechanism); needs a real comparison
+### V0.5.4 — Automated Strength Comparison — COMPLETE (mechanism, extensively used for real comparisons since)
 
 `src/alphazetacchess/selfplay/strength_comparison.py`: `run_comparison_match()` plays N
 games between two independently configurable engine setups, alternating colors, and
@@ -482,7 +484,11 @@ the win to the correct configuration" — the exact mistake a naive generalizati
 `tools/benchmark.py`'s alternation logic could introduce. Combined with every other
 targeted test file: **130/130 green.** Smoke-tested end to end (small real matches, plus
 confirmed `--output` records are directly consumable by `tools/analyze_endgame.py`). Full
-design and known limitations in `docs/v0.5.4.md`.
+design and known limitations in `docs/v0.5.4.md`. **Update**: `tools/compare_engines.py`
+has since been used extensively for real, decision-driving comparisons across V0.6.1
+(38 games), V0.6.3 (120 games), V0.6.4 (200 games), V0.8.3 (57 games), and V0.9.2's
+MCTS-vs-SearchEngine result -- the "needs a real comparison" gap this section originally
+flagged has been closed many times over.
 
 ## V0.6+ — Neural Evaluation / MCTS — V0.6.2 concluded (negative result); V0.6.3 calibration COMPLETE (analysis + real-game result: leans negative); V0.6.4 COMPLETE (real-game result: clearly positive, first positive tuning result in project history); V0.6.5 COMPLETE (calibrated weights promoted to SearchEngine's actual defaults)
 
@@ -758,7 +764,11 @@ capture-dense midgame fixture -- a genuinely mixed, position-dependent result, n
 broad win V0.8.2 had, so per this project's "off until proven" rule it stays off pending
 a real multi-game strength comparison. `--{a,b}-use-mvv-lva` and the previously-missing
 `--{a,b}-no-killer-moves` flags were added to `tools/compare_engines.py` for that future
-run. Full design and both benchmark tables in `docs/v0.8.3.md`.
+run. **Real-game result (expanded to 57 games)**: 26-29-2, B(MVV-LVA) score rate 52.6%,
+95% CI [39.7%, 65.6%], Elo ~+18 -- comfortably consistent with no real effect, barely
+moved from the initial n=26 result (50.0%) despite more than doubling the sample.
+`use_mvv_lva=False` stays the default. Full design, both node-count benchmark tables,
+and the full game-level result in `docs/v0.8.3.md`.
 
 ## V0.9 — Hybrid Engine — V0.9.1-9.2 COMPLETE
 
@@ -1604,5 +1614,37 @@ Current hand-off:
     MCTS policy-network thread. No item is currently more urgent than
     another -- pick based on available time. Update this roadmap at
     the end of whichever is picked.
+        ↓
+    User asked to continue (b) while also flagging that this table's
+    V0.5 row still said CURRENT despite V0.5's own section header
+    already saying COMPLETE (a real, long-standing inconsistency --
+    fixed: table now says COMPLETE). While fixing that, two of V0.5.2/
+    V0.5.4's own "needs a real X" caveats turned out to be stale too --
+    a real opening book now exists (data/opening_book.json, 1330
+    entries, real accumulated win/draw/loss counts, not toy numbers),
+    and tools/compare_engines.py has since been used for real
+    comparisons many times over (V0.6.1/6.3/6.4/8.3/9.2) -- both
+    updated to reflect that rather than left stale.
+
+    On (b) itself: found 31 more real MVV-LVA comparison games already
+    sitting in data/v0.8.3_mvv_lva_compare.jsonl's working-tree copy
+    (same command/config, generated in later work on this project but
+    never committed) -- verified all 57 lines parse cleanly and configs
+    are consistent before trusting them, then folded them in.
+    Expanded result: 26-29-2, B(MVV-LVA) score rate 52.6%, 95% CI
+    [39.7%, 65.6%], Elo ~+18 -- barely moved from the n=26 point
+    estimate (50.0%) despite more than doubling the sample, which if
+    anything strengthens the "genuinely close to neutral" read rather
+    than revealing an effect the smaller sample missed. use_mvv_lva
+    stays False. docs/v0.8.3.md and this roadmap's V0.8.3 section
+    above updated to match. 287/287 full suite unaffected (data/docs
+    only, no src/ change this step).
+        ↓
+    Next: still open -- (c) the MCTS policy-network thread remains the
+    most substantive unstarted direction; V0.8.3's question is now
+    about as settled as it's likely to get without a much larger
+    (500+ game) run, which is a legitimate option but a step change in
+    compute commitment rather than an obvious next increment. Update
+    this roadmap at the end of whichever is picked.
 
 Last updated: 2026-09-11
