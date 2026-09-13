@@ -113,7 +113,18 @@ def main():
         "--epochs", type=int, default=800,
         help="maximum epochs -- early stopping (--patience) usually halts sooner",
     )
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument(
+        "--lr", type=float, default=0.01,
+        help="1e-3 (a reasonable default for the value network's continuous "
+             "regression target) was found to be far too small for this classifier's "
+             "8100-way output space in practice -- validation accuracy stayed at a "
+             "literal 0.0% for 40+ epochs and looked like a training failure, when "
+             "the real issue was just that loss was creeping down far too slowly at "
+             "that learning rate to move accuracy at all in a reasonable epoch "
+             "budget. 0.01 reached ~45-47% validation top-1 accuracy on a real "
+             "4106-example corpus within a few hundred epochs; see docs/v0.9.4.md's "
+             "'a second real gap found' section for the full story.",
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--hidden1", type=int, default=64)
     parser.add_argument("--hidden2", type=int, default=32)
@@ -123,11 +134,16 @@ def main():
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
-        "--patience", type=int, default=40,
+        "--patience", type=int, default=150,
         help="stop if validation top-1 accuracy hasn't improved for this many "
              "consecutive epochs -- same early-stopping reasoning as "
              "tools/train_neural_eval.py's own --patience (see docs/v0.6.2.md's "
-             "4th addendum for the overfitting a fixed epoch count caused there)",
+             "4th addendum for the overfitting a fixed epoch count caused there), "
+             "but set much higher than that tool's default: validation accuracy on "
+             "this 8100-way classification target plateaus in noisy multi-decade-"
+             "epoch stretches rather than moving smoothly, so a low patience risks "
+             "stopping on a temporary dip rather than genuine convergence (see "
+             "docs/v0.9.4.md's 'a second real gap found' section).",
     )
     args = parser.parse_args()
 
@@ -189,7 +205,13 @@ def main():
         else:
             epochs_since_improvement += 1
 
-        if (epoch + 1) % max(args.epochs // 10, 1) == 0 or epoch == 0:
+        # Fixed interval (not a fraction of --epochs) so an early-stopping run
+        # still gets real visibility into the training curve, regardless of
+        # how many total epochs were requested -- a fraction-of-total interval
+        # meant a run that stopped early printed almost nothing, which is
+        # exactly what made the original --lr=1e-3/--patience=40 defaults'
+        # failure mode hard to diagnose (see docs/v0.9.4.md).
+        if (epoch + 1) % 20 == 0 or epoch == 0:
             train_loss = epoch_loss / num_batches
             print(
                 f"  epoch {epoch + 1:>4}/{args.epochs}: train loss {train_loss:.4f}, "
