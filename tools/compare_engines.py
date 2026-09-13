@@ -62,6 +62,7 @@ from alphazetacchess.selfplay.opening_book import load_book
 from alphazetacchess.selfplay.opening_randomization import RandomizedOpeningEngine
 from alphazetacchess.selfplay.strength_comparison import run_comparison_match
 from alphazetacchess.neural.evaluator import NeuralEvaluator
+from alphazetacchess.neural.policy_evaluator import NeuralPolicyEvaluator
 
 
 def add_side_args(parser, prefix):
@@ -90,6 +91,15 @@ def add_side_args(parser, prefix):
              f"2.6x slower per simulation, see docs/v0.9.3.md for the real "
              f"strength/speed tradeoff this was measured against). Only used when "
              f"--{prefix}-engine mcts.",
+    )
+    parser.add_argument(
+        f"--{prefix}-policy-network", default=None,
+        help=f"path to a trained PolicyMLP .npz file (V0.9.4, see "
+             f"tools/train_policy_network.py) -- when set, side {prefix.upper()}'s "
+             f"MCTSEngine uses NeuralPolicyEvaluator as its policy_fn, which takes "
+             f"PRIORITY OVER --{prefix}-use-heuristic-priors (a real trained policy "
+             f"is the whole point that cheap stand-in existed to justify investing "
+             f"in). Only used when --{prefix}-engine mcts.",
     )
     parser.add_argument(f"--{prefix}-depth", type=int, default=2)
     parser.add_argument(f"--{prefix}-use-mobility", action="store_true")
@@ -148,6 +158,7 @@ def config_from_args(args, prefix):
         "engine": getattr(args, f"{prefix}_engine"),
         "simulations": getattr(args, f"{prefix}_simulations"),
         "use_heuristic_priors": getattr(args, f"{prefix}_use_heuristic_priors"),
+        "policy_network": getattr(args, f"{prefix}_policy_network"),
         "depth": getattr(args, f"{prefix}_depth"),
         "use_mobility": getattr(args, f"{prefix}_use_mobility"),
         "use_pawn_structure": getattr(args, f"{prefix}_use_pawn_structure"),
@@ -190,6 +201,10 @@ def build_engine(
     eval_fn = neural_evaluator if config["use_neural_eval"] else None
 
     if config["engine"] == "mcts":
+        policy_fn = (
+            NeuralPolicyEvaluator(config["policy_network"])
+            if config["policy_network"] else None
+        )
         engine = MCTSEngine(
             simulations=config["simulations"],
             use_mobility=config["use_mobility"],
@@ -198,6 +213,7 @@ def build_engine(
             use_endgame_heuristics=config["use_endgame_heuristics"],
             eval_fn=eval_fn,
             use_heuristic_priors=config["use_heuristic_priors"],
+            policy_fn=policy_fn,
         )
     else:
         use_calibrated_material = config["use_calibrated_material"] or config["use_calibrated_weights"]
