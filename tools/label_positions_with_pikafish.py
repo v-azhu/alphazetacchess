@@ -4,7 +4,16 @@ AlphaZetaChess Pikafish position-labeling tool (V0.6.2).
 Replays real self-play games (from tools/self_play.py's V0.5.1
 records) and asks a locally-running Pikafish (or any UCI-compatible
 engine) binary to evaluate a sample of the positions reached, saving
-(FEN, score_cp) pairs as training labels for tools/train_neural_eval.py.
+(FEN, score_cp, best_move) tuples as training labels -- score_cp for
+tools/train_neural_eval.py's value network, best_move (V0.9.4) for a
+future tools/train_policy_network.py once one exists (see
+neural/policy_network.py/policy_encoding.py/policy_evaluator.py).
+`PikafishClient.evaluate_fen` has always returned `best_move`
+alongside the score; this tool simply wasn't recording it until V0.9.4
+-- data/pikafish_labels.jsonl records written before that point don't
+have a best_move field and would need relabeling to be usable for
+policy training, since the move choice itself isn't derivable from
+the score alone.
 
 This is the ONE step in the V0.6.2 pipeline that needs to run on a
 machine with a working Pikafish binary -- everything downstream
@@ -104,7 +113,10 @@ def main():
                 else:
                     continue  # engine gave neither -- skip rather than guess
 
-                append_record(args.output, {"fen": fen, "score_cp": score_cp})
+                append_record(
+                    args.output,
+                    {"fen": fen, "score_cp": score_cp, "best_move": result["best_move"]},
+                )
                 labeled_count += 1
 
                 if labeled_count % 50 == 0:
