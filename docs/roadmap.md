@@ -22,7 +22,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.6+ | V0.6.1-6.5 COMPLETE | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
-| V0.9 | V0.9.1-9.3 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
+| V0.9 | V0.9.1-9.4 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -770,7 +770,7 @@ moved from the initial n=26 result (50.0%) despite more than doubling the sample
 `use_mvv_lva=False` stays the default. Full design, both node-count benchmark tables,
 and the full game-level result in `docs/v0.8.3.md`.
 
-## V0.9 — Hybrid Engine — V0.9.1-9.3 COMPLETE
+## V0.9 — Hybrid Engine — V0.9.1-9.4 COMPLETE
 
 Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine. This
 is the scope originally labeled V0.7 before V0.7 was used for UCCI protocol/search-
@@ -858,6 +858,36 @@ dead end -- worth continued investment (up to and including a trained policy net
 though this checkpoint alone doesn't settle how far. Full numbers, both comparisons, and
 the scope boundary (no learning, `prior_temperature` not independently tuned) in
 `docs/v0.9.3.md`.
+
+### V0.9.4 — Policy Network Infrastructure (Mechanism, Not Yet Trained) — COMPLETE
+
+Four new pieces, mirroring V0.6.2's exact "features -> network -> evaluator -> engine
+wiring" shape applied to the policy side: `neural/policy_encoding.py`
+(`move_to_policy_index`/`policy_index_to_squares`, `POLICY_DIM = 90*90 = 8100`, using
+the *same* perspective-relative vertical-flip convention `board_to_features` already
+uses for input planes, so a canonical policy network only learns one orientation);
+`neural/policy_network.py` (`PolicyMLP`, a separate network from `SmallMLP` -- lower
+risk than a shared trunk for a first checkpoint with no training data yet -- trains via
+ordinary softmax cross-entropy, masks to only the legal move set at inference, not
+training); `neural/policy_evaluator.py` (`NeuralPolicyEvaluator`, matching
+`engine/mcts.py`'s `policy_fn(board, color, legal_moves) -> {move: probability}`
+convention, mirroring `NeuralEvaluator`'s pattern for `eval_fn`); and `MCTSEngine`'s new
+`policy_fn` parameter itself, which takes priority over V0.9.3's `use_heuristic_priors`
+when both are set (verified directly with deliberately conflicting distributions, not
+assumed). **A real, concrete gap found and fixed along the way**:
+`PikafishClient.evaluate_fen` has always returned `best_move` alongside the score, but
+`tools/label_positions_with_pikafish.py` was silently discarding it -- fixed to record
+it, though existing `data/pikafish_labels.jsonl` predates the fix and would need
+relabeling to be usable for policy training. 19 new tests across four files. Full
+suite: **313/313 green.**
+
+**No training has happened** -- every `PolicyMLP` in this checkpoint's tests is
+randomly initialized, validating the mechanism (correct, symmetric encoding;
+mathematically correct backprop; sound masking; correct `MCTSEngine` wiring priority),
+not playing strength. `tools/train_policy_network.py` doesn't exist yet, and needs
+relabeled data from the user's local Pikafish first -- the same one-time dependency
+V0.6.2's value network already had. Concrete next steps in dependency order (relabel ->
+write the training tool -> a real strength comparison) in `docs/v0.9.4.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -1734,5 +1764,35 @@ Current hand-off:
     item is obviously more urgent than another at this point -- pick
     based on available compute/session time. Update this roadmap at
     the end of whichever is picked.
+        ↓
+    Picked (b), scoped realistically: real training needs the user's
+    local Pikafish (same one-time dependency V0.6.2's value network
+    had, not something achievable from this session alone), so this
+    step built and tested the CONSUMPTION side ahead of that -- V0.9.4
+    (see the V0.9 section above and docs/v0.9.4.md): move<->policy-
+    index encoding (same perspective-flip convention as the value
+    network's input features), a separate PolicyMLP network (softmax
+    cross-entropy, masked-at-inference-not-training), a
+    NeuralPolicyEvaluator wrapper matching MCTSEngine's policy_fn
+    convention, and policy_fn itself (verified to take priority over
+    V0.9.3's use_heuristic_priors when both are set). Also found and
+    fixed a real, previously-unnoticed gap: PikafishClient.evaluate_fen
+    has always returned best_move, but the labeling tool was silently
+    discarding it -- fixed, though existing pikafish_labels.jsonl
+    predates the fix and needs relabeling to be usable for policy
+    training. 313/313 green throughout. NO TRAINING HAS HAPPENED --
+    every network in this checkpoint's tests is randomly initialized;
+    this validates the mechanism, not playing strength.
+        ↓
+    Next: three items now, in dependency order for the policy-network
+    thread specifically -- (1) relabel a real corpus with the fixed
+    labeling tool (needs the user's local Pikafish), (2) write
+    tools/train_policy_network.py once relabeled data exists, (3) a
+    real strength comparison once there's an actual trained network,
+    the same way V0.9.3 measured use_heuristic_priors. Still
+    independently open regardless of that thread's pace: (c) V0.8.3's
+    MVV-LVA question at a much larger sample, (d) a larger confirmatory
+    run of V0.9.3's equal-time comparison specifically. Update this
+    roadmap at the end of whichever is picked.
 
 Last updated: 2026-09-12
