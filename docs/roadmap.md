@@ -884,10 +884,16 @@ suite: **313/313 green.**
 **No training has happened** -- every `PolicyMLP` in this checkpoint's tests is
 randomly initialized, validating the mechanism (correct, symmetric encoding;
 mathematically correct backprop; sound masking; correct `MCTSEngine` wiring priority),
-not playing strength. `tools/train_policy_network.py` doesn't exist yet, and needs
-relabeled data from the user's local Pikafish first -- the same one-time dependency
-V0.6.2's value network already had. Concrete next steps in dependency order (relabel ->
-write the training tool -> a real strength comparison) in `docs/v0.9.4.md`.
+not playing strength. `tools/train_policy_network.py` now exists too (mirrors
+`tools/train_neural_eval.py`'s exact shape, adapted for classification), smoke-tested
+end to end with a small synthetic dataset (60 real, legal (FEN, best_move) pairs from
+playing actual random legal moves, not real Pikafish labels) -- confirms the full
+label -> train -> save -> load -> use pipeline works, including loading through
+`NeuralPolicyEvaluator` into a real `MCTSEngine(policy_fn=...)` call, but says nothing
+about playing strength (0% validation accuracy on random-move noise, exactly as
+expected). Relabeling a real corpus from the user's local Pikafish -- the same one-time
+dependency V0.6.2's value network already had -- is now the only remaining blocker on
+this thread; full details in `docs/v0.9.4.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -1794,5 +1800,35 @@ Current hand-off:
     MVV-LVA question at a much larger sample, (d) a larger confirmatory
     run of V0.9.3's equal-time comparison specifically. Update this
     roadmap at the end of whichever is picked.
+        ↓
+    Picked (2) -- can't run it against real data without the user's
+    Pikafish, but the tool itself doesn't need real data to be written
+    and verified end to end. tools/train_policy_network.py mirrors
+    tools/train_neural_eval.py's exact shape (same CLI flags, same
+    val-split/early-stopping structure), adapted for classification
+    (top-1 accuracy, ordinary softmax cross-entropy) instead of
+    regression. Smoke-tested with a small SYNTHETIC dataset (60 real,
+    legal (FEN, best_move) pairs from actually playing random legal
+    moves -- not real Pikafish labels, just real board mechanics):
+    confirmed the full label -> train -> save -> load -> use pipeline
+    works end to end, including loading the saved network through
+    NeuralPolicyEvaluator and plugging it into a real
+    MCTSEngine(policy_fn=...) choose_move call. Says nothing about
+    playing strength (random-move "best moves" have no real pattern;
+    val accuracy stayed at 0%, exactly as expected for noise) --
+    that's still blocked on (1). docs/v0.9.4.md updated with this
+    section; roadmap's V0.9.4 entry above and this hand-off trail
+    updated to match. 313/313 green throughout (no test files
+    touched -- tools/ scripts don't get dedicated unit tests per this
+    project's existing convention, verified by the smoke test instead).
+        ↓
+    Next: (1) relabel a real corpus (needs the user's local Pikafish --
+    this is now the ONLY remaining blocker on the policy-network
+    thread, since (2) is done and ready), (3) the real strength
+    comparison once (1) produces something to train on. Still
+    independently open: (c) V0.8.3's MVV-LVA question at a much larger
+    sample, (d) a larger confirmatory run of V0.9.3's equal-time
+    comparison specifically. Update this roadmap at the end of
+    whichever is picked.
 
 Last updated: 2026-09-12
