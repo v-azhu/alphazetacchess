@@ -859,7 +859,7 @@ though this checkpoint alone doesn't settle how far. Full numbers, both comparis
 the scope boundary (no learning, `prior_temperature` not independently tuned) in
 `docs/v0.9.3.md`.
 
-### V0.9.4 — Policy Network Infrastructure (Mechanism, Not Yet Trained) — COMPLETE
+### V0.9.4 — Policy Network Infrastructure — mechanism COMPLETE, first real training run COMPLETE
 
 Four new pieces, mirroring V0.6.2's exact "features -> network -> evaluator -> engine
 wiring" shape applied to the policy side: `neural/policy_encoding.py`
@@ -878,22 +878,35 @@ assumed). **A real, concrete gap found and fixed along the way**:
 `PikafishClient.evaluate_fen` has always returned `best_move` alongside the score, but
 `tools/label_positions_with_pikafish.py` was silently discarding it -- fixed to record
 it, though existing `data/pikafish_labels.jsonl` predates the fix and would need
-relabeling to be usable for policy training. 19 new tests across four files. Full
-suite: **313/313 green.**
+relabeling to be usable for policy training. 19 new tests across four files.
+`tools/train_policy_network.py` mirrors `tools/train_neural_eval.py`'s exact shape,
+adapted for classification (top-1 accuracy, softmax cross-entropy). Full suite:
+**313/313 green.**
 
-**No training has happened** -- every `PolicyMLP` in this checkpoint's tests is
-randomly initialized, validating the mechanism (correct, symmetric encoding;
-mathematically correct backprop; sound masking; correct `MCTSEngine` wiring priority),
-not playing strength. `tools/train_policy_network.py` now exists too (mirrors
-`tools/train_neural_eval.py`'s exact shape, adapted for classification), smoke-tested
-end to end with a small synthetic dataset (60 real, legal (FEN, best_move) pairs from
-playing actual random legal moves, not real Pikafish labels) -- confirms the full
-label -> train -> save -> load -> use pipeline works, including loading through
-`NeuralPolicyEvaluator` into a real `MCTSEngine(policy_fn=...)` call, but says nothing
-about playing strength (0% validation accuracy on random-move noise, exactly as
-expected). Relabeling a real corpus from the user's local Pikafish -- the same one-time
-dependency V0.6.2's value network already had -- is now the only remaining blocker on
-this thread; full details in `docs/v0.9.4.md`.
+**The user then ran a real (8,000-position-capped) relabeling pass, yielding 4,106
+usable real `(FEN, score_cp, best_move)` records** -- the first real data this thread
+has had. Training against it with the tool's original defaults produced a network that
+looked completely broken (validation accuracy stuck at exactly 0.0%, early-stopped at
+epoch 41) -- **a second real gap, not a bug**: `--lr=1e-3`/`--patience=40`, both
+inherited verbatim from the value network's regression setting, are badly wrong for an
+8100-way classifier -- loss genuinely was decreasing, just far too slowly for a 40-epoch
+patience window to ever register real progress. Fixed defaults (`--lr=0.01`,
+`--patience=150`, plus a print-interval fix so an early-stopping run still shows a real
+learning curve) reached **47.1% real validation top-1 accuracy** on the same data
+predicting Pikafish's *exact* move, unmasked over the full 8100-index space.
+
+**Real strength results, using a new `--{prefix}-policy-network` flag added to
+`tools/compare_engines.py`**: the trained network is dead even with uniform priors (40
+games, 50.0%, 95% CI [34.5%, 65.5%]) and clearly *loses* to V0.9.3's cheap
+one-ply-lookahead heuristic priors (25 games, 24.0%, 95% CI [7.3%, 40.7%], Elo ~-200).
+**Honest read**: 47% validation accuracy from ~4,100 examples is a genuinely encouraging
+number for a from-scratch classifier, but hasn't yet translated into better MCTS play --
+most likely because 4,106 examples (819 distinct target classes) is still too little to
+generalize reliably to new positions, echoing (from a different angle) `docs/v0.6.3.md`'s
+own lesson that a signal which is good on its own terms doesn't automatically transfer
+into being a good prior for *this specific* search. Points toward "more data," not "dead
+end" -- full numbers, the diagnostic story behind the hyperparameter gap, and the
+now-just-one-item next-steps list in `docs/v0.9.4.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -1830,5 +1843,40 @@ Current hand-off:
     sample, (d) a larger confirmatory run of V0.9.3's equal-time
     comparison specifically. Update this roadmap at the end of
     whichever is picked.
+        ↓
+    (1) landed: user ran a real, 8,000-position-capped relabeling pass
+    (4,106 usable records) and pushed it. Training against it with the
+    tool's original defaults produced a network that LOOKED completely
+    broken (val accuracy stuck at exactly 0.0%, early-stopped at epoch
+    41) -- investigated before concluding anything: reproduced training
+    with train-accuracy instrumentation the tool doesn't print by
+    default, confirmed loss WAS decreasing and train accuracy WAS
+    climbing, just far too slowly at lr=1e-3 for a 40-epoch patience
+    window to ever register progress. Not a bug -- a second real gap,
+    same shape as the first one V0.9.4 already found: defaults
+    inherited verbatim from the value network's regression setting
+    don't transfer to an 8100-way classifier. Fixed tools/train_policy_
+    network.py's defaults (lr=0.01, patience=150, plus a print-interval
+    fix so early-stopping runs stay legible) -- same data now reaches
+    47.1% real validation top-1 accuracy predicting Pikafish's exact
+    move. Added --{a,b}-policy-network to tools/compare_engines.py and
+    ran (3): the trained network is dead even with uniform priors (40
+    games, 50.0%) and clearly LOSES to V0.9.3's cheap heuristic priors
+    (25 games, 24.0%, Elo ~-200). Honest read: 47% val accuracy is
+    encouraging, but 4,106 examples (819 distinct classes) most likely
+    isn't enough yet to generalize -- points toward "more data," not
+    "dead end." docs/v0.9.4.md's newest sections have the full
+    diagnostic story and both comparison tables; roadmap's V0.9.4 entry
+    above updated to match. 313/313 green throughout.
+        ↓
+    Next: the policy-network thread's only remaining step is a
+    substantially larger relabeled corpus (the pre-V0.9.4 corpus this
+    project already reached, 94,872 positions, is a realistic scale to
+    aim for) -- needs the user's local Pikafish again, for real this
+    time at a much larger scale, then retrain and re-run both
+    comparisons above. Still independently open: (c) V0.8.3's MVV-LVA
+    question at a much larger sample, (d) a larger confirmatory run of
+    V0.9.3's equal-time comparison specifically. Update this roadmap at
+    the end of whichever is picked.
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
