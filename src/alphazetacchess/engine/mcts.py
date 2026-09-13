@@ -123,6 +123,7 @@ class MCTSEngine(ChessEngine):
         eval_fn=None,
         use_heuristic_priors=False,
         prior_temperature=200,
+        policy_fn=None,
     ):
         self.simulations = simulations
         self.c_puct = c_puct
@@ -179,6 +180,21 @@ class MCTSEngine(ChessEngine):
         # yet data-validated" spirit as value_scale=500, not
         # independently tuned.
         self.prior_temperature = prior_temperature
+        # V0.9.4: optional pluggable policy source (e.g.
+        # NeuralPolicyEvaluator), matching the signature
+        # `(board, color, legal_moves) -> {move: probability}`. When
+        # set, this TAKES PRIORITY OVER use_heuristic_priors -- a real
+        # trained policy, once one exists, is the whole point
+        # use_heuristic_priors's one-ply lookahead was a cheap stand-in
+        # for (see docs/v0.9.3.md's own framing: "is the better-priors
+        # direction worth pursuing before investing in anything more
+        # expensive"). No trained network or training pipeline exists
+        # yet -- see docs/v0.9.4.md's scope boundary -- this parameter
+        # exists so the consumption side is built and tested ahead of
+        # that, the same "mechanism first" order V0.6.2's own
+        # NeuralEvaluator/eval_fn followed before any real Pikafish
+        # training had happened.
+        self.policy_fn = policy_fn
 
     def request_stop(self):
         self._stop_event.set()
@@ -325,7 +341,9 @@ class MCTSEngine(ChessEngine):
             node.terminal_value = -1.0
             return node.terminal_value
 
-        if self.use_heuristic_priors:
+        if self.policy_fn is not None:
+            priors = self.policy_fn(board, color, legal_moves)
+        elif self.use_heuristic_priors:
             priors = self._heuristic_priors(board, color, legal_moves)
         else:
             uniform = 1.0 / len(legal_moves)
