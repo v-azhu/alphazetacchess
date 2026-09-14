@@ -87,10 +87,13 @@ def add_side_args(parser, prefix):
     parser.add_argument(
         f"--{prefix}-use-heuristic-priors", action="store_true",
         help=f"let side {prefix.upper()}'s MCTSEngine use a one-ply-lookahead + "
-             f"softmax prior instead of uniform (V0.9.3, off by default -- roughly "
-             f"2.6x slower per simulation, see docs/v0.9.3.md for the real "
-             f"strength/speed tradeoff this was measured against). Only used when "
-             f"--{prefix}-engine mcts.",
+             f"softmax prior instead of uniform. This FLAG defaults False regardless "
+             f"of MCTSEngine's own class default (True since V0.9.5, see "
+             f"docs/v0.9.5.md) -- omitting this flag gives the pre-V0.9.5 uniform-"
+             f"prior baseline on this side, for controlled A/B comparison against "
+             f"MCTSEngine's new default, not an accident. Roughly 2.6x slower per "
+             f"simulation; see docs/v0.9.3.md for the real strength/speed tradeoff "
+             f"this was measured against. Only used when --{prefix}-engine mcts.",
     )
     parser.add_argument(
         f"--{prefix}-policy-network", default=None,
