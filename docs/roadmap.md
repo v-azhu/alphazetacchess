@@ -859,7 +859,7 @@ though this checkpoint alone doesn't settle how far. Full numbers, both comparis
 the scope boundary (no learning, `prior_temperature` not independently tuned) in
 `docs/v0.9.3.md`.
 
-### V0.9.4 — Policy Network Infrastructure — mechanism COMPLETE, first real training run COMPLETE
+### V0.9.4 — Policy Network Infrastructure and Two Real Training Rounds — COMPLETE
 
 Four new pieces, mirroring V0.6.2's exact "features -> network -> evaluator -> engine
 wiring" shape applied to the policy side: `neural/policy_encoding.py`
@@ -904,9 +904,28 @@ number for a from-scratch classifier, but hasn't yet translated into better MCTS
 most likely because 4,106 examples (819 distinct target classes) is still too little to
 generalize reliably to new positions, echoing (from a different angle) `docs/v0.6.3.md`'s
 own lesson that a signal which is good on its own terms doesn't automatically transfer
-into being a good prior for *this specific* search. Points toward "more data," not "dead
-end" -- full numbers, the diagnostic story behind the hyperparameter gap, and the
-now-just-one-item next-steps list in `docs/v0.9.4.md`.
+into being a good prior for *this specific* search.
+
+**Round 2 tested that "needs more data" hypothesis directly, and it moved the wrong
+way.** The user relabeled every ply (not every 4th), reaching 16,213 usable records
+covering 1,408 distinct move classes (up from 819) -- genuinely more and more diverse
+data. Retrained: validation accuracy plateaued at 43.92% (essentially unchanged from
+47.1%, plausibly because the harder 1,408-class problem offset the larger dataset).
+**Real strength results moved backward, not forward**: still dead even with uniform
+priors (20 games, 50.0%, unchanged), but now a **total shutout against V0.9.3's
+heuristic priors (0 wins out of 19 games)** -- worse than round 1's already-poor 24.0%.
+If data scarcity were the real bottleneck, quadrupling the corpus should have narrowed
+the gap at least somewhat; instead it widened. **Updated conclusion**: the evidence now
+points toward a methodology mismatch (imitating an external, much stronger engine's
+independent move preference doesn't straightforwardly produce a good PUCT prior for
+this specific, weak, shallow-leaf-evaluation MCTS), not a data-scarcity one -- a third,
+larger labeling round is no longer the recommended next step. Two real alternatives
+identified, both larger undertakings, neither attempted: self-play-refined policy
+targets (train toward `MCTSEngine`'s own post-search visit distribution, true
+AlphaZero-style, a fundamentally different signal than external-engine imitation), or
+revisiting whether a policy network is the right lever at all for this specific search
+given this result and V0.6.3's own precedent. Full numbers, the diagnostic story behind
+the hyperparameter gap, and both comparisons from each round are in `docs/v0.9.4.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -1878,5 +1897,45 @@ Current hand-off:
     question at a much larger sample, (d) a larger confirmatory run of
     V0.9.3's equal-time comparison specifically. Update this roadmap at
     the end of whichever is picked.
+        ↓
+    Picked that next step -- user relabeled every ply (not every 4th),
+    reaching 16,213 usable records / 1,408 distinct classes (4x the
+    corpus, ~1.7x the class diversity). Retrained (several
+    checkpoint-resumed bounded training chunks in this session, a
+    sandbox execution-time workaround, not a methodology change): val
+    accuracy plateaued at 43.92% -- essentially unchanged from 47.1%,
+    plausibly offset by the harder 1,408-class problem. Confirmed real
+    overfitting before stopping (train acc reached 77% while val
+    accuracy had been flat for hundreds of epochs).
+        ↓
+    Real strength comparisons moved BACKWARD, not forward: still dead
+    even with uniform (20 games, 50.0%, unchanged), but now a TOTAL
+    SHUTOUT against V0.9.3's heuristic priors (0 wins out of 19 games
+    -- worse than round 1's already-poor 24.0%). This is real evidence
+    AGAINST "just needs more data," not for it -- quadrupling the
+    corpus should have narrowed the gap at least somewhat if data
+    scarcity were the real bottleneck; instead it widened. Updated
+    conclusion: the evidence now points toward a methodology mismatch
+    (imitating an external, much stronger engine's independent move
+    preference doesn't straightforwardly produce a good PUCT prior for
+    this specific, weak, shallow-leaf-evaluation MCTS), not a
+    data-scarcity one. A third, larger labeling round is no longer the
+    recommended next step for this thread. docs/v0.9.4.md's "Round 2"
+    section and roadmap's V0.9.4 entry above updated to match. 313/313
+    green throughout (data/docs only, no src/ changes this step).
+        ↓
+    Next: the policy-network thread's two remaining real options are
+    both larger undertakings than another labeling round -- (e)
+    self-play-refined policy targets (train toward MCTSEngine's own
+    post-search visit distribution, true AlphaZero-style, a
+    fundamentally different signal than external-engine imitation), or
+    (f) step back and accept V0.9.3's heuristic priors as the
+    prior-improvement approach that has actually worked so far, rather
+    than continuing to invest in the policy-network direction. Neither
+    is a quick next increment. Still independently open, and more
+    tractable in the meantime: (c) V0.8.3's MVV-LVA question at a much
+    larger sample, (d) a larger confirmatory run of V0.9.3's equal-time
+    comparison specifically. Update this roadmap at the end of
+    whichever is picked.
 
 Last updated: 2026-09-13
