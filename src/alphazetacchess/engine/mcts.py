@@ -216,6 +216,57 @@ class MCTSEngine(ChessEngine):
     def clear_stop(self):
         self._stop_event.clear()
 
+    def search_root(self, board, color, stop_event=None):
+        """Runs the same simulation loop `choose_move` uses, but returns
+        the raw root `_MCTSNode` (or `None` if there were no legal
+        moves) instead of a `SearchResult` -- gives access to the full
+        move -> visit_count distribution at the root, not just the
+        single most-visited move. `choose_move` itself is built on top
+        of this; also used by `tools/generate_mcts_policy_labels.py`
+        (V0.9.6) to record real AlphaZero-style self-play policy
+        targets -- the search's own refined opinion of move quality,
+        not an external engine's independent one (see
+        `docs/v0.9.6.md`).
+
+        Returns `(root, legal_moves, completed_simulations)`.
+        `root` is `None` when `legal_moves` is empty (no legal moves
+        for `color` -- the game is already over, nothing to search).
+        `root.expanded` can still be `False` even with legal moves
+        present, if cancelled before the very first simulation
+        completed.
+        """
+        if stop_event is None:
+            self.clear_stop()
+            stop_event = self._stop_event
+        self.nodes_evaluated = 0
+
+        legal_moves = Rule.generate_legal_moves(board, color)
+        if not legal_moves:
+            return None, legal_moves, 0
+
+        root = _MCTSNode(prior=1.0)
+        completed_simulations = 0
+        for _ in range(self.simulations):
+            if stop_event.is_set():
+                break
+            self._simulate(board, color, root)
+            completed_simulations += 1
+
+        return root, legal_moves, completed_simulations
+
+    def root_visit_distribution(self, board, color, stop_event=None):
+        """Convenience wrapper around `search_root`:
+        `{move: visit_count}` for the root's children, empty if the
+        root never got a chance to expand (no legal moves, or
+        cancelled immediately). The natural raw material for an
+        AlphaZero-style policy training target -- see
+        `tools/generate_mcts_policy_labels.py`.
+        """
+        root, legal_moves, _ = self.search_root(board, color, stop_event)
+        if root is None or not root.expanded:
+            return {}
+        return {move: child.visit_count for move, child in root.children.items()}
+
     def choose_move(self, board, color, stop_event=None):
         """V0.9.1: cooperative cancellation, mirroring SearchEngine's
         V0.7.1 contract (same stop_event=None -> internal Event
@@ -240,14 +291,14 @@ class MCTSEngine(ChessEngine):
         back to the first legal move -- exactly SearchEngine's own
         pre-depth-1 fallback, for the same reason (never return a None
         best_move when a legal move exists).
-        """
-        if stop_event is None:
-            self.clear_stop()
-            stop_event = self._stop_event
-        self.nodes_evaluated = 0
 
-        legal_moves = Rule.generate_legal_moves(board, color)
-        if not legal_moves:
+        Built on top of `search_root` (V0.9.6) -- this method's own
+        behavior is completely unchanged by that refactor, just
+        restructured so the raw root tree is available separately too.
+        """
+        root, legal_moves, completed_simulations = self.search_root(board, color, stop_event)
+
+        if root is None:
             # No legal moves for `color` before any search even starts
             # -- the game is already over. Mirrors SearchEngine's own
             # SearchResult(None, ...) convention for this case, and
@@ -255,14 +306,6 @@ class MCTSEngine(ChessEngine):
             # module docstring): "no legal moves" is always a certain
             # loss for the side to move in Xiangqi.
             return SearchResult(None, -1.0, self.nodes_evaluated, 0)
-
-        root = _MCTSNode(prior=1.0)
-        completed_simulations = 0
-        for _ in range(self.simulations):
-            if stop_event.is_set():
-                break
-            self._simulate(board, color, root)
-            completed_simulations += 1
 
         if not root.expanded:
             return SearchResult(legal_moves[0], 0.0, self.nodes_evaluated, completed_simulations)
