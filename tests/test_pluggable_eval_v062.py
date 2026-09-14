@@ -76,6 +76,14 @@ def test_mcts_default_eval_fn_preserves_existing_behavior():
 
 
 def test_mcts_uses_provided_eval_fn_instead_of_heuristic():
+    # use_heuristic_priors=False pins the pre-V0.9.3 (now non-default)
+    # uniform-prior path -- this test is about eval_fn overriding the
+    # LEAF-value heuristic (evaluate()), unrelated to V0.9.3's
+    # "heuristic priors" feature despite the name coincidence; with
+    # use_heuristic_priors now defaulting True, _heuristic_priors would
+    # also call eval_fn once per candidate move, breaking the
+    # single-call assertion below for a reason orthogonal to what this
+    # test actually checks.
     board = Board()
     calls = []
 
@@ -83,7 +91,7 @@ def test_mcts_uses_provided_eval_fn_instead_of_heuristic():
         calls.append((b, color))
         return 300.0  # a real, un-squashed raw score
 
-    engine = MCTSEngine(eval_fn=fake_eval, value_scale=500)
+    engine = MCTSEngine(eval_fn=fake_eval, value_scale=500, use_heuristic_priors=False)
     node = _MCTSNode(prior=1.0)
 
     value = engine._expand_and_evaluate(board, Color.RED, node)

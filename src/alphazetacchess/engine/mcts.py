@@ -107,6 +107,21 @@ class MCTSEngine(ChessEngine):
     is no notion of "depth" the way Negamax has one -- `SearchResult
     .depth` is repurposed to hold `simulations` for this engine, since
     that's the closest equivalent "how much search effort" figure).
+
+    V0.9.5: `use_heuristic_priors` defaults to `True` -- promoted from
+    `False` after a real, stable, statistically significant result
+    (96 games, 65.6% score rate, 95% CI [56.1%, 75.1%], p=0.0022,
+    consistent across three independent checkpoints at n=72/84/96
+    unlike an earlier n=36 read that looked significant and then
+    reverted -- see docs/v0.9.3.md's "expanded to 96 games" addendum),
+    the same "off until proven, then promote on real evidence" bar
+    `SearchEngine`'s V0.6.5 held `CALIBRATED_MATERIAL_VALUES`/
+    `CALIBRATED_PST_WEIGHT`/`CALIBRATED_KING_SAFETY_WEIGHT` to. Pass
+    `use_heuristic_priors=False` explicitly to reproduce V0.6.1's
+    original uniform-prior behavior (e.g. for A/B comparison --
+    `tools/compare_engines.py`'s "B" side does exactly this by
+    default when neither `--use-heuristic-priors` nor
+    `--policy-network` is passed).
     """
 
     def __init__(
@@ -121,7 +136,7 @@ class MCTSEngine(ChessEngine):
         use_piece_coordination=False,
         use_endgame_heuristics=False,
         eval_fn=None,
-        use_heuristic_priors=False,
+        use_heuristic_priors=True,
         prior_temperature=200,
         policy_fn=None,
     ):
@@ -163,11 +178,10 @@ class MCTSEngine(ChessEngine):
         # distribution. This is exactly the "future policy network"
         # V0.6.1's own module docstring flagged _MCTSNode.prior as
         # waiting for -- a real, if crude, non-uniform prior, not a
-        # trained one. Off by default (use_heuristic_priors=False
-        # reproduces V0.6.1's exact uniform-prior behavior bit-for-bit),
-        # per this project's standing "off until proven" rule -- see
-        # docs/v0.9.3.md for the real strength/speed tradeoff this was
-        # measured against.
+        # trained one. Defaults True since V0.9.5 (see this class's own
+        # docstring for the real strength evidence); pass
+        # use_heuristic_priors=False to reproduce V0.6.1's original
+        # uniform-prior behavior bit-for-bit.
         self.use_heuristic_priors = use_heuristic_priors
         # Same role as value_scale, for the same reason (see this
         # class's own comment on value_scale): scales evaluate()-style
