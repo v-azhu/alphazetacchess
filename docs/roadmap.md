@@ -22,7 +22,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.6+ | V0.6.1-6.5 COMPLETE | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
-| V0.9 | V0.9.1-9.4 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
+| V0.9 | V0.9.1-9.5 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -770,7 +770,7 @@ moved from the initial n=26 result (50.0%) despite more than doubling the sample
 `use_mvv_lva=False` stays the default. Full design, both node-count benchmark tables,
 and the full game-level result in `docs/v0.8.3.md`.
 
-## V0.9 — Hybrid Engine — V0.9.1-9.4 COMPLETE
+## V0.9 — Hybrid Engine — V0.9.1-9.5 COMPLETE
 
 Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine. This
 is the scope originally labeled V0.7 before V0.7 was used for UCCI protocol/search-
@@ -926,6 +926,29 @@ AlphaZero-style, a fundamentally different signal than external-engine imitation
 revisiting whether a policy network is the right lever at all for this specific search
 given this result and V0.6.3's own precedent. Full numbers, the diagnostic story behind
 the hyperparameter gap, and both comparisons from each round are in `docs/v0.9.4.md`.
+
+### V0.9.5 — Promote `use_heuristic_priors` to `MCTSEngine`'s Default — COMPLETE
+
+Follow-through on `docs/v0.9.3.md`'s own "don't stop at a lucky interim result" lesson:
+the equal-wall-clock-time comparison that stalled at n=48 (62.5%, p=0.083, not
+independently significant) was expanded by four more batches, checking for stability at
+each step rather than trusting the first good number -- n=72: 65.3%; n=84: 65.5%,
+p=0.0046; n=96 final: 65.6%, 95% CI [56.1%, 75.1%], **p=0.0022**. Unlike the n=36
+checkpoint that originally inspired the caution (looked significant, then reverted),
+this result held stable across three independent checks rather than moving. On the
+strength of that, `MCTSEngine.__init__`'s `use_heuristic_priors` default moves from
+`False` to `True` -- the same "off until proven, then promote" precedent
+`SearchEngine`'s V0.6.5 set for `CALIBRATED_MATERIAL_VALUES`/`CALIBRATED_PST_WEIGHT`/
+`CALIBRATED_KING_SAFETY_WEIGHT`. `tools/compare_engines.py`'s existing comparisons are
+unaffected (`build_engine` always passes `use_heuristic_priors` explicitly, verified by
+reading the call site). One existing test broke (a naming coincidence -- "instead of
+heuristic" in the test name meant the *leaf-value* heuristic `evaluate()`, unrelated to
+V0.9.3's "heuristic priors" feature), fixed by pinning the pre-V0.9.5 baseline
+explicitly, the same pattern V0.6.5's own test fixes used. Full suite: **313/313
+green.** Does not change the standing recommendation to prefer `SearchEngine` over
+`MCTSEngine` for actual play (V0.9.2's own large gap is untouched by this) -- only
+makes `MCTSEngine` itself measurably better for anyone who does use it. Full numbers
+and the decision rationale in `docs/v0.9.5.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -1937,5 +1960,28 @@ Current hand-off:
     larger sample, (d) a larger confirmatory run of V0.9.3's equal-time
     comparison specifically. Update this roadmap at the end of
     whichever is picked.
+        ↓
+    Picked (d) -- and it resolved. Four more 12-game batches (checking
+    for stability at each step, per this same file's earlier "don't
+    stop at a lucky interim result" lesson): n=72: 65.3%; n=84: 65.5%,
+    p=0.0046; n=96 final: 65.6%, 95% CI [56.1%, 75.1%], p=0.0022 --
+    stable across all three checks this time, unlike the earlier n=36
+    false alarm. V0.9.5 (see the V0.9 section above and
+    docs/v0.9.5.md): promoted MCTSEngine's use_heuristic_priors default
+    from False to True on the strength of that result, the same "off
+    until proven, then promote" precedent V0.6.5 set. One test broke
+    (naming coincidence, unrelated to the feature being promoted),
+    fixed by pinning the old baseline explicitly. 313/313 green.
+    docs/v0.9.3.md's own write-up updated with the final numbers and a
+    pointer to the promotion decision.
+        ↓
+    Next: (c) V0.8.3's MVV-LVA question, still sitting at n=57 (leans
+    neutral, unlikely to flip regardless of sample size given how
+    close to 50% it already is) -- lower priority now than it was,
+    since it's less likely a bigger sample changes the "off by
+    default" conclusion the way V0.9.3's did. (e)/(f) from the previous
+    entry remain the two substantive open directions for the
+    policy-network thread specifically. Update this roadmap at the end
+    of whichever is picked.
 
 Last updated: 2026-09-13
