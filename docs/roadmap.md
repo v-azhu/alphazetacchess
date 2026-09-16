@@ -409,7 +409,12 @@ fully-deterministic sample — confirms the mechanism works. **Update**: a real 
 exists at `data/opening_book.json` (1330 entries, built from real accumulated self-play
 data across many later sessions -- e.g. one popular opening move alone has 79 recorded
 games with real win/draw/loss counts, not toy/mechanism-test numbers), closing the gap
-this paragraph originally flagged.
+this paragraph originally flagged. **Update (V0.9.7)**: the web UI wiring this section's
+original write-up flagged as "a reasonable small follow-up, not done this checkpoint" is
+done -- `web/server.py` loads the real book once at startup and exposes it as an Opening
+Book checkbox alongside the existing evaluation-term ones, with Endgame Heuristics
+(V0.5.3) added at the same time since it had the same gap. Full details in
+`docs/ui.md`'s own V0.9.7 entry.
 
 ### V0.5.2b — Opening Randomization — COMPLETE (confirmed necessary with real data)
 
@@ -2058,5 +2063,36 @@ Current hand-off:
     larger-scale multi-generation effort. No other V0.9 threads are
     currently open. Update this roadmap at the end of whichever is
     picked, or when starting a new V0.9+ direction.
+        ↓
+    Instead of (c), did a general review looking for other stale,
+    already-flagged-but-never-done follow-ups rather than padding out
+    a low-value experiment further. Found one concrete, well-scoped
+    item: docs/v0.5.2.md had explicitly flagged the web UI's opening-
+    book checkbox as a "reasonable small follow-up, not done" -- and a
+    real book has existed since well before this session, so it was
+    genuinely just sitting there undone. V0.9.7 (see the V0.5.2 section
+    above, docs/ui.md, and docs/v0.5.2.md's own update note): added
+    Opening Book and Endgame Heuristics (V0.5.3, same gap) checkboxes
+    to the web UI, following the exact generic EVAL_FLAG_CHECKBOXES
+    pattern already established (one map entry, one checkbox, done --
+    no changes needed to the read/sync logic). The book loads once at
+    server startup; a new opening_book_entries field on /api/state
+    drives a small note under the checkbox so it's never a silent
+    no-op. Verified end to end via the real HTTP API (book loaded,
+    checkbox toggled through /api/new_game, confirmed the AI's reply
+    came straight from the book with depth=0/nodes_evaluated=0 -- an
+    instant hit, not a real search) -- not yet clicked through in an
+    actual browser, same caveat the rest of this UI has carried since
+    the original click-bug entry. 319/319 full suite green (web UI has
+    no automated test coverage, matching this project's existing
+    convention for it).
+        ↓
+    Next: (c) V0.8.3's MVV-LVA question remains the only other
+    low-priority open item. Otherwise, a similar sweep for other
+    stale "flagged but not done" notes across docs/*.md (this session
+    only checked a keyword search, not an exhaustive read) could turn
+    up more small, concrete wins like this one before reaching for a
+    bigger, less certain undertaking. Update this roadmap at the end
+    of whichever is picked.
 
 Last updated: 2026-09-15

@@ -2,7 +2,13 @@
 
 ## Status
 
-**Click bug found and fixed (2026-08-31); re-verification pending.**
+**Click bug found and fixed (2026-08-31); re-verification still pending as far as
+this doc knows (no update recorded since).** Separately, **Opening Book / Endgame
+Heuristics checkboxes added (V0.9.7, 2026-09-15) — verified end to end via the actual
+HTTP API** (server started, book loaded, `use_opening_book: true` sent through
+`/api/new_game`, confirmed the AI's first reply came straight from the book with
+`depth: 0`/`nodes_evaluated: 0` -- an instant book hit, not a real search) **but, like
+the rest of this UI, not clicked through in a real browser.**
 
 Real-browser testing found that the board rendered correctly, but Red
 (the human side) could not move at all — neither click-based selection
@@ -51,19 +57,21 @@ move log on the right. "新局 New Game" starts over, and the depth dropdown
 `AI_SEARCH_DEPTH` in the CLI, with the same depth/time tradeoffs documented
 in `docs/v0.3.4.md` and `src/main.py`).
 
-**Evaluation term checkboxes (added alongside V0.4.5):** five checkboxes —
-Piece-Square Tables and King Safety (both on by default, matching
-`SearchEngine`'s own defaults), Mobility, Pawn Structure, and Piece
-Coordination (all off by default) — let you try any combination of the
-V0.4.1-4.5 evaluation terms without editing any code. Checked state is read
-when you click "New Game" (changes apply to the *next* game, not
-mid-game), and the checkboxes sync back to whatever the server reports on
-page load, so refreshing always shows the truth. This is the actual reason
-V0.4.3-4.5 were built before moving on: there's now something concrete to
-sit down and feel the difference of, e.g. try `use_mobility` +
-`use_pawn_structure` + `use_piece_coordination` all on at once versus the
-default, or turn everything off to compare against the plain V0.2 material
-baseline.
+**Evaluation term checkboxes (added alongside V0.4.5; extended in V0.9.7):** seven
+checkboxes now — Piece-Square Tables and King Safety (both on by default, matching
+`SearchEngine`'s own defaults), Mobility, Pawn Structure, and Piece Coordination (all
+off by default, V0.4.1-4.5), plus Opening Book (V0.5.2) and Endgame Heuristics (V0.5.3,
+both off by default) — let you try any combination without editing any code. Checked
+state is read when you click "New Game" (changes apply to the *next* game, not
+mid-game), and the checkboxes sync back to whatever the server reports on page load, so
+refreshing always shows the truth. The Opening Book checkbox has a small note under it
+reporting how many positions the loaded book covers (`data/opening_book.json`, real
+data since V0.9.6's own labeling work grew the underlying self-play corpus) or that no
+book file was found, so it's never a silent no-op. This is the actual reason V0.4.3-4.5
+were built before moving on: there's now something concrete to sit down and feel the
+difference of, e.g. try `use_mobility` + `use_pawn_structure` + `use_piece_coordination`
+all on at once versus the default, or turn everything off to compare against the plain
+V0.2 material baseline.
 
 Stop the server with Ctrl+C.
 
@@ -82,11 +90,18 @@ web/
 local, single-browser-tab tool, not a multi-session server — see its module
 docstring). Five endpoints:
 
-- `GET /api/state` — current board + status, for the initial page load.
+- `GET /api/state` — current board + status, for the initial page load. Includes
+  `opening_book_entries` (how many positions `data/opening_book.json` covers, 0 if no
+  book file was found -- V0.9.7), so the frontend can show whether the Opening Book
+  checkbox actually does anything right now.
 - `POST /api/new_game {ai_depth, eval_flags}` — reset the game, optionally
   at a different AI search depth and/or evaluation term configuration
-  (`eval_flags` is a dict of the five `use_*` booleans; any flag omitted
-  keeps its default — see `DEFAULT_EVAL_FLAGS` in `web/server.py`).
+  (`eval_flags` is a dict of the seven `use_*` booleans -- V0.4.1-4.5 plus
+  `use_opening_book`/`use_endgame_heuristics` since V0.9.7; any flag omitted
+  keeps its default — see `DEFAULT_EVAL_FLAGS` in `web/server.py`). The
+  opening book itself (`OPENING_BOOK` in `web/server.py`) is loaded once at
+  server startup, not per-game, since the file doesn't change while the
+  server is running.
 - `POST /api/legal_moves {x, y}` — legal destinations for the piece at
   `(x, y)`, if it belongs to the side to move. Used to highlight squares
   after a click.
@@ -133,6 +148,11 @@ Since this wasn't verified in a real browser this session, please check:
    select/deselect sensibly).
 5. Check/checkmate/stalemate messages appear correctly when they occur.
 6. "New Game" and the depth dropdown work.
+7. (V0.9.7) The Opening Book checkbox's note shows a real entry count (not "not
+   found") if `data/opening_book.json` exists in your checkout; with it checked, the
+   AI's first reply or two should come back essentially instantly (a book hit skips
+   search entirely). The Endgame Heuristics checkbox should have no visible effect
+   until the game reaches a real endgame (low material) -- nothing to check early on.
 
 Please report back anything that looks wrong (a screenshot description is
 plenty if you can't paste one) and it'll get fixed.
@@ -210,4 +230,19 @@ guards against being called out of turn (`not your turn` /
 of either endpoint while it isn't that side's turn correctly returns
 HTTP 400.
 
-Last updated: 2026-08-31
+**2026-09-15 — V0.9.7: Opening Book and Endgame Heuristics checkboxes.** Two of
+`SearchEngine`'s evaluation-layer toggles that predate this UI (V0.5.2's opening book,
+V0.5.3's endgame heuristics) had never been wired into it -- `docs/v0.5.2.md` had
+explicitly flagged the opening-book checkbox as a "reasonable small follow-up" that
+was never done. Added both, following the exact generic pattern `EVAL_FLAG_CHECKBOXES`
+already established (one entry in that map, one checkbox in `index.html`, done --
+`readEvalFlags`/`syncEvalFlagCheckboxes` needed no changes). The opening book itself
+(`data/opening_book.json`) is loaded once at server startup in `web/server.py`, not
+per-game; `None` if the file doesn't exist, which `SearchEngine`'s own
+`use_opening_book`/`opening_book` handling already treats safely as "no book" rather
+than crashing. A new `opening_book_entries` field on `/api/state` drives a small note
+under the checkbox reporting how many positions the loaded book covers (or that none
+was found), so the checkbox is never a silent no-op. Verified via the real HTTP API,
+not a browser click (see Status above).
+
+Last updated: 2026-09-15
