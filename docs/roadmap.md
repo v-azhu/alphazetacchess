@@ -22,7 +22,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.6+ | V0.6.1-6.5 COMPLETE | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
-| V0.9 | V0.9.1-9.6 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
+| V0.9 | V0.9.1-9.8 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -775,7 +775,7 @@ moved from the initial n=26 result (50.0%) despite more than doubling the sample
 `use_mvv_lva=False` stays the default. Full design, both node-count benchmark tables,
 and the full game-level result in `docs/v0.8.3.md`.
 
-## V0.9 — Hybrid Engine — V0.9.1-9.6 COMPLETE
+## V0.9 — Hybrid Engine — V0.9.1-9.8 COMPLETE
 
 Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine. This
 is the scope originally labeled V0.7 before V0.7 was used for UCCI protocol/search-
@@ -990,6 +990,42 @@ deliberate stopping point, not an unfinished thread; all the infrastructure
 (`policy_fn`, `search_root`, both label-generation tools) remains available if a
 larger-scale attempt is picked up later. Full numbers and the three-round comparison
 table in `docs/v0.9.6.md`.
+
+### V0.9.7 — Opening Book / Endgame Heuristics Checkboxes in the Web UI — COMPLETE
+
+Wired two long-standing `SearchEngine` toggles (V0.5.2's opening book, V0.5.3's
+endgame heuristics) into the web UI, following the generic `EVAL_FLAG_CHECKBOXES`
+pattern already there. `docs/v0.5.2.md` had explicitly flagged the opening-book
+checkbox as "a reasonable small follow-up, not done this checkpoint" -- and a real
+1330-entry book has existed since well before now, so it was genuinely just sitting
+undone. Book loads once at server startup; a new `opening_book_entries` field on
+`/api/state` drives a note under the checkbox so it's never a *silent* no-op.
+Verified end to end via the real HTTP API (confirmed a book hit at
+`depth=0`/`nodes_evaluated=0`), not a browser click. Full writeup in `docs/ui.md`'s
+V0.9.7 entry.
+
+### V0.9.8 — Stale-Doc Sweep, `--engine random`, and the Baseline Finding — COMPLETE
+
+A deliberate keyword sweep across all 48 `docs/*.md` files for stale "flagged but
+never done" claims turned up three, two of them stale *as claims* rather than merely
+unfinished: `docs/v0.7.2.md` still said time-based UCCI controls were unimplemented
+(V0.7.3 implemented them), and `docs/v0.6.1.md`'s recommended next-step command was
+annotated "not yet supported" -- V0.9.2 had added `--{prefix}-engine` but only with
+`search`/`mcts`, so the `random` half was *still* unsupported two minor versions
+later. Both got inline update notes rather than silent edits. `RandomEngine` (the V0.1
+baseline this roadmap's own "Engine Benchmark" measures against) is now reachable as
+`--{a,b}-engine random`.
+
+**Running that long-recommended command immediately exposed a significant finding**:
+uniform-prior MCTS (200 sims) goes **0-0-10 against RandomEngine** -- it never
+converts a single win, hitting the 150-move limit every game -- while heuristic-prior
+MCTS goes **9-1-0** (90%, Elo ~+382) against the same baseline. `SearchEngine` at
+depth 2 goes 6-0, confirming the harness is sound and the 0-0-10 is a real property of
+uniform-prior MCTS, not an artifact. This retroactively strengthens V0.9.5's promotion
+of `use_heuristic_priors` considerably: that rested on a 65.6% equal-time edge, but
+against the random baseline the same change is the difference between *never winning*
+and *winning 90%*. Changes no standing recommendation (the current default already
+*is* the configuration that wins 9/10). Full numbers and caveats in `docs/v0.9.8.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -2094,5 +2130,39 @@ Current hand-off:
     up more small, concrete wins like this one before reaching for a
     bigger, less certain undertaking. Update this roadmap at the end
     of whichever is picked.
+        ↓
+    Did that sweep (V0.9.8, see the V0.9 section above and
+    docs/v0.9.8.md). Keyword search across all 48 docs/*.md turned up
+    three stale items, two of them wrong AS CLAIMS rather than merely
+    unfinished: docs/v0.7.2.md still said time-based UCCI controls
+    were unimplemented (V0.7.3 implemented them), and docs/v0.6.1.md's
+    recommended next-step command was annotated "not yet supported" --
+    V0.9.2 added --{prefix}-engine but only search/mcts, so the
+    `random` half was STILL unsupported two minor versions later.
+    Both got inline update notes rather than silent edits.
+    docs/v0.6.2.md's value-network note was checked and left alone as
+    still accurate. Wired RandomEngine in as --{a,b}-engine random.
+        ↓
+    Running that long-recommended command immediately exposed a real
+    finding: uniform-prior MCTS goes 0-0-10 vs RandomEngine (never
+    converts a win, hits the move limit every game), heuristic-prior
+    MCTS goes 9-1-0 (90%, Elo ~+382). SearchEngine depth 2 goes 6-0,
+    confirming the harness is sound. This retroactively strengthens
+    V0.9.5's promotion of use_heuristic_priors a lot -- that rested on
+    a 65.6% equal-time edge, but on this baseline the same change is
+    the difference between never winning and winning 90%. Changes no
+    standing recommendation (the current default already IS the 9/10
+    configuration). 319/319 green throughout.
+        ↓
+    Next: the sweep was keyword-based, not an exhaustive line-by-line
+    read of all 48 docs, so more stale claims plausibly remain -- a
+    full read is a reasonable further pass. Otherwise (c) V0.8.3's
+    MVV-LVA question is still the only substantive low-priority item,
+    and the V0.9.8 finding suggests one genuinely new question worth
+    considering: uniform-prior MCTS failing to convert ANY win against
+    random (rather than merely playing weakly) may point at a
+    conversion/endgame problem distinct from move-selection quality,
+    which nothing in V0.9.x has looked at directly. Update this
+    roadmap at the end of whichever is picked.
 
 Last updated: 2026-09-15
