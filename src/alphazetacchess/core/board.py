@@ -22,6 +22,9 @@ class Board:
         self.history = []
         self.position_history = []
         self.current_player = Color.RED
+        # V0.9.9: see find_king() -- populated lazily on first lookup,
+        # self-healing, so it needs no maintenance in move()/undo().
+        self._king_cache = {}
         self.setup()
         self.zobrist_hash = Zobrist.board_hash(self)
         self.position_history.append(self.zobrist_hash)
@@ -85,6 +88,35 @@ class Board:
         return Color.BLACK if color == Color.RED else Color.RED
 
     def find_king(self, color):
+        """Locate `color`'s King.
+
+        V0.9.9: O(1) in the common case via a cached `Piece` reference,
+        instead of the full up-to-90-square scan this used to do on
+        every call. Profiling a depth-3 search showed this being called
+        470,284 times (via `is_in_check`/`kings_facing` inside
+        `generate_legal_moves`'s per-move legality check) -- it was one
+        of the largest single costs in the whole engine.
+
+        The cache stores the King `Piece` object itself, not its
+        coordinates, which is what makes this safe: `Board.move()`
+        mutates `piece.x`/`piece.y` in place, so a cached King's
+        coordinates stay correct across moves automatically, with no
+        cache-invalidation needed on the hot path.
+
+        The `self.board[y][x] is cached` guard makes it *self-healing*
+        rather than merely fast: it re-scans whenever the cached piece
+        isn't actually sitting where it thinks it is. That covers a
+        King being captured, a board rebuilt or hand-edited in place
+        (several tests do exactly this -- e.g. assigning
+        `board.board = [[None, ...]]` or clearing a square directly),
+        and `undo()` restoring a captured King. A cache that trusted
+        coordinates alone, or that only invalidated inside `move()`,
+        would silently return a stale King in all of those cases.
+        """
+        cached = self._king_cache.get(color)
+        if cached is not None and self.board[cached.y][cached.x] is cached:
+            return cached
+
         for row in self.board:
             for piece in row:
                 if (
@@ -92,7 +124,10 @@ class Board:
                     and piece.type == PieceType.KING
                     and piece.color == color
                 ):
+                    self._king_cache[color] = piece
                     return piece
+
+        self._king_cache[color] = None
         return None
 
     def kings_facing(self):
@@ -112,6 +147,59 @@ class Board:
                 return False
 
         return True
+
+    def probe_move(self, from_pos, to_pos):
+        """V0.9.9: a deliberately minimal make-move used ONLY for
+        legality probing (see `Rule.generate_legal_moves`), paired with
+        `undo_probe`.
+
+        `move()` maintains a lot of state a legality probe doesn't
+        need: four Zobrist `PIECE_KEYS` lookups (each hashing a
+        4-tuple containing two enums -- genuinely expensive in Python),
+        the side-to-move flip, and appends to both `history` and
+        `position_history`. Profiling showed `generate_legal_moves`
+        driving 156,554 make/unmake pairs in a single depth-3 search,
+        making all of that bookkeeping one of the engine's largest
+        costs -- and every bit of it is discarded microseconds later
+        when the probe is undone.
+
+        A probe only needs what the attack detector actually reads:
+        the board array, and the moved piece's own `x`/`y`. So that is
+        all this touches.
+
+        **This is not a general-purpose move.** It deliberately leaves
+        `zobrist_hash`, `current_player`, `history` and
+        `position_history` untouched, so the board is NOT in a
+        coherent post-move state -- anything that reads those (the
+        transposition table, repetition detection, `undo()`) would be
+        silently wrong. It must be paired with `undo_probe` before the
+        board is used for anything else, which is why both are kept
+        private to the legality-check path rather than exposed as a
+        faster general `move()`.
+        """
+        fx, fy = from_pos
+        tx, ty = to_pos
+        piece = self.board[fy][fx]
+        captured = self.board[ty][tx]
+
+        self.board[ty][tx] = piece
+        self.board[fy][fx] = None
+        if piece is not None:
+            piece.x, piece.y = tx, ty
+
+        return piece, captured
+
+    def undo_probe(self, from_pos, to_pos, piece, captured):
+        """Exact inverse of `probe_move`; see its docstring."""
+        fx, fy = from_pos
+        tx, ty = to_pos
+
+        self.board[fy][fx] = piece
+        self.board[ty][tx] = captured
+        if piece is not None:
+            piece.x, piece.y = fx, fy
+        if captured is not None:
+            captured.x, captured.y = tx, ty
 
     def move(self, from_pos, to_pos):
         fx, fy = from_pos

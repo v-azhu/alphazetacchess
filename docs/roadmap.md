@@ -22,7 +22,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.6+ | V0.6.1-6.5 COMPLETE | Neural evaluation / MCTS |
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
-| V0.9 | V0.9.1-9.8 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
+| V0.9 | V0.9.1-9.9 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -775,7 +775,7 @@ moved from the initial n=26 result (50.0%) despite more than doubling the sample
 `use_mvv_lva=False` stays the default. Full design, both node-count benchmark tables,
 and the full game-level result in `docs/v0.8.3.md`.
 
-## V0.9 — Hybrid Engine — V0.9.1-9.8 COMPLETE
+## V0.9 — Hybrid Engine — V0.9.1-9.9 COMPLETE
 
 Neural Network + MCTS/Alpha-Beta + Traditional Evaluation = AlphaZetaChess Engine. This
 is the scope originally labeled V0.7 before V0.7 was used for UCCI protocol/search-
@@ -1026,6 +1026,42 @@ of `use_heuristic_priors` considerably: that rested on a 65.6% equal-time edge, 
 against the random baseline the same change is the difference between *never winning*
 and *winning 90%*. Changes no standing recommendation (the current default already
 *is* the configuration that wins 9/10). Full numbers and caveats in `docs/v0.9.8.md`.
+
+### V0.9.9 — Search Speed (~2x) and Raising the Default Depth — COMPLETE
+
+Driven by direct user feedback, not an internal metric: a 天天象棋 专业1-1 club player
+beat the engine **while giving a horse handicap and three free moves**. Diagnosis found
+a structural cause rather than an evaluation one -- the engine ran at **~1,900
+nodes/second**, which is why the web UI defaulted to depth 2 and capped at 3 (roughly
+one move of lookahead). The effective branching factor (~4.3) showed alpha-beta/PVS/TT
+and move ordering were all working; raw node throughput was the bottleneck.
+
+Profiling showed `generate_legal_moves` was **95% of total runtime** (156,554 legality
+probes to evaluate 4,464 nodes). Three fixes, none touching search or evaluation
+behavior: (1) `Board.find_king` was a full board scan called 470,284 times -- now an
+object-identity-guarded, self-healing cache (safe because `move()` mutates
+`piece.x`/`y` in place, and the guard re-scans for captured/restored/hand-edited
+boards, which several tests rely on); (2) legality probing used full `move()`/`undo()`
+including four Zobrist 4-tuple hashes plus history appends, all discarded immediately
+-- added deliberately-minimal `probe_move`/`undo_probe` (explicitly NOT a
+general-purpose faster `move()`, since they leave hash/history incoherent); (3)
+`in_bounds`/`get` were called 6.37M/5.40M times and are now inlined in
+`core/attack.py`'s hot paths.
+
+**Result: ~2x faster** (1,926 -> 3,865 nps at depth 4; depth 4 went 9.42s -> 4.69s,
+depth 5 is now reachable at 25.5s). All 319 tests pass unchanged, and the suite's own
+runtime dropped ~32s -> ~19s as independent corroboration.
+
+That speed then bought depth: **web UI default 2 -> 4** (dropdown extended 1-3 -> 1-5),
+**CLI `AI_SEARCH_DEPTH` 2 -> 4**, and `src/main.py`'s stale comment claiming depth 4 was
+">55s, not yet practical" corrected in place. **Honest caveat**: the end-to-end strength
+claim was NOT verified with a multi-game match here -- depth-4 games run ~10 min each,
+so no meaningful sample was reachable, and the single game that did complete was
+deliberately discarded rather than committed as misleading evidence. The speed numbers
+are directly measured; the depth-to-strength step rests on general computer-chess
+knowledge and is the natural thing for the user to confirm by playing. Full diagnosis,
+the three fixes, remaining known weaknesses, and further speed headroom in
+`docs/v0.9.9.md`.
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -2164,5 +2200,44 @@ Current hand-off:
     conversion/endgame problem distinct from move-selection quality,
     which nothing in V0.9.x has looked at directly. Update this
     roadmap at the end of whichever is picked.
+        ↓
+    User reported the real problem directly, which overrode the
+    doc-sweep thread entirely: they are 天天象棋 专业1-1 and beat the
+    engine WHILE GIVING A HORSE AND THREE FREE MOVES. V0.9.9 (see the
+    V0.9 section above and docs/v0.9.9.md) went after a structural
+    cause rather than tuning evaluation. Found it: ~1,900 nodes/second,
+    which is why the UI defaulted to depth 2 and capped at 3.
+    generate_legal_moves was 95% of runtime (156k legality probes per
+    4.5k nodes). Three behavior-preserving fixes -- king-position
+    caching (was a full board scan, 470k calls), a minimal
+    probe_move/undo_probe that skips the Zobrist/history bookkeeping a
+    legality probe discards anyway, and inlining in_bounds/get (6.4M
+    and 5.4M calls) in the attack detector. ~2x faster (1,926 -> 3,865
+    nps), 319/319 still green, suite runtime itself 32s -> 19s.
+    Defaults raised: web UI 2 -> 4 (dropdown now 1-5), CLI 2 -> 4.
+        ↓
+    NOT verified end to end: depth-4 games run ~10 min each here, so no
+    real multi-game match was possible; the one game that finished was
+    discarded rather than committed as misleading evidence. The speed
+    numbers are measured and reproducible; the depth-to-strength step
+    rests on general computer-chess knowledge. USER SHOULD CONFIRM BY
+    PLAYING -- that feedback is the most valuable next input.
+        ↓
+    Next, in likely order of remaining impact on real strength:
+    (1) get the user's verdict on depth 4-5 before optimizing further
+    -- if it's still far too weak, that redirects everything;
+    (2) re-check docs/v0.9.8.md's conversion finding at the new depth
+    (uniform-prior MCTS couldn't convert a single win vs random,
+    hitting the move limit every game -- SearchEngine went 6-0 in the
+    same test, but that was depth 2 vs random, a low bar; a genuine
+    conversion/endgame weakness would now be the next structural
+    problem, distinct from move-selection quality);
+    (3) more speed if depth 5-6 is wanted -- remaining time is spread
+    across the attack detector rather than concentrated, so the next
+    real gain is architectural (incremental attack updates, bitboards
+    or a flat array instead of list-of-lists + Piece objects, or
+    PyPy/native for the hot path), not another micro-optimization;
+    (4) the doc sweep from V0.9.8 was keyword-based, not exhaustive.
+    Update this roadmap at the end of whichever is picked.
 
 Last updated: 2026-09-15

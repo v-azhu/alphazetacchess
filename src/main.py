@@ -34,9 +34,16 @@ AI_COLOR = Color.BLACK
 #            open capture lines exist at the horizon (opening positions
 #            are the expensive case)
 #   depth=4: still >55s from the opening position, not yet practical
-# Kept at 2 by default for a snappy CLI experience; bump to 3 for a
-# noticeably stronger (but slower and less predictably-timed) opponent.
-AI_SEARCH_DEPTH = 2
+# V0.9.9 update: the timings above predate V0.9.9's ~2x search speedup
+# (king-position caching, a lightweight legality probe that skips
+# Zobrist/history bookkeeping, and inlining the in_bounds/get calls
+# the attack detector made millions of times -- see docs/v0.9.9.md).
+# Depth 4 now costs ~5s from the opening position, not >55s, so the
+# "not yet practical" note above no longer holds. Raised 2 -> 4:
+# depth 2 is roughly one move of lookahead and is far too weak to be
+# interesting (user feedback: a 专业1-1 club player beat it while
+# giving a horse AND three free moves).
+AI_SEARCH_DEPTH = 4
 
 
 def print_board(board):

@@ -40,7 +40,15 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 
 HUMAN_COLOR = Color.RED
 AI_COLOR = Color.BLACK
-DEFAULT_AI_DEPTH = 2
+# V0.9.9: raised 2 -> 4. Depth 2 is roughly one move of lookahead and
+# is far too weak to be interesting (user feedback: a 专业1-1 club
+# player beat it while giving a horse AND three free moves). V0.9.9's
+# ~2x search speedup made depth 4 cost about what depth 3 used to
+# (~5s/move from the opening position), so this is a real strength
+# increase at acceptable latency rather than just trading time for
+# it. The dropdown still offers 1-5 for anyone who wants faster or
+# stronger.
+DEFAULT_AI_DEPTH = 4
 
 # V0.9.7: loaded once at startup, not per-game -- data/opening_book.json
 # (real data since V0.5.2's follow-up, see docs/v0.5.2.md) doesn't

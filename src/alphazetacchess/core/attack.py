@@ -46,13 +46,24 @@ class AttackDetector:
 
     @classmethod
     def _orthogonal_attacked(cls, board, x, y, by_color):
-        """Check rook/cannon attacks along ranks and files."""
+        """Check rook/cannon attacks along ranks and files.
+
+        V0.9.9: `Board.in_bounds`/`board.get` are inlined here, and the
+        board grid bound to a local, rather than called per square.
+        They are one-line functions, but profiling showed them being
+        called 6.37M and 5.40M times respectively in a single depth-3
+        search -- at that volume Python's per-call overhead dominates
+        their actual work, and this is the tightest of the loops
+        driving it. Behavior is unchanged; only the call overhead is
+        removed.
+        """
+        grid = board.board
         for dx, dy in cls._ORTHOGONAL:
             cx, cy = x + dx, y + dy
             screen_found = False
 
-            while Board.in_bounds(cx, cy):
-                piece = board.get(cx, cy)
+            while 0 <= cx < 9 and 0 <= cy < 10:
+                piece = grid[cy][cx]
                 if piece is None:
                     cx += dx
                     cy += dy
@@ -77,20 +88,23 @@ class AttackDetector:
 
     @classmethod
     def _horse_attacked(cls, board, x, y, by_color):
+        # V0.9.9: in_bounds/get inlined -- see _orthogonal_attacked's
+        # docstring for why.
+        grid = board.board
         for (dx, dy), (leg_dx, leg_dy) in cls._HORSE:
             source_x = x - dx
             source_y = y - dy
-            if not Board.in_bounds(source_x, source_y):
+            if not (0 <= source_x < 9 and 0 <= source_y < 10):
                 continue
 
             leg_x = source_x + leg_dx
             leg_y = source_y + leg_dy
-            if not Board.in_bounds(leg_x, leg_y):
+            if not (0 <= leg_x < 9 and 0 <= leg_y < 10):
                 continue
-            if board.get(leg_x, leg_y) is not None:
+            if grid[leg_y][leg_x] is not None:
                 continue
 
-            piece = board.get(source_x, source_y)
+            piece = grid[source_y][source_x]
             if piece is not None and piece.color == by_color and piece.type == PieceType.HORSE:
                 return True
         return False
@@ -101,9 +115,9 @@ class AttackDetector:
         for dx, dy in cls._DIAGONAL:
             source_x = x - dx
             source_y = y - dy
-            if not Board.in_bounds(source_x, source_y):
+            if not (0 <= source_x < 9 and 0 <= source_y < 10):
                 continue
-            piece = board.get(source_x, source_y)
+            piece = board.board[source_y][source_x]
             if (
                 piece is not None
                 and piece.color == by_color
@@ -116,14 +130,14 @@ class AttackDetector:
         for dx, dy in cls._DIAGONAL:
             source_x = x - 2 * dx
             source_y = y - 2 * dy
-            if not Board.in_bounds(source_x, source_y):
+            if not (0 <= source_x < 9 and 0 <= source_y < 10):
                 continue
-            piece = board.get(source_x, source_y)
+            piece = board.board[source_y][source_x]
             if piece is None or piece.color != by_color or piece.type != PieceType.ELEPHANT:
                 continue
             eye_x = source_x + dx
             eye_y = source_y + dy
-            if board.get(eye_x, eye_y) is not None:
+            if board.board[eye_y][eye_x] is not None:
                 continue
             if Board.has_crossed_river(y, by_color):
                 continue
@@ -136,9 +150,9 @@ class AttackDetector:
         for dx, dy in cls._ORTHOGONAL:
             source_x = x - dx
             source_y = y - dy
-            if not Board.in_bounds(source_x, source_y):
+            if not (0 <= source_x < 9 and 0 <= source_y < 10):
                 continue
-            piece = board.get(source_x, source_y)
+            piece = board.board[source_y][source_x]
             if piece is not None and piece.color == by_color and piece.type == PieceType.KING:
                 return True
         return False
@@ -150,16 +164,16 @@ class AttackDetector:
         forward = 1 if by_color == Color.RED else -1
         source_x = x
         source_y = y - forward
-        if Board.in_bounds(source_x, source_y):
-            piece = board.get(source_x, source_y)
+        if 0 <= source_x < 9 and 0 <= source_y < 10:
+            piece = board.board[source_y][source_x]
             if piece is not None and piece.color == by_color and piece.type == PieceType.PAWN:
                 return True
 
         for source_x in (x - 1, x + 1):
             source_y = y
-            if not Board.in_bounds(source_x, source_y):
+            if not (0 <= source_x < 9 and 0 <= source_y < 10):
                 continue
-            piece = board.get(source_x, source_y)
+            piece = board.board[source_y][source_x]
             if piece is None or piece.color != by_color or piece.type != PieceType.PAWN:
                 continue
             if Board.has_crossed_river(piece.y, by_color):

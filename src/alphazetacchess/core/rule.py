@@ -76,12 +76,23 @@ class Rule:
 
     @classmethod
     def generate_legal_moves(cls, board, color):
+        """V0.9.9: uses `Board.probe_move`/`undo_probe` rather than the
+        full `move()`/`undo()` pair. A legality check only needs the
+        board array and the moved piece's coordinates to be correct --
+        the Zobrist hash, side-to-move flip, and history bookkeeping
+        `move()` also maintains are all discarded immediately when the
+        probe is undone, and profiling showed them to be one of the
+        engine's largest single costs at 156,554 probes per depth-3
+        search. See `Board.probe_move`'s own docstring for why that
+        method is deliberately not exposed as a general-purpose faster
+        `move()`.
+        """
         legal_moves = []
 
         for move in cls.pseudo_legal_moves(board, color):
-            board.move(move.from_pos, move.to_pos)
+            piece, captured = board.probe_move(move.from_pos, move.to_pos)
             still_in_check = cls.is_in_check(board, color)
-            board.undo()
+            board.undo_probe(move.from_pos, move.to_pos, piece, captured)
 
             if not still_in_check:
                 legal_moves.append(move)
