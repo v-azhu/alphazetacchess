@@ -33,6 +33,7 @@ from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color
 from alphazetacchess.core.rule import Rule
 from alphazetacchess.engine.search import SearchEngine
+from alphazetacchess.selfplay.opening_book import load_book
 
 
 app = Flask(__name__, static_folder="static", static_url_path="")
@@ -41,17 +42,41 @@ HUMAN_COLOR = Color.RED
 AI_COLOR = Color.BLACK
 DEFAULT_AI_DEPTH = 2
 
-# V0.4.1-4.5 evaluation terms, each independently toggleable on
-# SearchEngine. Keys here are exactly the SearchEngine constructor
-# kwarg names, which keeps new_game()'s **eval_flags pass-through
-# trivial -- adding a future V0.4.x term only means adding one line
-# here (and one checkbox in web/static/index.html).
+# V0.9.7: loaded once at startup, not per-game -- data/opening_book.json
+# (real data since V0.5.2's follow-up, see docs/v0.5.2.md) doesn't
+# change while the server is running, and reloading it on every new
+# game would be needless I/O for something that's never actually
+# mutated here. None (not an error) if the file doesn't exist yet --
+# the opening-book checkbox still works in that case, it just never
+# finds a book move (SearchEngine's own use_opening_book/opening_book
+# handling already treats opening_book=None as "no book" safely, see
+# engine/search.py's "if self.use_opening_book and self.opening_book"
+# check), so a fresh checkout without data/opening_book.json generated
+# yet doesn't crash the server, just makes that checkbox a no-op until
+# a book exists.
+OPENING_BOOK_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "data", "opening_book.json"
+)
+try:
+    OPENING_BOOK = load_book(OPENING_BOOK_PATH)
+except (FileNotFoundError, OSError):
+    OPENING_BOOK = None
+
+# V0.4.1-4.5 evaluation terms, V0.5.2's opening book, and V0.5.3's
+# endgame heuristics, each independently toggleable on SearchEngine.
+# Keys here are exactly the SearchEngine constructor kwarg names, which
+# keeps new_game()'s **eval_flags pass-through trivial -- adding a
+# future term only means adding one line here (and one checkbox in
+# web/static/index.html, one line in web/static/board.js's own
+# EVAL_FLAG_CHECKBOXES map).
 DEFAULT_EVAL_FLAGS = {
     "use_piece_square_tables": True,   # V0.4.1
     "use_king_safety": True,           # V0.4.2
     "use_mobility": False,             # V0.4.3 (beta-4: pseudo-legal, cheap)
     "use_pawn_structure": False,       # V0.4.4
     "use_piece_coordination": False,   # V0.4.5
+    "use_opening_book": False,         # V0.5.2 (needs OPENING_BOOK loaded above)
+    "use_endgame_heuristics": False,   # V0.5.3
 }
 
 # Single global game (see module docstring: this is a local,
@@ -82,7 +107,11 @@ def new_game(ai_depth=None, eval_flags=None):
             game["eval_flags"].setdefault(key, default)
 
     game["board"] = Board()
-    game["ai_engine"] = SearchEngine(depth=game["ai_depth"], **game["eval_flags"])
+    game["ai_engine"] = SearchEngine(
+        depth=game["ai_depth"],
+        opening_book=OPENING_BOOK,
+        **game["eval_flags"],
+    )
 
 
 new_game()
@@ -127,6 +156,7 @@ def state_payload(extra=None):
         "ai_color": AI_COLOR.name,
         "ai_depth": game["ai_depth"],
         "eval_flags": game["eval_flags"],
+        "opening_book_entries": len(OPENING_BOOK) if OPENING_BOOK else 0,
         "in_check": Rule.is_in_check(board, current),
         "game_over": game_over,
         "is_checkmate": is_checkmate,

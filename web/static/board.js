@@ -25,7 +25,10 @@ const EVAL_FLAG_CHECKBOXES = {
   use_mobility: document.getElementById("flag-mobility"),
   use_pawn_structure: document.getElementById("flag-pawn-structure"),
   use_piece_coordination: document.getElementById("flag-piece-coordination"),
+  use_opening_book: document.getElementById("flag-opening-book"),
+  use_endgame_heuristics: document.getElementById("flag-endgame-heuristics"),
 };
+const openingBookNoteEl = document.getElementById("opening-book-note");
 
 function readEvalFlags() {
   const flags = {};
@@ -35,10 +38,16 @@ function readEvalFlags() {
   return flags;
 }
 
-function syncEvalFlagCheckboxes(flags) {
+function syncEvalFlagCheckboxes(flags, openingBookEntries) {
   if (!flags) return;
   for (const [key, checkbox] of Object.entries(EVAL_FLAG_CHECKBOXES)) {
     if (key in flags) checkbox.checked = Boolean(flags[key]);
+  }
+  if (openingBookNoteEl) {
+    const entries = openingBookEntries || 0;
+    openingBookNoteEl.textContent = entries > 0
+      ? `开局库已加载：${entries} 个局面`
+      : "未找到开局库文件（data/opening_book.json）－勾选后无效果";
   }
 }
 
@@ -372,7 +381,7 @@ async function startNewGame() {
     body: JSON.stringify({ ai_depth: aiDepth, eval_flags: evalFlags }),
   });
   boardState = await res.json();
-  syncEvalFlagCheckboxes(boardState.eval_flags);
+  syncEvalFlagCheckboxes(boardState.eval_flags, boardState.opening_book_entries);
   render();
   setBusy(false);
 }
@@ -381,7 +390,7 @@ async function loadInitialState() {
   const res = await fetch("/api/state");
   boardState = await res.json();
   if (boardState.ai_depth) depthSelect.value = String(boardState.ai_depth);
-  syncEvalFlagCheckboxes(boardState.eval_flags);
+  syncEvalFlagCheckboxes(boardState.eval_flags, boardState.opening_book_entries);
   render();
 }
 

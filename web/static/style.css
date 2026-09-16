@@ -116,6 +116,13 @@ select {
   cursor: pointer;
 }
 
+.book-note {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #8b93a1;
+  font-style: italic;
+}
+
 .status {
   font-size: 14px;
   line-height: 1.6;
