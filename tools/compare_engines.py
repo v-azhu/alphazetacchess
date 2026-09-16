@@ -53,6 +53,7 @@ sys.path.insert(
 
 from alphazetacchess.engine.search import SearchEngine
 from alphazetacchess.engine.mcts import MCTSEngine
+from alphazetacchess.engine.random_engine import RandomEngine
 from alphazetacchess.engine.evaluation import (
     CALIBRATED_MATERIAL_VALUES,
     CALIBRATED_PST_WEIGHT,
@@ -67,10 +68,14 @@ from alphazetacchess.neural.policy_evaluator import NeuralPolicyEvaluator
 
 def add_side_args(parser, prefix):
     parser.add_argument(
-        f"--{prefix}-engine", choices=["search", "mcts"], default="search",
+        f"--{prefix}-engine", choices=["search", "mcts", "random"], default="search",
         help=f"which engine side {prefix.upper()} plays as -- 'search' "
-             f"(SearchEngine, alpha-beta, the default) or 'mcts' (MCTSEngine, "
-             f"V0.6.1's PUCT skeleton, V0.9.1 wired into UCCI; see docs/v0.9.2.md). "
+             f"(SearchEngine, alpha-beta, the default), 'mcts' (MCTSEngine, "
+             f"V0.6.1's PUCT skeleton, V0.9.1 wired into UCCI; see docs/v0.9.2.md), "
+             f"or 'random' (RandomEngine, the V0.1 baseline opponent this project's "
+             f"'Engine Benchmark' in docs/roadmap.md measures against -- V0.9.8 "
+             f"wired it in here; it ignores EVERY other flag on this side, having "
+             f"no search, evaluation, or ordering to configure). "
              f"When 'mcts', --{prefix}-depth/no-killer-moves/use-mvv-lva/"
              f"use-opening-book/use-calibrated-material are all ignored (none of "
              f"those are meaningful concepts for MCTSEngine) -- use "
@@ -203,7 +208,12 @@ def build_engine(
 ):
     eval_fn = neural_evaluator if config["use_neural_eval"] else None
 
-    if config["engine"] == "mcts":
+    if config["engine"] == "random":
+        # RandomEngine has nothing to configure -- no search, no
+        # evaluation, no ordering -- so every other flag on this side
+        # is inapplicable by construction rather than by choice.
+        engine = RandomEngine()
+    elif config["engine"] == "mcts":
         policy_fn = (
             NeuralPolicyEvaluator(config["policy_network"])
             if config["policy_network"] else None
