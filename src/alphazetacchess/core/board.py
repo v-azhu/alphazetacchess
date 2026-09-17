@@ -201,6 +201,28 @@ class Board:
         if captured is not None:
             captured.x, captured.y = tx, ty
 
+    def null_move(self):
+        """Make a reversible null move for search pruning.
+
+        A null move changes no pieces. It only passes the side to move,
+        updates the side-to-move component of the Zobrist key, and records
+        the resulting search position so that `undo_null_move()` can restore
+        the exact previous state. It is intentionally separate from
+        `move()/undo()` because a null move is a search technique, not a
+        legal Xiangqi move.
+        """
+        self.zobrist_hash ^= Zobrist.SIDE_KEY
+        self.current_player = self.opponent(self.current_player)
+        self.position_history.append(self.zobrist_hash)
+
+    def undo_null_move(self):
+        """Undo the most recent `null_move()` exactly."""
+        if not self.position_history:
+            return
+        self.position_history.pop()
+        self.zobrist_hash ^= Zobrist.SIDE_KEY
+        self.current_player = self.opponent(self.current_player)
+
     def move(self, from_pos, to_pos):
         fx, fy = from_pos
         tx, ty = to_pos
