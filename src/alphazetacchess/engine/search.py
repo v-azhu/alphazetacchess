@@ -9,6 +9,7 @@ from .evaluation import (
     CALIBRATED_PST_WEIGHT,
     CALIBRATED_KING_SAFETY_WEIGHT,
 )
+from .history_heuristic import HistoryHeuristic
 from .killer_moves import KillerMoves
 from .transposition_table import Bound, MATE_SCORE, TranspositionTable
 from ..selfplay.opening_book import select_book_move
@@ -19,18 +20,7 @@ class SearchCancelled(Exception):
 
 
 class SearchEngine(ChessEngine):
-    """V0.4.2 Negamax + PVS + Quiescence search with iterative deepening and TT.
-
-    V0.6.5: material_values/pst_weight/king_safety_weight default to the
-    CALIBRATED_* constants (engine/evaluation.py), not the hand-guessed
-    MATERIAL_VALUES/weight-1 baseline -- a real, measured strength gain
-    (Elo ~+49 at depth 2, ~+81 at depth 3 and statistically significant
-    there, 200 real games; see docs/v0.6.5.md), not a cosmetic default
-    change. Pass material_values=MATERIAL_VALUES,
-    pst_weight=1, king_safety_weight=1 explicitly to reproduce the
-    pre-V0.6.5 hand-guessed baseline (e.g. for A/B comparison --
-    tools/compare_engines.py's "B" side does exactly this by default).
-    """
+    """Negamax + PVS + Quiescence search with iterative deepening and TT."""
 
     def __init__(self, depth=3, use_alpha_beta=True, iterative_deepening=True,
                  use_transposition_table=True, use_pvs=True, use_quiescence=True,
@@ -42,7 +32,8 @@ class SearchEngine(ChessEngine):
                  use_endgame_heuristics=False, use_opening_book=False,
                  opening_book=None, opening_book_min_games=3, tt_max_entries=200_000,
                  eval_fn=None, material_values=CALIBRATED_MATERIAL_VALUES,
-                 use_killer_moves=True, use_mvv_lva=False):
+                 use_killer_moves=True, use_mvv_lva=False,
+                 use_history=True):
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
         self.iterative_deepening = iterative_deepening
@@ -66,9 +57,11 @@ class SearchEngine(ChessEngine):
         self.material_values = material_values
         self.use_killer_moves = use_killer_moves
         self.use_mvv_lva = use_mvv_lva
+        self.use_history = use_history
         self.nodes_evaluated = 0
         self.tt = TranspositionTable(tt_max_entries)
         self.killer_moves = KillerMoves()
+        self.history = HistoryHeuristic()
         self._stop_event = Event()
 
     def request_stop(self):
@@ -105,6 +98,8 @@ class SearchEngine(ChessEngine):
         self.tt.reset_stats()
         if self.use_killer_moves:
             self.killer_moves.clear()
+        if self.use_history:
+            self.history.clear()
         self._check_stop(stop_event)
 
         if self.use_opening_book and self.opening_book:
@@ -188,21 +183,6 @@ class SearchEngine(ChessEngine):
         return ordered
 
     def _order_moves(self, moves, preferred_move, ply=None):
-        """Order moves for a non-root node: preferred (TT) move first, then
-        captures ranked by MVV-LVA, then killer quiet moves, then the rest.
-
-        This priority order (hash move > captures > killers > other quiets)
-        is the standard ordering used by essentially every alpha-beta engine.
-        Internally, killer promotion (V0.8.2) runs before MVV-LVA (V0.8.3) so
-        that `use_mvv_lva=False` reproduces V0.8.2's exact prior behavior
-        unchanged; MVV-LVA then pulls captures ahead of everything else,
-        including an already-promoted killer, whenever it is enabled. Each
-        layer is independently toggleable (`use_mvv_lva`/`use_killer_moves`)
-        and, like every prior ordering feature in this project (TT move
-        ordering since V0.3.2, killer moves in V0.8.2), changes only how
-        quickly the search converges, never the final score/best move -- see
-        `test_mvv_lva_preserves_search_result`/`test_killer_moves_preserve_search_result`.
-        """
         ordered = list(moves)
         preferred = None
         if preferred_move is not None:
@@ -212,36 +192,20 @@ class SearchEngine(ChessEngine):
                     preferred = ordered.pop(index)
                     break
 
-        # Killer promotion runs first, exactly as in V0.8.2 (pulling any
-        # matching quiet move to the very front of whatever list it is
-        # given) -- this keeps use_mvv_lva=False bit-for-bit identical to
-        # the original V0.8.2 behavior. MVV-LVA then runs on top and pulls
-        # captures ahead of everything else, including a promoted killer,
-        # which produces the standard hash-move > captures > killers >
-        # other-quiets priority when both features are enabled together.
         if self.use_killer_moves and ply is not None:
             ordered = self._promote_killer_moves(ordered, ply)
 
         if self.use_mvv_lva:
             ordered = self._order_captures_by_mvv_lva(ordered)
 
+        if self.use_history:
+            ordered.sort(key=self.history.get, reverse=True)
+
         if preferred is not None:
             ordered = [preferred] + ordered
         return ordered
 
     def _mvv_lva_score(self, move):
-        """Most Valuable Victim - Least Valuable Attacker score for a capture.
-
-        Ranks by victim value first (a Rook capture is tried well before a
-        Pawn capture regardless of what took it), then prefers the least
-        valuable attacker among equally valuable victims (a Pawn taking a
-        Rook is tried before a Rook taking a Rook -- the Pawn recapture risks
-        less material if the capture turns out to be unsound). Uses
-        `self.material_values` when set (e.g. `CALIBRATED_MATERIAL_VALUES`),
-        the same override already threaded through `_evaluate`, so MVV-LVA
-        stays consistent with whatever material scale the rest of the engine
-        is using rather than silently falling back to a different one.
-        """
         values = self.material_values or MATERIAL_VALUES
         victim_value = values.get(move.captured_piece.type, 0)
         attacker_value = values.get(move.moved_piece.type, 0) if move.moved_piece else 0
@@ -257,9 +221,6 @@ class SearchEngine(ChessEngine):
         killer_keys = self.killer_moves.get(ply)
         if not killer_keys:
             return ordered
-
-        # Killer moves are only useful for quiet moves. A stale killer that
-        # has become a capture must not displace the capture ordering.
         killer_rank = {key: index for index, key in enumerate(killer_keys)}
         killer_moves = []
         remaining = []
@@ -302,6 +263,7 @@ class SearchEngine(ChessEngine):
         best_score = float("-inf")
         best_move = None
         opponent = board.opponent(current_color)
+        searched_quiets = []
         for index, move in enumerate(legal_moves):
             self._check_stop(stop_event)
             board.move(move.from_pos, move.to_pos)
@@ -317,6 +279,8 @@ class SearchEngine(ChessEngine):
                                            root_depth, use_pruning, stop_event)
             finally:
                 board.undo()
+            if move.captured_piece is None:
+                searched_quiets.append(move)
             if score > best_score:
                 best_score = score
                 best_move = move
@@ -325,6 +289,10 @@ class SearchEngine(ChessEngine):
                 if alpha >= beta:
                     if self.use_killer_moves:
                         self.killer_moves.record(ply, move)
+                    if self.use_history and move.captured_piece is None:
+                        self.history.reward(move, depth)
+                        for quiet in searched_quiets[:-1]:
+                            self.history.penalize(quiet, depth)
                     break
         if self.use_transposition_table:
             if best_score <= alpha_original:
