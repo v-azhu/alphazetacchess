@@ -33,7 +33,9 @@ class SearchEngine(ChessEngine):
                  opening_book=None, opening_book_min_games=3, tt_max_entries=200_000,
                  eval_fn=None, material_values=CALIBRATED_MATERIAL_VALUES,
                  use_killer_moves=True, use_mvv_lva=False,
-                 use_history=True):
+                 use_history=True, use_null_move=False,
+                 null_move_reduction=2, null_move_min_depth=3,
+                 null_move_min_pieces=7):
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
         self.iterative_deepening = iterative_deepening
@@ -58,7 +60,13 @@ class SearchEngine(ChessEngine):
         self.use_killer_moves = use_killer_moves
         self.use_mvv_lva = use_mvv_lva
         self.use_history = use_history
+        self.use_null_move = use_null_move
+        self.null_move_reduction = max(1, null_move_reduction)
+        self.null_move_min_depth = max(1, null_move_min_depth)
+        self.null_move_min_pieces = max(2, null_move_min_pieces)
         self.nodes_evaluated = 0
+        self.null_move_attempts = 0
+        self.null_move_cutoffs = 0
         self.tt = TranspositionTable(tt_max_entries)
         self.killer_moves = KillerMoves()
         self.history = HistoryHeuristic()
@@ -95,6 +103,8 @@ class SearchEngine(ChessEngine):
             self.clear_stop()
             stop_event = self._stop_event
         self.nodes_evaluated = 0
+        self.null_move_attempts = 0
+        self.null_move_cutoffs = 0
         self.tt.reset_stats()
         if self.use_killer_moves:
             self.killer_moves.clear()
@@ -182,7 +192,7 @@ class SearchEngine(ChessEngine):
                 return [move] + ordered[:index] + ordered[index + 1:]
         return ordered
 
-    def _order_moves(self, moves, preferred_move, ply=None, board=None):
+    def _order_moves(self, moves, preferred_move, ply=None):
         ordered = list(moves)
         preferred = None
         if preferred_move is not None:
@@ -233,8 +243,33 @@ class SearchEngine(ChessEngine):
         killer_moves.sort(key=lambda item: item[0])
         return [move for _, move in killer_moves] + remaining
 
+    def _piece_count(self, board):
+        return sum(
+            1
+            for row in board.board
+            for piece in row
+            if piece is not None
+        )
+
+    def _null_move_allowed(self, board, color, depth, ply, legal_moves):
+        if not self.use_null_move or not self.use_alpha_beta:
+            return False
+        if depth < self.null_move_min_depth:
+            return False
+        if ply <= 0:
+            return False
+        if depth <= self.null_move_reduction:
+            return False
+        if len(legal_moves) <= 1:
+            return False
+        if self._piece_count(board) < self.null_move_min_pieces:
+            return False
+        if Rule.is_in_check(board, color):
+            return False
+        return True
+
     def _negamax(self, board, depth, alpha, beta, current_color, root_depth,
-                 use_pruning, stop_event=None):
+                 use_pruning, stop_event=None, allow_null=True):
         self._check_stop(stop_event)
         self.nodes_evaluated += 1
         alpha_original = alpha
@@ -259,7 +294,30 @@ class SearchEngine(ChessEngine):
                 if self.use_transposition_table:
                     self.tt.store(key, depth, score, Bound.EXACT, None, ply=ply)
             return score
-        legal_moves = self._order_moves(legal_moves, preferred_move, ply, board)
+
+        if allow_null and self._null_move_allowed(board, current_color, depth, ply, legal_moves):
+            self.null_move_attempts += 1
+            board.null_move()
+            try:
+                null_depth = depth - 1 - self.null_move_reduction
+                score = -self._negamax(
+                    board,
+                    null_depth,
+                    -beta,
+                    -beta + 1,
+                    board.current_player,
+                    root_depth,
+                    use_pruning=True,
+                    stop_event=stop_event,
+                    allow_null=False,
+                )
+            finally:
+                board.undo_null_move()
+            if score >= beta:
+                self.null_move_cutoffs += 1
+                return score
+
+        legal_moves = self._order_moves(legal_moves, preferred_move, ply)
         best_score = float("-inf")
         best_move = None
         opponent = board.opponent(current_color)
