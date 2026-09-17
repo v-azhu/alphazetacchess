@@ -24,7 +24,7 @@ def test_see_values_a_capture_with_no_recapture():
 
 
 def test_see_accounts_for_forced_rook_recapture():
-    board = board_from_fen("4k4/9/9/4p4/9/9/r8/p8/R3K4 w - - 0 1")
+    board = board_from_fen("4k4/9/9/4p4/9/9/9/r8/p8/R3K4 w - - 0 1")
     move = _capture(board, (0, 0), (0, 1))
 
     see = StaticExchangeEvaluator()
@@ -34,7 +34,7 @@ def test_see_accounts_for_forced_rook_recapture():
 
 
 def test_see_does_not_modify_board():
-    board = board_from_fen("4k4/9/9/4p4/9/9/r8/p8/R3K4 w - - 0 1")
+    board = board_from_fen("4k4/9/9/4p4/9/9/9/r8/p8/R3K4 w - - 0 1")
     before = board.zobrist_hash
     move = _capture(board, (0, 0), (0, 1))
 
