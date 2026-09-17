@@ -20,6 +20,14 @@ class StaticExchangeEvaluator:
     def __init__(self, material_values=None, max_depth=12):
         self.material_values = material_values or CALIBRATED_MATERIAL_VALUES or MATERIAL_VALUES
         self.max_depth = max_depth
+        self.calls = 0
+        self.exchange_nodes = 0
+        self.max_depth_reached = 0
+
+    def reset_stats(self):
+        self.calls = 0
+        self.exchange_nodes = 0
+        self.max_depth_reached = 0
 
     def piece_value(self, piece):
         if piece is None:
@@ -32,6 +40,7 @@ class StaticExchangeEvaluator:
         Positive means the side making ``move`` wins material in the forced
         exchange; negative means it loses material.
         """
+        self.calls += 1
         if move is None or move.captured_piece is None:
             return 0
 
@@ -47,6 +56,8 @@ class StaticExchangeEvaluator:
         return immediate_gain - reply
 
     def _exchange(self, board, target, side, depth, memo):
+        self.exchange_nodes += 1
+        self.max_depth_reached = max(self.max_depth_reached, self.max_depth - depth)
         if depth <= 0:
             return 0
 
