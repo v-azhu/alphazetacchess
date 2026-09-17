@@ -1,6 +1,7 @@
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.fen import board_from_fen
 from alphazetacchess.core.piece import Color
+from alphazetacchess.core.rule import Rule
 from alphazetacchess.engine.search import SearchEngine
 
 
@@ -52,10 +53,11 @@ def test_null_move_is_disabled_in_check():
         use_null_move=True,
         null_move_min_pieces=2,
     )
+    legal_moves = Rule.generate_legal_moves(board, Color.RED)
 
-    legal_moves = engine._SearchEngine__dict__ if False else None
-    assert engine._null_move_allowed(board, Color.RED, 4, 1, []) is False
-    assert legal_moves is None
+    assert Rule.is_in_check(board, Color.RED)
+    assert len(legal_moves) > 1
+    assert engine._null_move_allowed(board, Color.RED, 4, 1, legal_moves) is False
 
 
 def test_null_move_disabled_for_small_endgame_position():
@@ -65,8 +67,9 @@ def test_null_move_disabled_for_small_endgame_position():
         use_null_move=True,
         null_move_min_pieces=7,
     )
+    legal_moves = Rule.generate_legal_moves(board, Color.RED)
 
-    assert engine._null_move_allowed(board, Color.RED, 4, 1, [object(), object()]) is False
+    assert engine._null_move_allowed(board, Color.RED, 4, 1, legal_moves) is False
 
 
 def test_null_move_search_restores_board_state():
