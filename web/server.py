@@ -32,7 +32,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color
 from alphazetacchess.core.rule import Rule
-from alphazetacchess.engine.search import SearchEngine
+from alphazetacchess.engine.search_see import SeeSearchEngine
 from alphazetacchess.selfplay.opening_book import load_book
 
 
@@ -40,28 +40,8 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 
 HUMAN_COLOR = Color.RED
 AI_COLOR = Color.BLACK
-# V0.9.9: raised 2 -> 4. Depth 2 is roughly one move of lookahead and
-# is far too weak to be interesting (user feedback: a 专业1-1 club
-# player beat it while giving a horse AND three free moves). V0.9.9's
-# ~2x search speedup made depth 4 cost about what depth 3 used to
-# (~5s/move from the opening position), so this is a real strength
-# increase at acceptable latency rather than just trading time for
-# it. The dropdown still offers 1-5 for anyone who wants faster or
-# stronger.
 DEFAULT_AI_DEPTH = 4
 
-# V0.9.7: loaded once at startup, not per-game -- data/opening_book.json
-# (real data since V0.5.2's follow-up, see docs/v0.5.2.md) doesn't
-# change while the server is running, and reloading it on every new
-# game would be needless I/O for something that's never actually
-# mutated here. None (not an error) if the file doesn't exist yet --
-# the opening-book checkbox still works in that case, it just never
-# finds a book move (SearchEngine's own use_opening_book/opening_book
-# handling already treats opening_book=None as "no book" safely, see
-# engine/search.py's "if self.use_opening_book and self.opening_book"
-# check), so a fresh checkout without data/opening_book.json generated
-# yet doesn't crash the server, just makes that checkbox a no-op until
-# a book exists.
 OPENING_BOOK_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "data", "opening_book.json"
 )
@@ -70,25 +50,20 @@ try:
 except (FileNotFoundError, OSError):
     OPENING_BOOK = None
 
-# V0.4.1-4.5 evaluation terms, V0.5.2's opening book, and V0.5.3's
-# endgame heuristics, each independently toggleable on SearchEngine.
-# Keys here are exactly the SearchEngine constructor kwarg names, which
-# keeps new_game()'s **eval_flags pass-through trivial -- adding a
-# future term only means adding one line here (and one checkbox in
-# web/static/index.html, one line in web/static/board.js's own
-# EVAL_FLAG_CHECKBOXES map).
+# Evaluation/search controls. They are passed through to SeeSearchEngine,
+# keeping the web UI as a thin presentation layer over the engine.
 DEFAULT_EVAL_FLAGS = {
-    "use_piece_square_tables": True,   # V0.4.1
-    "use_king_safety": True,           # V0.4.2
-    "use_mobility": False,             # V0.4.3 (beta-4: pseudo-legal, cheap)
-    "use_pawn_structure": False,       # V0.4.4
-    "use_piece_coordination": False,   # V0.4.5
-    "use_opening_book": False,         # V0.5.2 (needs OPENING_BOOK loaded above)
-    "use_endgame_heuristics": False,   # V0.5.3
+    "use_piece_square_tables": True,
+    "use_king_safety": True,
+    "use_mobility": False,
+    "use_pawn_structure": False,
+    "use_piece_coordination": False,
+    "use_opening_book": False,
+    "use_endgame_heuristics": False,
+    # V0.9.11: legality-aware Static Exchange Evaluation for capture ordering.
+    "use_see": True,
 }
 
-# Single global game (see module docstring: this is a local,
-# single-user tool, not a multi-session server).
 game = {
     "board": None,
     "ai_engine": None,
@@ -102,20 +77,16 @@ def new_game(ai_depth=None, eval_flags=None):
         game["ai_depth"] = ai_depth
 
     if eval_flags is not None:
-        # Only accept known flags, and coerce to bool -- request JSON
-        # is untrusted input, and SearchEngine's constructor has no
-        # reason to see anything but real booleans for these kwargs.
         game["eval_flags"] = {
             key: bool(eval_flags[key])
             for key in DEFAULT_EVAL_FLAGS
             if key in eval_flags
         }
-        # Fill in defaults for any flag the request didn't mention.
         for key, default in DEFAULT_EVAL_FLAGS.items():
             game["eval_flags"].setdefault(key, default)
 
     game["board"] = Board()
-    game["ai_engine"] = SearchEngine(
+    game["ai_engine"] = SeeSearchEngine(
         depth=game["ai_depth"],
         opening_book=OPENING_BOOK,
         **game["eval_flags"],
@@ -223,11 +194,7 @@ def api_legal_moves():
 def api_move():
     """
     Applies ONLY the human's move and returns immediately -- the AI's
-    reply is a separate call (POST /api/ai_move). Splitting these was
-    a deliberate fix: the previous single-endpoint version applied
-    both moves before responding at all, so the human's own piece
-    never visually moved until the (multi-second) AI reply was also
-    done computing. See docs/ui.md "Bug history".
+    reply is a separate call (POST /api/ai_move).
     """
     data = request.get_json(silent=True) or {}
     board = game["board"]
@@ -257,11 +224,7 @@ def api_move():
 
 @app.route("/api/ai_move", methods=["POST"])
 def api_ai_move():
-    """
-    Computes and applies the AI's move. Only valid when it is
-    currently the AI's turn (i.e. right after a successful
-    POST /api/move, unless the human's move already ended the game).
-    """
+    """Compute and apply the AI's move."""
     board = game["board"]
 
     if board.current_player != AI_COLOR:
