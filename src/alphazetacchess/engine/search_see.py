@@ -22,7 +22,7 @@ class SeeSearchEngine(SearchEngine):
         self.see.reset_stats()
         return super().choose_move(board, color, stop_event=stop_event)
 
-    def _order_moves(self, moves, preferred_move, ply=None):
+    def _order_moves(self, moves, preferred_move, ply=None, board=None):
         ordered = list(moves)
         preferred = None
         if preferred_move is not None:
@@ -36,8 +36,11 @@ class SeeSearchEngine(SearchEngine):
         quiets = [move for move in ordered if move.captured_piece is None]
 
         if len(captures) > 1:
-            if self.use_see:
-                captures.sort(key=self.see.evaluate_capture, reverse=True)
+            if self.use_see and board is not None:
+                captures.sort(
+                    key=lambda move: self.see.evaluate_capture(board, move),
+                    reverse=True,
+                )
             elif self.use_mvv_lva:
                 captures.sort(key=self._mvv_lva_score, reverse=True)
         elif captures and not self.use_see and self.use_mvv_lva:
