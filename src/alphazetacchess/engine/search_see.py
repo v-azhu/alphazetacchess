@@ -18,6 +18,10 @@ class SeeSearchEngine(SearchEngine):
             max_depth=see_max_depth,
         )
 
+    def choose_move(self, board, color, stop_event=None):
+        self.see.reset_stats()
+        return super().choose_move(board, color, stop_event=stop_event)
+
     def _order_moves(self, moves, preferred_move, ply=None):
         ordered = list(moves)
         preferred = None
@@ -31,11 +35,13 @@ class SeeSearchEngine(SearchEngine):
         captures = [move for move in ordered if move.captured_piece is not None]
         quiets = [move for move in ordered if move.captured_piece is None]
 
-        if captures:
+        if len(captures) > 1:
             if self.use_see:
                 captures.sort(key=self.see.evaluate_capture, reverse=True)
             elif self.use_mvv_lva:
                 captures.sort(key=self._mvv_lva_score, reverse=True)
+        elif captures and not self.use_see and self.use_mvv_lva:
+            captures.sort(key=self._mvv_lva_score, reverse=True)
 
         if self.use_killer_moves and ply is not None:
             quiets = self._promote_killer_moves(quiets, ply)
