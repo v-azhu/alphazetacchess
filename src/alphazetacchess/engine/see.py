@@ -7,7 +7,7 @@ class StaticExchangeEvaluator:
 
     SEE answers a narrow question: after a capture on a square, what is the
     net material gain/loss if both sides continue the capture sequence with
-    their best legal recaptures?  Unlike MVV-LVA, it accounts for the whole
+    their best legal recaptures? Unlike MVV-LVA, it accounts for the whole
     exchange and for pinned/illegal recaptures because it uses the project's
     legal move generator.
 
@@ -37,10 +37,11 @@ class StaticExchangeEvaluator:
 
         target = move.to_pos
         immediate_gain = self.piece_value(move.captured_piece)
-        mover = board.current_player
         board.move(move.from_pos, move.to_pos)
         try:
-            reply = self._exchange(board, target, board.current_player, self.max_depth - 1, {})
+            reply = self._exchange(
+                board, target, board.current_player, self.max_depth - 1, {}
+            )
         finally:
             board.undo()
         return immediate_gain - reply
