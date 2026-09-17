@@ -8,7 +8,16 @@ It reports elapsed time, nodes, NPS, selected move, and SEE diagnostics.
 """
 
 import argparse
+import os
+import sys
 import time
+
+# Allow direct execution as ``python tools/benchmark_see.py`` from the repo root
+# without requiring an editable install or an external PYTHONPATH setting.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(ROOT, "src")
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
 
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.fen import board_from_fen
