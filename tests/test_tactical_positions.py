@@ -8,7 +8,7 @@ TACTICAL_POSITIONS = {
         # Red is not in check. Red's horse can move 5,6 -> 3,7,
         # checking the Black king. The Red rook on file 3 covers
         # Black's 3,8 escape square, while the horse covers 5,8.
-        "fen": "3aka3/4b4/9/5N3/9/9/9/9/9/3RK4 w - - 0 1",
+        "fen": "3aka3/4p4/9/5N5/9/9/9/9/9/3RK4 w - - 0 1",
         "side": Color.RED,
     },
     "free_capture": {
@@ -51,7 +51,7 @@ def test_tactical_fixtures_are_legal_and_have_expected_objective_property():
     assert mates
 
     free_board = board_from_fen(TACTICAL_POSITIONS["free_capture"]["fen"])
-    capture = _move(free_board, (0, 5), (4, 5))
+    capture = _move(free_board, (0, 6), (4, 6))
     assert capture.captured_piece is not None
     free_board.move(capture.from_pos, capture.to_pos)
     try:
