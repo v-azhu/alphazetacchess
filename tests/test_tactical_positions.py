@@ -21,7 +21,7 @@ TACTICAL_POSITIONS = {
         # Red can capture the Black pawn at (0,1), but the Black rook
         # at (1,1) can immediately recapture the Red rook. The rook is
         # deliberately off the same file so Red cannot capture it first.
-        "fen": "4k4/9/9/9/9/9/9/pr7/R3K4 w - - 0 1",
+        "fen": "4k4/9/9/9/9/9/9/9/pr7/R3K4 w - - 0 1",
         "side": Color.RED,
     },
 }
