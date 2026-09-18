@@ -10,14 +10,17 @@ from pathlib import Path
 # Allow direct execution from the repository root, e.g.:
 #   python tools/benchmark_tactics.py --depths 2 3 4
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(ROOT / "src"))
+SRC = ROOT / "src"
+TESTS = ROOT / "tests"
+for path in (SRC, TESTS):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 from alphazetacchess.core.fen import board_from_fen
 from alphazetacchess.core.piece import Color
 from alphazetacchess.core.rule import Rule
 from alphazetacchess.engine.search import SearchEngine
-from tests.test_tactical_positions import TACTICAL_POSITIONS, immediate_mates
+from test_tactical_positions import TACTICAL_POSITIONS, immediate_mates
 
 
 def move_key(move):
