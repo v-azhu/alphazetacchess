@@ -1,5 +1,5 @@
 from alphazetacchess.core.fen import board_from_fen
-from alphazetacchess.core.piece import Color
+from alphazetacchess.core.piece import Color, PieceType
 from alphazetacchess.core.rule import Rule
 
 
@@ -12,18 +12,37 @@ TACTICAL_POSITIONS = {
         # initial position is not already stalemate.
         "fen": "3aka3/4b4/9/p4N3/9/9/9/9/9/4K4 w - - 0 1",
         "side": Color.RED,
+        "pieces": {
+            (4, 9): (Color.BLACK, PieceType.KING),
+            (5, 6): (Color.RED, PieceType.HORSE),
+            (4, 0): (Color.RED, PieceType.KING),
+        },
     },
     "free_capture": {
         "fen": "4k4/9/9/R3n4/9/9/9/9/9/4K4 w - - 0 1",
         "side": Color.RED,
+        "pieces": {
+            (4, 9): (Color.BLACK, PieceType.KING),
+            (0, 6): (Color.RED, PieceType.ROOK),
+            (4, 6): (Color.BLACK, PieceType.HORSE),
+            (4, 0): (Color.RED, PieceType.KING),
+        },
     },
     "exchange_trap": {
         # Red can capture the Black pawn at (0,1), but the Black rook
         # at (1,1) can immediately recapture the Red rook. The Black
-        # king is deliberately off the Red king's file so the initial
-        # position does not violate the flying-general rule.
-        "fen": "3k5/9/9/9/9/9/9/9/pr7/R3K4 w - - 0 1",
+        # king is at (2,9), deliberately avoiding both the flying-general
+        # relation with the Red king and the vertical check created by
+        # Red moving the rook to (3,0).
+        "fen": "2k6/9/9/9/9/9/9/9/pr7/R3K4 w - - 0 1",
         "side": Color.RED,
+        "pieces": {
+            (2, 9): (Color.BLACK, PieceType.KING),
+            (1, 1): (Color.BLACK, PieceType.ROOK),
+            (0, 1): (Color.BLACK, PieceType.PAWN),
+            (0, 0): (Color.RED, PieceType.ROOK),
+            (4, 0): (Color.RED, PieceType.KING),
+        },
     },
 }
 
@@ -50,9 +69,23 @@ def immediate_mates(board, color):
     return mates
 
 
+def assert_expected_pieces(board, expected):
+    """Verify fixture geometry independently from the FEN comments."""
+    for position, (color, piece_type) in expected.items():
+        x, y = position
+        piece = board.get(x, y)
+        assert piece is not None, f"expected {color} {piece_type} at {position}"
+        assert piece.color == color, f"wrong color at {position}: {piece}"
+        assert piece.type == piece_type, f"wrong type at {position}: {piece}"
+
+
 def test_tactical_fixtures_are_legal_and_have_expected_objective_property():
+    for spec in TACTICAL_POSITIONS.values():
+        board = board_from_fen(spec["fen"])
+        assert_expected_pieces(board, spec["pieces"])
+        assert not Rule.is_in_check(board, spec["side"])
+
     mate_board = board_from_fen(TACTICAL_POSITIONS["mate_in_one"]["fen"])
-    assert not Rule.is_in_check(mate_board, Color.RED)
     mates = immediate_mates(mate_board, Color.RED)
     assert mates
 
@@ -71,6 +104,9 @@ def test_tactical_fixtures_are_legal_and_have_expected_objective_property():
         free_board.undo()
 
     trap_board = board_from_fen(TACTICAL_POSITIONS["exchange_trap"]["fen"])
+    assert Rule.is_checkmate(trap_board, Color.BLACK) is False
+    assert Rule.is_stalemate(trap_board, Color.BLACK) is False
+
     capture = _move(trap_board, (0, 0), (0, 1))
     assert capture.captured_piece is not None
     trap_board.move(capture.from_pos, capture.to_pos)
