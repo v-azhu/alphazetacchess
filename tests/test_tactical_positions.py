@@ -5,10 +5,12 @@ from alphazetacchess.core.rule import Rule
 
 TACTICAL_POSITIONS = {
     "mate_in_one": {
-        # Red is not in check. Red's horse can move 5,6 -> 3,7,
-        # checking the Black king. The Red rook on file 3 covers
-        # Black's 3,8 escape square, while the horse covers 5,8.
-        "fen": "3aka3/4p4/9/5N5/9/9/9/9/9/3RK4 w - - 0 1",
+        # Red is not in check. Red's horse can move 5,6 -> 5,7,
+        # checking the Black king. This is based on the existing
+        # checkmate pattern covered by test_rule.py. The extra Black
+        # pawn on 0,6 gives Black a legal move before the mate, so the
+        # initial position is not already stalemate.
+        "fen": "3aka3/4b4/9/p4N3/9/9/9/9/9/4K4 w - - 0 1",
         "side": Color.RED,
     },
     "free_capture": {
