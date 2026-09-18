@@ -17,7 +17,6 @@ for path in (SRC, TESTS):
         sys.path.insert(0, str(path))
 
 from alphazetacchess.core.fen import board_from_fen
-from alphazetacchess.core.piece import Color
 from alphazetacchess.core.rule import Rule
 from alphazetacchess.engine.search import SearchEngine
 from test_tactical_positions import TACTICAL_POSITIONS, immediate_mates
@@ -50,6 +49,27 @@ def free_capture_targets(board, color):
     return targets
 
 
+def exchange_trap_targets(board, color):
+    """Find captures that allow an immediate opponent recapture."""
+    targets = []
+    for move in Rule.generate_legal_moves(board, color):
+        if move.captured_piece is None:
+            continue
+        board.move(move.from_pos, move.to_pos)
+        try:
+            opponent = board.opponent(color)
+            recaptures = [
+                reply
+                for reply in Rule.generate_legal_moves(board, opponent)
+                if reply.to_pos == move.to_pos
+            ]
+            if recaptures:
+                targets.append(move)
+        finally:
+            board.undo()
+    return targets
+
+
 def run_position(name, depths, use_null_move=False):
     spec = TACTICAL_POSITIONS[name]
     print(f"\n=== {name} ===")
@@ -59,10 +79,12 @@ def run_position(name, depths, use_null_move=False):
 
     mates = immediate_mates(board, color)
     free_captures = free_capture_targets(board, color)
+    trap_captures = exchange_trap_targets(board, color)
 
     print("objective checks:")
     print("  immediate mates:", [move_key(m) for m in mates])
     print("  free captures:", [move_key(m) for m in free_captures])
+    print("  immediately recapturable captures:", [move_key(m) for m in trap_captures])
 
     for depth in depths:
         engine = SearchEngine(depth=depth, use_null_move=use_null_move)
@@ -75,14 +97,15 @@ def run_position(name, depths, use_null_move=False):
         selected = move_key(result.best_move)
         mate_hit = selected in {move_key(m) for m in mates}
         free_hit = selected in {move_key(m) for m in free_captures}
+        trap_hit = selected in {move_key(m) for m in trap_captures}
         state_ok = board.zobrist_hash == before_hash and board.current_player == before_player
         nps = result.nodes_evaluated / elapsed if elapsed > 0 else 0.0
 
         print(
             f"d{depth} time={elapsed:.3f}s nodes={result.nodes_evaluated} "
             f"nps={nps:.1f} score={result.score} move={selected} "
-            f"mate_hit={mate_hit} free_hit={free_hit} state_ok={state_ok} "
-            f"null_attempts={engine.null_move_attempts} "
+            f"mate_hit={mate_hit} free_hit={free_hit} trap_hit={trap_hit} "
+            f"state_ok={state_ok} null_attempts={engine.null_move_attempts} "
             f"null_cutoffs={engine.null_move_cutoffs}"
         )
 
