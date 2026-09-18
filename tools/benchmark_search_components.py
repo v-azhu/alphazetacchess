@@ -28,7 +28,7 @@ from test_tactical_positions import TACTICAL_POSITIONS
 
 POSITIONS = (
     ("initial", None, Color.RED),
-    ("open_position", "rnbakabnr/9/1c5c1/p1p1p1p1p/9/4P4/P3P3P/1C5C1/9/RNBAKABNR w - - 0 1", Color.RED),
+    ("open_position", "rnbakabnr/9/1c5c1/p1p1p1p1p/9/4P4/P1P3P1P/1C5C1/9/RNBAKABNR w - - 0 1", Color.RED),
     ("tactical_exchange", "r3k4/9/1n2c4/p3p3p/9/9/P3P3P/1N2C4/9/R3K4 w - - 0 1", Color.RED),
     ("mate_in_one", TACTICAL_POSITIONS["mate_in_one"]["fen"], Color.RED),
     ("free_capture", TACTICAL_POSITIONS["free_capture"]["fen"], Color.RED),
