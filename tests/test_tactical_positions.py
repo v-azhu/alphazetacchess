@@ -20,7 +20,7 @@ TACTICAL_POSITIONS = {
     "exchange_trap": {
         # Red can capture the Black pawn at (0,1), but the Black rook
         # at (0,2) can immediately recapture the Red rook.
-        "fen": "4k4/9/9/4p4/9/9/r8/p8/R3K4 w - - 0 1",
+        "fen": "4k4/9/9/4p4/9/9/9/r8/p8/R3K4 w - - 0 1",
         "side": Color.RED,
     },
 }
