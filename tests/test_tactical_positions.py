@@ -19,8 +19,9 @@ TACTICAL_POSITIONS = {
     },
     "exchange_trap": {
         # Red can capture the Black pawn at (0,1), but the Black rook
-        # at (0,2) can immediately recapture the Red rook.
-        "fen": "4k4/9/9/4p4/9/9/9/r8/p8/R3K4 w - - 0 1",
+        # at (1,1) can immediately recapture the Red rook. The rook is
+        # deliberately off the same file so Red cannot capture it first.
+        "fen": "4k4/9/9/9/9/9/9/1r7/p8/R3K4 w - - 0 1",
         "side": Color.RED,
     },
 }
@@ -80,7 +81,7 @@ def test_tactical_fixtures_are_legal_and_have_expected_objective_property():
         ]
         assert opponent_captures
         assert any(
-            move.from_pos == (0, 2) and move.to_pos == (0, 1)
+            move.from_pos == (1, 1) and move.to_pos == (0, 1)
             for move in opponent_captures
         )
     finally:
