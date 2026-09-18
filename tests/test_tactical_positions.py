@@ -18,7 +18,9 @@ TACTICAL_POSITIONS = {
         "side": Color.RED,
     },
     "exchange_trap": {
-        "fen": "4k4/9/9/4p4/9/9/9/r8/p8/R3K4 w - - 0 1",
+        # Red can capture the Black pawn at (0,1), but the Black rook
+        # at (0,2) can immediately recapture the Red rook.
+        "fen": "4k4/9/9/4p4/9/9/r8/p8/R3K4 w - - 0 1",
         "side": Color.RED,
     },
 }
@@ -69,6 +71,20 @@ def test_tactical_fixtures_are_legal_and_have_expected_objective_property():
     trap_board = board_from_fen(TACTICAL_POSITIONS["exchange_trap"]["fen"])
     capture = _move(trap_board, (0, 0), (0, 1))
     assert capture.captured_piece is not None
+    trap_board.move(capture.from_pos, capture.to_pos)
+    try:
+        opponent_captures = [
+            move
+            for move in Rule.generate_legal_moves(trap_board, Color.BLACK)
+            if move.to_pos == capture.to_pos
+        ]
+        assert opponent_captures
+        assert any(
+            move.from_pos == (0, 2) and move.to_pos == (0, 1)
+            for move in opponent_captures
+        )
+    finally:
+        trap_board.undo()
 
 
 def test_mate_in_one_fixture_has_no_hidden_mate_before_the_move():
