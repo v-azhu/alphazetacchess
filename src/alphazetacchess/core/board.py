@@ -15,12 +15,12 @@ class Board:
             [None for _ in range(self.WIDTH)]
             for _ in range(self.HEIGHT)
         ]
-        # Move history is used by undo(). Position history stores the
-        # incremental Zobrist key after every ply, including the initial
-        # position. The side-to-move bit is part of the key, so this is an
-        # exact-position history rather than a board-only repetition check.
+        # Move history is used by undo(). Position history also includes
+        # search-only null moves; repetition history contains only legal
+        # positions reached by actual moves.
         self.history = []
         self.position_history = []
+        self.repetition_history = []
         self.current_player = Color.RED
         # V0.9.9: see find_king() -- populated lazily on first lookup,
         # self-healing, so it needs no maintenance in move()/undo().
@@ -28,6 +28,7 @@ class Board:
         self.setup()
         self.zobrist_hash = Zobrist.board_hash(self)
         self.position_history.append(self.zobrist_hash)
+        self.repetition_history.append(self.zobrist_hash)
 
     def setup(self):
         self._place_back_rank(0, Color.RED)
@@ -255,6 +256,7 @@ class Board:
         self.history.append((from_pos, to_pos, piece, captured))
         self.current_player = self.opponent(self.current_player)
         self.position_history.append(self.zobrist_hash)
+        self.repetition_history.append(self.zobrist_hash)
 
     def undo(self):
         if not self.history:
@@ -289,12 +291,13 @@ class Board:
 
         self.current_player = self.opponent(self.current_player)
         self.position_history.pop()
+        self.repetition_history.pop()
 
     def repetition_count(self, position_hash=None):
-        """Return how many times a position occurred on the current path."""
+        """Count actual-game occurrences, excluding search-only null moves."""
         if position_hash is None:
             position_hash = self.zobrist_hash
-        return sum(h == position_hash for h in self.position_history)
+        return sum(h == position_hash for h in self.repetition_history)
 
     def is_repetition(self, position_hash=None, minimum=3):
         """Return True when the exact position occurred at least ``minimum`` times."""

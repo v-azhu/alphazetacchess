@@ -14,6 +14,13 @@ hybrid engine, inspired by the AlphaZero approach.
 
 ## 当前进度 (Current Status)
 
+**当前主力是传统搜索引擎，不是 MCTS 或神经网络。** CLI 默认使用
+`SearchEngine(depth=4)`；Web UI 使用带 SEE 吃子排序的搜索引擎，默认深度也是
+4。MCTS、神经评估和策略网络仍是可运行的实验模块，但已有对局记录尚未证明它们
+强于主力搜索。最新的搜索正确性修复、基准和后续任务见
+[`docs/PROGRESS_NOTES.md`](docs/PROGRESS_NOTES.md)；版本实验历史见
+[`docs/roadmap.md`](docs/roadmap.md)。
+
 - [x] 棋盘与棋子表示 (Board / Piece representation)
 - [x] 七种棋子的完整走子规则 (Full move generation for all 7 piece types)
   - 车 Rook / 马 Horse (含蹩马腿 leg-blocking) / 炮 Cannon (隔子吃 screen-capture)
@@ -37,29 +44,24 @@ hybrid engine, inspired by the AlphaZero approach.
 - [x] 首份真实规模数据验证：63→99 局真实对局（`data/selfplay.jsonl`），重建出 1330 个局面的真实开局库并验证可正常调用；开局库、`use_endgame_heuristics` 均得到真实的"无明显提升"零结果（20 局开局库对比 50%/50%，29 局残局启发式对比约 52%），depth=3 vs depth=2 则得到有意义的真实提升（12 局，Elo +88.7）——三条问题均已有真实数据支撑的结论，详见 `docs/v0.5-real-data-checkpoint-3.md`
 - [x] MCTS 搜索骨架 (v0.6.1)：`MCTSEngine`（PUCT 选择 + 现有 `evaluate()` 作为叶子价值估计，暂无策略/价值网络），12 个测试含关键的符号约定测试与"与 alpha-beta 独立实现在必胜局面上找到同一步杀棋"的交叉验证；对阵 RandomEngine 的冒烟测试证实真实子力优势（第60步 4150:3600）但在给定的模拟次数下未必能在步数限制内形成杀棋——是符合预期的"无策略网络的原始 MCTS"特征而非 bug，详见 `docs/v0.6.1.md`
 - [x] 神经网络评估管线 (v0.6.2)：不直接搬运 Pikafish 权重（许可证边界模糊 + NNUE 特征编码/量化推理复刻成本高），改为**蒸馏**——本地跑 Pikafish 给局面打分，训练一个完全自己从零训练的小型网络。包含 Xiangqi FEN 编解码 (`core/fen.py`)、局面特征提取 (`neural/features.py`，含 8 个复用 `evaluate()` 子模块的手工特征)、纯 numpy 手写 MLP 及反向传播 (`neural/network.py`，经数值梯度校验，含早停机制)、UCI 客户端 (`neural/pikafish_client.py`)、打标签与训练 CLI 工具、`SearchEngine`/`MCTSEngine` 可插拔 `eval_fn`。**结论（真实、已收敛的结果）**：即使加大网络容量、扩充到 94,872 条真实标注数据、加入手工特征，20 局真实强度对比中神经网络评估依然落后启发式评估约 269 Elo——这是一个诚实的负面结果，`use_neural_eval` 默认关闭。详见 `docs/v0.6.2.md`
-- [x] 启发式常数校准分析 (v0.6.3)：不再训练黑盒网络，改用同一批真实标注数据对 `evaluate()` 现有的手工常数直接做线性回归校准 (`engine/evaluation.py` 新增 `evaluate_components()`，`tools/calibrate_evaluation.py`)。**真实发现**：以兵为基准 1，车/炮/马在当前手工设定的价值表里被系统性低估了约 1.7-1.9 倍（现行 9.0/4.5/4.0 vs 拟合出的 15.9/7.8/7.25），象/士的相对价值则基本吻合；另外发现一个约 +40cp、当前完全没有建模的"先行优势"常数项。已将车/炮/马的校准值接入引擎并跑了 20 局真实强度对比（4胜5负11平，Elo -17）——**这个样本量下结果不具统计意义（95%置信区间约[26%,69%]），是"尚无法判断"而非"证实没用"**，需要约100+局才能真正回答这个问题，详见 `docs/v0.6.3.md`
-- [ ] 用真实 Pikafish 数据训练网络并接入引擎、验证是否真的更强
-
-上述开局库、残局启发式与强度对比目前都是"机制已完成，但结论/常量/是否默认启用仍需真实规模数据验证"的状态——三者共用同一份自我对弈数据格式，一次本地长时间运行即可同时回答三个问题，详见
-`docs/v0.5.2.md` / `docs/v0.5.3.md` / `docs/v0.5.4.md`。
+- [x] 启发式评估校准 (v0.6.3-6.5)：Pikafish 标注数据用于比较材料、位置表和王安全权重；V0.6.5 将组合权重设为 `SearchEngine` 默认，基于 200 局对比结果（深度 3 +81 Elo，统计显著）。实验细节见 `docs/v0.6.3.md`–`docs/v0.6.5.md`
+- [x] 搜索正确性与性能诊断 (v0.10.0)：处理搜索中的重复局面和棋、静态搜索边界应将；隔离 null move 虚着历史；去掉重复的边界走法生成后，参考局面深度 3 耗时降低约 39–43%，搜索结果保持一致。详见 [`docs/v0.10.0.md`](docs/v0.10.0.md)
 
 详细的分版本验收数据（每次性能声明都配有实测数字）见 `docs/roadmap.md`（完整版本历史与验收记录）
 与各版本单独文档，如 `docs/v0.3.1-benchmark.md` / `docs/v0.4.5.md` / `docs/v0.5.1.md` /
 `docs/v0.5.2.md` / `docs/v0.5.3.md`。
 
-### V0.2 验收结果 (Acceptance Evidence)
+### V0.2 历史验收结果 (Historical Acceptance Evidence)
 
-按 `docs/roadmap.md` 里 V0.2 的验收标准（"AI can defeat random players" /
-"AI decisions are explainable"），用 `tools/benchmark.py` 实测：
+以下数据是 V0.2 的历史基线，不代表当前引擎默认配置：
 
 | 引擎 | 局数 | 胜 | 负 | 和 (触发步数上限) | 得分率 | 估算 Elo 差 |
 |---|---|---|---|---|---|---|
 | SearchEngine(depth=1) vs RandomEngine | 10 | 6 | 0 | 4 | 80% | +241 |
 | SearchEngine(depth=2) vs RandomEngine | 6  | 5 | 0 | 1 | 92% | +417 |
 
-两个深度下 SearchEngine 都是零败绩，depth=2 明显更强。默认 `AI_SEARCH_DEPTH = 2`
-（详见 `src/main.py` 里的取舍说明：depth=3 已验证明显更强，但目前单步耗时可达
-数十秒，优化留给 v0.3 的置换表 / 走法排序）。
+这两项测试中 SearchEngine 均未负于随机引擎。当前 CLI 默认深度为 4，见
+`src/main.py`；深度本身并不等价于已验证的整体棋力，当前强度基线与限制见进度快照。
 
 完整路线图见 [`docs/roadmap.md`](docs/roadmap.md)，架构设计见
 [`docs/architecture.md`](docs/architecture.md)。
@@ -74,10 +76,14 @@ hybrid engine, inspired by the AlphaZero approach.
 Python 3.11+
 ```
 
-当前阶段没有第三方依赖（`requirements.txt` 为空），后续引入
-NumPy / PyTorch 时会在此更新。
+引擎核心使用 Python；神经网络训练/推理依赖 NumPy，Web UI 依赖 Flask。
+项目依赖可通过以下命令安装：
 
-### 运行游戏 (Human vs Random AI)
+```bash
+python -m pip install -r requirements.txt
+```
+
+### 运行游戏 (Human vs SearchEngine AI)
 
 ```bash
 python src/main.py
@@ -101,7 +107,7 @@ python src/main.py
 ### 运行测试
 
 ```bash
-pip install pytest --break-system-packages   # 如尚未安装
+python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 

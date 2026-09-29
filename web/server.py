@@ -9,7 +9,7 @@ implementation.
 
 Run locally:
 
-    pip install flask
+    python -m pip install -r requirements.txt
     python web/server.py
 
 Then open http://127.0.0.1:5000 in a browser.

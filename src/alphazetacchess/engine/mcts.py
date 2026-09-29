@@ -229,8 +229,9 @@ class MCTSEngine(ChessEngine):
         `docs/v0.9.6.md`).
 
         Returns `(root, legal_moves, completed_simulations)`.
-        `root` is `None` when `legal_moves` is empty (no legal moves
-        for `color` -- the game is already over, nothing to search).
+        `root` is `None` when there are no legal moves or the position
+        has already repeated three times; the former is a loss for the
+        side to move and the latter is a draw.
         `root.expanded` can still be `False` even with legal moves
         present, if cancelled before the very first simulation
         completed.
@@ -242,6 +243,8 @@ class MCTSEngine(ChessEngine):
 
         legal_moves = Rule.generate_legal_moves(board, color)
         if not legal_moves:
+            return None, legal_moves, 0
+        if board.is_repetition():
             return None, legal_moves, 0
 
         root = _MCTSNode(prior=1.0)
@@ -257,9 +260,10 @@ class MCTSEngine(ChessEngine):
     def root_visit_distribution(self, board, color, stop_event=None):
         """Convenience wrapper around `search_root`:
         `{move: visit_count}` for the root's children, empty if the
-        root never got a chance to expand (no legal moves, or
-        cancelled immediately). The natural raw material for an
-        AlphaZero-style policy training target -- see
+        root never got a chance to expand (no legal moves, an already
+        repeated position, or cancellation before the first
+        simulation). The natural raw material for an AlphaZero-style
+        policy training target -- see
         `tools/generate_mcts_policy_labels.py`.
         """
         root, legal_moves, _ = self.search_root(board, color, stop_event)
@@ -299,13 +303,10 @@ class MCTSEngine(ChessEngine):
         root, legal_moves, completed_simulations = self.search_root(board, color, stop_event)
 
         if root is None:
-            # No legal moves for `color` before any search even starts
-            # -- the game is already over. Mirrors SearchEngine's own
-            # SearchResult(None, ...) convention for this case, and
-            # _MCTSNode's own terminal_value=-1.0 convention (see
-            # module docstring): "no legal moves" is always a certain
-            # loss for the side to move in Xiangqi.
-            return SearchResult(None, -1.0, self.nodes_evaluated, 0)
+            # No legal moves is a loss; a repeated root position is a
+            # draw. Both terminate before any simulation starts.
+            score = 0.0 if legal_moves else -1.0
+            return SearchResult(None, score, self.nodes_evaluated, 0)
 
         if not root.expanded:
             return SearchResult(legal_moves[0], 0.0, self.nodes_evaluated, completed_simulations)
@@ -396,6 +397,10 @@ class MCTSEngine(ChessEngine):
             # whether it's checkmate or stalemate (see core/rule.py).
             node.is_terminal = True
             node.terminal_value = -1.0
+            return node.terminal_value
+        if board.is_repetition():
+            node.is_terminal = True
+            node.terminal_value = 0.0
             return node.terminal_value
 
         if self.policy_fn is not None:

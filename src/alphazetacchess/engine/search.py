@@ -112,15 +112,17 @@ class SearchEngine(ChessEngine):
             self.history.clear()
         self._check_stop(stop_event)
 
+        legal_moves = Rule.generate_legal_moves(board, color)
+        self._check_stop(stop_event)
+        if not legal_moves:
+            return SearchResult(None, -MATE_SCORE, self.nodes_evaluated, 0)
+        if board.is_repetition():
+            return SearchResult(None, 0, self.nodes_evaluated, 0)
+
         if self.use_opening_book and self.opening_book:
             book_move = self._book_move(board, color)
             if book_move is not None:
                 return book_move
-
-        legal_moves = Rule.generate_legal_moves(board, color)
-        self._check_stop(stop_event)
-        if not legal_moves:
-            return SearchResult(None, self._evaluate(board, color), self.nodes_evaluated, self.depth)
 
         if not self.iterative_deepening:
             try:
@@ -276,10 +278,16 @@ class SearchEngine(ChessEngine):
         ply = root_depth - depth
         key = board.zobrist_hash
         preferred_move = None
+        if board.is_repetition():
+            if not Rule.generate_legal_moves(board, current_color):
+                return -(MATE_SCORE - ply)
+            return 0
         if self.use_transposition_table:
             cached_score, preferred_move = self.tt.probe(key, depth, alpha, beta, ply=ply)
             if cached_score is not None and use_pruning:
                 return cached_score
+        if depth == 0 and self.use_quiescence:
+            return self._quiescence(board, alpha, beta, current_color, root_depth, 0, stop_event)
         legal_moves = Rule.generate_legal_moves(board, current_color)
         if not legal_moves:
             score = -(MATE_SCORE - ply)
@@ -287,12 +295,9 @@ class SearchEngine(ChessEngine):
                 self.tt.store(key, depth, score, Bound.EXACT, None, ply=ply)
             return score
         if depth == 0:
-            if self.use_quiescence:
-                score = self._quiescence(board, alpha, beta, current_color, root_depth, 0, stop_event)
-            else:
-                score = self._evaluate(board, current_color)
-                if self.use_transposition_table:
-                    self.tt.store(key, depth, score, Bound.EXACT, None, ply=ply)
+            score = self._evaluate(board, current_color)
+            if self.use_transposition_table:
+                self.tt.store(key, depth, score, Bound.EXACT, None, ply=ply)
             return score
 
         if allow_null and self._null_move_allowed(board, current_color, depth, ply, legal_moves):
@@ -367,20 +372,25 @@ class SearchEngine(ChessEngine):
         self.nodes_evaluated += 1
         ply = root_depth + qply
         key = board.zobrist_hash
+        q_key = (key, qply)
         alpha_original = alpha
+        if board.is_repetition():
+            if not Rule.generate_legal_moves(board, color):
+                return -(MATE_SCORE - ply)
+            return 0
         if self.use_transposition_table:
-            cached_score, _ = self.tt.probe(key, 0, alpha, beta, ply=ply)
+            cached_score, _ = self.tt.probe(q_key, 0, alpha, beta, ply=ply)
             if cached_score is not None:
                 return cached_score
         legal_moves = Rule.generate_legal_moves(board, color)
         if not legal_moves:
             score = -(MATE_SCORE - ply)
             if self.use_transposition_table:
-                self.tt.store(key, 0, score, Bound.EXACT, None, ply=ply)
+                self.tt.store(q_key, 0, score, Bound.EXACT, None, ply=ply)
             return score
-        if qply >= self.quiescence_max_ply:
-            return self._evaluate(board, color)
         in_check = Rule.is_in_check(board, color)
+        if qply >= self.quiescence_max_ply and not in_check:
+            return self._evaluate(board, color)
         if in_check:
             candidates = legal_moves
             best_score = float("-inf")
@@ -388,14 +398,14 @@ class SearchEngine(ChessEngine):
             stand_pat = self._evaluate(board, color)
             if stand_pat >= beta:
                 if self.use_transposition_table:
-                    self.tt.store(key, 0, stand_pat, Bound.LOWER, None, ply=ply)
+                    self.tt.store(q_key, 0, stand_pat, Bound.LOWER, None, ply=ply)
                 return stand_pat
             alpha = max(alpha, stand_pat)
             best_score = stand_pat
             candidates = [move for move in legal_moves if move.captured_piece is not None]
             if not candidates:
                 if self.use_transposition_table:
-                    self.tt.store(key, 0, stand_pat, Bound.EXACT, None, ply=ply)
+                    self.tt.store(q_key, 0, stand_pat, Bound.EXACT, None, ply=ply)
                 return stand_pat
         opponent = board.opponent(color)
         for move in candidates:
@@ -417,5 +427,5 @@ class SearchEngine(ChessEngine):
                 bound = Bound.LOWER
             else:
                 bound = Bound.EXACT
-            self.tt.store(key, 0, best_score, bound, None, ply=ply)
+            self.tt.store(q_key, 0, best_score, bound, None, ply=ply)
         return best_score

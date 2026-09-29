@@ -33,6 +33,7 @@ def test_fen_import_initializes_position_history():
 
     assert board.history == []
     assert board.position_history == [board.zobrist_hash]
+    assert board.repetition_history == [board.zobrist_hash]
     assert board.repetition_count() == 1
 
 

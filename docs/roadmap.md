@@ -23,6 +23,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.7 | COMPLETE | UCCI protocol control + search-cancellation/time-control foundation |
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
 | V0.9 | V0.9.1-9.9 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
+| V0.10 | V0.10.0 COMPLETE | Repetition / quiescence correctness and horizon efficiency |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -2240,4 +2241,26 @@ Current hand-off:
     (4) the doc sweep from V0.9.8 was keyword-based, not exhaustive.
     Update this roadmap at the end of whichever is picked.
 
-Last updated: 2026-09-15
+## Current checkpoint — V0.10.0 (2026-09-28)
+
+This section supersedes the older hand-off above for current work status. V0.10.0
+addresses search correctness before additional strength heuristics:
+
+- Repetition is now handled as a draw in alpha-beta, quiescence, and MCTS. Actual
+  repetition history excludes synthetic null moves, repeated results are checked before
+  TT reuse, and quiescence TT keys include the remaining extension budget.
+- Quiescence resolves check evasions even at its configured ply limit.
+- The tactical fixtures now assert objectively verified engine behavior (mate, safe
+  capture, and avoidance of an immediately recapturable exchange).
+- Horizon search no longer generates legal moves twice when entering quiescence.
+  Reference-position depth-3 iterative-deepening times improved by roughly 39–43% in
+  single local runs, with identical node counts, scores, and best moves.
+
+The complete report and validation caveats are in [`v0.10.0.md`](v0.10.0.md), with the
+current handoff in [`PROGRESS_NOTES.md`](PROGRESS_NOTES.md). A 20-game, color-balanced
+depth-4 vs. depth-3 match on the standard opening finished 10-10 with no draws (0
+estimated Elo). Its rough 95% score-rate interval is 30–70%; because it repeats the
+same deterministic opening, the result is inconclusive. The next substantive strength
+step is a color-balanced comparison across multiple openings.
+
+Last updated: 2026-09-28

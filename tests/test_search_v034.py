@@ -11,6 +11,7 @@ from alphazetacchess.core.rule import Rule
 from alphazetacchess.core.zobrist import Zobrist
 from alphazetacchess.engine.evaluation import evaluate
 from alphazetacchess.engine.search import SearchEngine
+from alphazetacchess.engine.transposition_table import Bound
 
 
 def empty_board():
@@ -166,3 +167,98 @@ def test_quiescence_safety_cap_terminates():
     )
 
     assert score == evaluate(board, Color.RED)
+
+
+def test_quiescence_resolves_check_even_at_the_safety_cap():
+    board = empty_board()
+
+    board._place(Piece(PieceType.KING, Color.RED, 4, 0))
+    board._place(Piece(PieceType.KING, Color.BLACK, 3, 9))
+    board._place(Piece(PieceType.ROOK, Color.BLACK, 4, 5))
+    board.zobrist_hash = Zobrist.board_hash(board)
+
+    assert Rule.is_in_check(board, Color.RED)
+    evaluated_check_positions = []
+
+    def record_evaluation(position, color):
+        evaluated_check_positions.append(Rule.is_in_check(position, color))
+        return evaluate(position, color)
+
+    engine = SearchEngine(
+        depth=1,
+        use_quiescence=True,
+        quiescence_max_ply=0,
+        eval_fn=record_evaluation,
+    )
+
+    score = engine._quiescence(
+        board,
+        float("-inf"),
+        float("inf"),
+        Color.RED,
+        root_depth=1,
+        qply=0,
+    )
+
+    assert isinstance(score, (int, float))
+    assert engine.nodes_evaluated > 1
+    assert evaluated_check_positions
+    assert not any(evaluated_check_positions)
+
+
+def test_quiescence_does_not_reuse_regular_tt_entry():
+    board = quiet_position()
+    engine = SearchEngine(depth=1, use_quiescence=True)
+    expected = evaluate(board, Color.RED)
+    engine.tt.store(
+        board.zobrist_hash,
+        depth=0,
+        score=expected + 1000,
+        bound=Bound.EXACT,
+        best_move=None,
+    )
+
+    score = engine._quiescence(
+        board,
+        float("-inf"),
+        float("inf"),
+        Color.RED,
+        root_depth=1,
+        qply=0,
+    )
+
+    assert score == expected
+    assert (board.zobrist_hash, 0) in engine.tt._table
+
+
+def test_quiescence_repetition_draw_precedes_tt_entry():
+    board = Board()
+    cycle = [
+        ((1, 0), (0, 2)),
+        ((1, 9), (0, 7)),
+        ((0, 2), (1, 0)),
+        ((0, 7), (1, 9)),
+    ]
+    for _ in range(2):
+        for move in cycle:
+            board.move(*move)
+
+    engine = SearchEngine(depth=1)
+    engine.tt.store(
+        (board.zobrist_hash, 0),
+        depth=0,
+        score=250,
+        bound=Bound.EXACT,
+        best_move=None,
+    )
+
+    score = engine._quiescence(
+        board,
+        float("-inf"),
+        float("inf"),
+        Color.RED,
+        root_depth=1,
+        qply=0,
+    )
+
+    assert score == 0

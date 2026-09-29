@@ -99,9 +99,9 @@ def board_from_fen(fen):
     not how it was reached, so there's nothing meaningful to put in
     move history -- this matters if the caller intends to call
     `board.undo()`, which won't work past this point).
-    The imported position is nevertheless recorded as the first entry
-    in `position_history`, so exact-position repetition checks work
-    from the imported position.
+    The imported position is recorded as the first entry in both
+    `position_history` and `repetition_history`; only the latter is
+    used for actual-game repetition checks.
     """
     fields = fen.strip().split()
     if len(fields) < 2:
@@ -113,6 +113,7 @@ def board_from_fen(fen):
     board.board = [[None for _ in range(board.WIDTH)] for _ in range(board.HEIGHT)]
     board.history = []
     board.position_history = []
+    board.repetition_history = []
 
     rows = placement.split("/")
     if len(rows) != board.HEIGHT:
@@ -149,4 +150,5 @@ def board_from_fen(fen):
 
     board.zobrist_hash = Zobrist.board_hash(board)
     board.position_history.append(board.zobrist_hash)
+    board.repetition_history.append(board.zobrist_hash)
     return board

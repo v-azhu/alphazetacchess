@@ -93,3 +93,22 @@ def test_root_visit_distribution_empty_when_no_legal_moves():
     distribution = engine.root_visit_distribution(board, Color.RED)
 
     assert distribution == {}
+
+
+def test_mcts_returns_draw_for_repetition_without_a_move():
+    board = Board()
+    cycle = [
+        ((1, 0), (0, 2)),
+        ((1, 9), (0, 7)),
+        ((0, 2), (1, 0)),
+        ((0, 7), (1, 9)),
+    ]
+    for _ in range(2):
+        for move in cycle:
+            board.move(*move)
+
+    result = MCTSEngine(simulations=20).choose_move(board, Color.RED)
+
+    assert result.best_move is None
+    assert result.score == 0
+    assert result.depth == 0

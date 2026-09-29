@@ -2,6 +2,7 @@ from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Piece, PieceType, Color
 from alphazetacchess.engine.search import SearchEngine
 from alphazetacchess.engine.evaluation import evaluate
+from alphazetacchess.engine.transposition_table import Bound, MATE_SCORE
 
 
 def empty_board():
@@ -20,6 +21,20 @@ def small_midgame_position():
     board._place(Piece(PieceType.HORSE, Color.BLACK, 7, 7))
     board._place(Piece(PieceType.PAWN, Color.RED, 4, 4))
     board._place(Piece(PieceType.PAWN, Color.BLACK, 4, 5))
+    return board
+
+
+def repeated_initial_position():
+    board = Board()
+    cycle = [
+        ((1, 0), (0, 2)),
+        ((1, 9), (0, 7)),
+        ((0, 2), (1, 0)),
+        ((0, 7), (1, 9)),
+    ]
+    for _ in range(2):
+        for move in cycle:
+            board.move(*move)
     return board
 
 
@@ -98,6 +113,61 @@ def test_engine_prefers_capturing_more_valuable_piece():
 
     assert result.best_move.captured_piece is not None
     assert result.best_move.captured_piece.type == PieceType.ROOK
+
+
+def test_search_returns_draw_for_repetition_without_a_move():
+    board = repeated_initial_position()
+    book = {
+        f"{board.zobrist_hash}-RED": {
+            "1,2-4,2": {"wins": 1, "draws": 0, "losses": 0, "games": 1}
+        }
+    }
+
+    result = SearchEngine(
+        depth=2,
+        use_opening_book=True,
+        opening_book=book,
+        opening_book_min_games=1,
+    ).choose_move(board, Color.RED)
+
+    assert result.best_move is None
+    assert result.score == 0
+    assert result.depth == 0
+    assert result.from_book is False
+
+
+def test_search_scores_no_legal_moves_as_a_loss():
+    board = empty_board()
+
+    result = SearchEngine(depth=2).choose_move(board, Color.RED)
+
+    assert result.best_move is None
+    assert result.score == -MATE_SCORE
+    assert result.depth == 0
+
+
+def test_repetition_draw_is_checked_before_transposition_table():
+    board = repeated_initial_position()
+    engine = SearchEngine(depth=2)
+    engine.tt.store(
+        board.zobrist_hash,
+        depth=2,
+        score=250,
+        bound=Bound.EXACT,
+        best_move=None,
+    )
+
+    score = engine._negamax(
+        board,
+        depth=2,
+        alpha=float("-inf"),
+        beta=float("inf"),
+        current_color=Color.RED,
+        root_depth=2,
+        use_pruning=True,
+    )
+
+    assert score == 0
 
 
 def test_engine_avoids_hanging_its_own_rook_when_it_can_see_the_recapture():

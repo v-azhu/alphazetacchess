@@ -42,6 +42,21 @@ def test_exact_position_repetition_counts_side_to_move():
     assert board.is_repetition()
 
 
+def test_null_moves_are_not_counted_as_repetition_occurrences():
+    board = Board()
+    initial_hash = board.zobrist_hash
+
+    board.null_move()
+    board.null_move()
+
+    assert board.zobrist_hash == initial_hash
+    assert board.repetition_count(initial_hash) == 1
+
+    board.undo_null_move()
+    board.undo_null_move()
+    assert board.repetition_history == [initial_hash]
+
+
 def test_fen_position_starts_new_repetition_history():
     fen = "4k4/9/9/9/9/9/9/9/9/4K4 w - - 0 1"
     board = board_from_fen(fen)

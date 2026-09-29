@@ -11,6 +11,7 @@ def test_null_move_preserves_board_and_restores_exact_state():
     before_player = board.current_player
     before_history = list(board.history)
     before_positions = list(board.position_history)
+    before_repetitions = list(board.repetition_history)
     before_text = str(board)
 
     board.null_move()
@@ -20,6 +21,7 @@ def test_null_move_preserves_board_and_restores_exact_state():
     assert str(board) == before_text
     assert board.history == before_history
     assert board.position_history[-1] == board.zobrist_hash
+    assert board.repetition_history == before_repetitions
 
     board.undo_null_move()
 
@@ -27,6 +29,7 @@ def test_null_move_preserves_board_and_restores_exact_state():
     assert board.current_player == before_player
     assert board.history == before_history
     assert board.position_history == before_positions
+    assert board.repetition_history == before_repetitions
     assert str(board) == before_text
 
 

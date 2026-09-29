@@ -1,6 +1,7 @@
 from alphazetacchess.core.fen import board_from_fen
 from alphazetacchess.core.piece import Color, PieceType
 from alphazetacchess.core.rule import Rule
+from alphazetacchess.engine.search import SearchEngine
 
 
 TACTICAL_POSITIONS = {
@@ -67,6 +68,25 @@ def immediate_mates(board, color):
         finally:
             board.undo()
     return mates
+
+
+def capture_targets(board, color, recapturable):
+    targets = []
+    for move in Rule.generate_legal_moves(board, color):
+        if move.captured_piece is None:
+            continue
+        board.move(move.from_pos, move.to_pos)
+        try:
+            opponent = board.opponent(color)
+            can_recapture = any(
+                reply.to_pos == move.to_pos
+                for reply in Rule.generate_legal_moves(board, opponent)
+            )
+            if can_recapture == recapturable:
+                targets.append(move)
+        finally:
+            board.undo()
+    return targets
 
 
 def assert_expected_pieces(board, expected):
@@ -140,3 +160,29 @@ def test_tactical_helpers_restore_board_state():
 
     assert board.zobrist_hash == before_hash
     assert board.current_player == before_player
+
+
+def test_search_respects_objectively_checked_tactical_properties():
+    mate_board = board_from_fen(TACTICAL_POSITIONS["mate_in_one"]["fen"])
+    mate_moves = {
+        (move.from_pos, move.to_pos)
+        for move in immediate_mates(mate_board, Color.RED)
+    }
+    mate_result = SearchEngine(depth=2).choose_move(mate_board, Color.RED)
+    assert (mate_result.best_move.from_pos, mate_result.best_move.to_pos) in mate_moves
+
+    free_board = board_from_fen(TACTICAL_POSITIONS["free_capture"]["fen"])
+    safe_captures = {
+        (move.from_pos, move.to_pos)
+        for move in capture_targets(free_board, Color.RED, recapturable=False)
+    }
+    free_result = SearchEngine(depth=2).choose_move(free_board, Color.RED)
+    assert (free_result.best_move.from_pos, free_result.best_move.to_pos) in safe_captures
+
+    trap_board = board_from_fen(TACTICAL_POSITIONS["exchange_trap"]["fen"])
+    unsafe_captures = {
+        (move.from_pos, move.to_pos)
+        for move in capture_targets(trap_board, Color.RED, recapturable=True)
+    }
+    trap_result = SearchEngine(depth=2).choose_move(trap_board, Color.RED)
+    assert (trap_result.best_move.from_pos, trap_result.best_move.to_pos) not in unsafe_captures

@@ -1,93 +1,88 @@
-# AlphaZetaChess Progress Snapshot — calibrated material comparison: inconclusive at n=20
+# AlphaZetaChess Current Progress
 
-Snapshot date: 2026-09-06
+Snapshot date: 2026-09-28
 
-## What happened this checkpoint
+Starting revision: `f945c40`; this checkpoint's changes are in the current worktree.
 
-User ran the real, uninterrupted 20-game comparison the previous
-checkpoint called for: `--a-use-calibrated-material --a-depth 2
---b-depth 2 --games 20`.
+## Current engine status
 
-**Result**: 4 calibrated-values wins, 5 default-values wins, 11 draws
-(55% draw rate). Score rate 47.5%, Elo -17. Verified directly from
-`data/selfplay.jsonl`, matching the user's reported numbers exactly.
+- The primary playing engine is the alpha-beta `SearchEngine`; the CLI defaults to
+  depth 4. The Web UI uses its SEE-enhanced search variant, also at depth 4.
+- MCTS, neural evaluation, and policy networks remain runnable experiments. Existing
+  match results do not show them outperforming the traditional search baseline.
+- Null Move pruning remains opt-in. The latest correctness and search-boundary work is
+  recorded in [`v0.10.0.md`](v0.10.0.md); older experiments remain in
+  [`roadmap.md`](roadmap.md) and their version-specific documents.
 
-**-17 Elo is not a meaningful finding at this sample size — it's
-statistical noise, not evidence of near-parity.** Computed the
-approximate 95% confidence interval on the score rate: roughly
-**[26%, 69%]** — wide enough to be consistent with anything from a
-real, substantial disadvantage to a real, substantial advantage for
-the calibrated values. Explicitly distinguished this from V0.6.2's
-neural-evaluator result (a real, converged -269 Elo at the *same*
-n=20 sample size, which WAS large enough to be confidently
-distinguished from noise) — not every "small negative Elo number" this
-project reports means the same thing, and conflating them would be a
-real mistake.
+## Latest completed work
 
-**What this checkpoint can and cannot conclude**: cannot conclude the
-calibrated values measurably help OR measurably hurt at depth=2 — the
-sample doesn't support either claim. Can conclude the mechanism itself
-works correctly end to end (confirmed by the unit tests and this real
-run completing without error). Two genuinely separate things kept
-straight: the *regression finding* itself (Rook/Cannon/Horse
-undervalued ~1.7-1.9x vs. Pawn, fit against 94,872 real Pikafish
-scores) is real and well-supported; whether *acting on it* measurably
-improves actual game outcomes is a separate, still-open empirical
-question this run couldn't resolve — would need very roughly 100+
-games to narrow the confidence interval enough to detect an effect in
-a plausible range.
+V0.10.0 fixed three search correctness issues:
 
-`CALIBRATED_MATERIAL_VALUES` and `--use-calibrated-material` remain
-available, tested, and off by default.
+1. Repetition draws are recognized in alpha-beta, quiescence, and MCTS. Search returns
+   draw score 0 without caching a path-dependent repetition result as an ordinary
+   transposition-table score.
+2. Search-only null moves are excluded from actual repetition counts.
+3. Quiescence search still resolves check evasions when its nominal ply cap is reached.
+   Quiescence TT entries are now keyed by both position and quiescence ply, so entries
+   searched with different remaining extension budgets cannot collide.
 
-## What was verified this checkpoint
+The same checkpoint removes a redundant legal-move generation at the depth-zero
+quiescence boundary. On the three checked reference positions at depth 3, iterative
+deepening took 2.735s vs. 4.798s, 3.666s vs. 6.063s, and 1.953s vs. 3.193s before the
+change. Node counts, scores, and best moves were unchanged. Timings are single-run
+measurements and should be treated as local performance evidence, not portable targets.
 
+The tactical regression suite now asserts independently checkable properties:
+find an immediate mate, take an objectively safe capture, and avoid a capture that
+allows an immediate recapture. A depth 2–4 diagnostic run passed all three cases and
+confirmed that the input board state was restored after each search.
+
+## Depth-4 vs. depth-3 match
+
+Completed 20 games with colors balanced: depth 4 played Red in 10 and Black in 10.
+Opening randomization was disabled, so every game began from the standard initial
+position. Result from depth 4's perspective: **10 wins, 10 losses, 0 draws**, score
+rate 50%, estimated Elo difference 0.
+
+This is inconclusive, not evidence that the depths are equal. Even treating the 20
+games as independent gives a rough 95% score-rate interval of 30–70% (about -148 to
++148 Elo). In addition, repeating the same deterministic opening gives little opening
+diversity, so a follow-up should use a balanced set of randomized or curated openings
+and report game-level uncertainty. The full records are in
+`data/v0.10_depth4_vs_depth3.jsonl`.
+
+## Validation
+
+The complete test suite passed for the final current worktree: **343 passed**.
+
+Useful commands:
+
+```powershell
+python -m pytest -q
+python tools/benchmark_tactics.py --depths 2 3 4
+python tools/benchmark_search.py --depths 2 3
 ```
-pytest -q   (full suite, unchanged code)
-195 passed in 164.51s
+
+## Current caveats and next steps
+
+- The 20-game depth-4 vs. depth-3 match is inconclusive and uses only the initial
+  position. Search speed and tactical gates are not substitutes for playing-strength
+  measurement.
+- Historical design documents such as `docs/architecture.md` describe the initial
+  project intent. Use this snapshot and the V0.10.0 report for current implementation
+  status.
+- A more informative depth-4 vs. depth-3 match remains the next strength-validation
+  step. It should alternate colors over multiple openings, record all games, and report
+  uncertainty rather than treating a point Elo estimate as decisive.
+- Continue with targeted profiling and tactical tests before adding forward pruning or
+  changing evaluation weights. Keep experimental pruning disabled until it is shown
+  not to regress objective tactical tests and improves match results.
+
+The completed single-opening comparison can be reproduced with:
+
+```powershell
+python tools/compare_engines.py --a-depth 4 --b-depth 3 --games 20 --random-opening-plies 0 --random-opening-prob 0 --output data/v0.10_depth4_vs_depth3.jsonl
 ```
-Result recomputed directly from `data/selfplay.jsonl` (win/loss/draw
-tally and Elo formula), plus an approximate confidence-interval
-calculation to properly characterize what the sample size can and
-cannot support — not just reporting the point estimate.
 
-## What changed
-
-- `docs/v0.6.3.md`: second addendum with the real comparison result
-  and the inconclusive-vs-neutral distinction.
-- `docs/roadmap.md`: hand-off updated.
-- (`data/selfplay.jsonl` already had the 20 games from the user's push
-  — no local change needed beyond documentation.)
-
-## Exact next step
-
-**A much larger comparison run (very roughly 100+ games)** is the
-natural way to actually settle whether the calibrated material values
-help, whenever that scale of compute is available:
-```bash
-python tools/compare_engines.py --a-use-calibrated-material --a-depth 2 --b-depth 2 --games 100 --output data/selfplay.jsonl
-```
-Not attempted further this session (would need many hours at this
-project's current per-game speed).
-
-**Still separately open**:
-- Investigate the near-zero pawn-structure/piece-coordination
-  regression coefficients' actual variance/prevalence in the real
-  corpus before drawing any conclusion about them.
-- V0.6.1's `MCTSEngine` still has no real strength benchmark against
-  `SearchEngine` at any depth.
-
-## Handoff rule (unchanged, repeated for visibility)
-
-At the next interruption, update this file with:
-1. latest commit / repo state (or "continuing from this session's
-   sandbox" when there isn't a fresh GitHub push to check);
-2. pytest count/result;
-3. benchmark result (or honest non-result, or "deliberately not
-   attempted and why");
-4. remaining checklist;
-5. one exact next command.
-
-This keeps the project resumable without relying on conversation
-memory, and keeps each checkpoint's own work small enough to finish
-within a single response.
+For broader coverage, retain the default randomized opening plies and increase the
+game count; runtime will be substantial at depth 4.
