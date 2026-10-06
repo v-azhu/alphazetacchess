@@ -39,6 +39,7 @@ class BenchmarkResult:
     score: float
     best_move: str
     completed_depth: int
+    aspiration_researches: int
 
 
 def move_signature(move):
@@ -85,12 +86,13 @@ def make_position(name):
     return board
 
 
-def run_once(position_name, mode, depth):
+def run_once(position_name, mode, depth, aspiration_window=100):
     board = make_position(position_name)
 
     engine = SearchEngine(
         depth=depth,
         iterative_deepening=(mode == "iterative"),
+        aspiration_window=aspiration_window,
     )
 
     started = time.perf_counter()
@@ -111,6 +113,7 @@ def run_once(position_name, mode, depth):
         score=result.score,
         best_move=move_text(result.best_move),
         completed_depth=result.depth,
+        aspiration_researches=engine.aspiration_researches,
     )
 
 
@@ -135,7 +138,15 @@ def main():
         default=None,
         help="optional JSON output path",
     )
+    parser.add_argument(
+        "--aspiration-window",
+        type=int,
+        default=100,
+        help="root aspiration half-window in evaluation points (default: 100)",
+    )
     args = parser.parse_args()
+    if args.aspiration_window < 1:
+        parser.error("--aspiration-window must be at least 1")
 
     positions = [
         "initial",
@@ -158,7 +169,12 @@ def main():
                 samples = []
 
                 for _ in range(args.repeat):
-                    sample = run_once(position, mode, depth)
+                    sample = run_once(
+                        position,
+                        mode,
+                        depth,
+                        args.aspiration_window,
+                    )
                     samples.append(sample)
 
                 # Use the arithmetic mean for timing/node reporting.
@@ -193,7 +209,8 @@ def main():
                 f"{baseline.nps:>10.0f} NPS | "
                 f"ID {optimized.elapsed_seconds:8.3f}s "
                 f"{optimized.nodes:>9} nodes "
-                f"{optimized.nps:>10.0f} NPS | "
+                f"{optimized.nps:>10.0f} NPS "
+                f"{optimized.aspiration_researches:>2} aspiration re-searches | "
                 f"same(score/move)={same_score}/{same_move}"
             )
 

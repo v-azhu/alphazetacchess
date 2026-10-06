@@ -44,6 +44,16 @@ def test_evaluate_fen_parses_a_cp_score():
     client.close()
 
 
+def test_search_depth_is_sent_and_reported():
+    with PikafishClient(
+        fake_engine_command("cp", 37, "expect_depth4"), search_depth=4
+    ) as client:
+        result = client.evaluate_fen(_STARTING_FEN)
+
+    assert result["best_move"] == "a0a1"
+    assert result["depth"] == 1
+
+
 def test_evaluate_fen_parses_a_mate_score():
     client = PikafishClient(fake_engine_command("mate", 5), movetime_ms=50)
 

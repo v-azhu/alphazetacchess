@@ -15,7 +15,7 @@ class MoveGenerator:
     filter is the responsibility of the Rule engine.
     """
 
-    def generate_moves(self, board, color):
+    def generate_moves(self, board, color, captures_only=False):
         moves = []
 
         for y in range(board.HEIGHT):
@@ -28,29 +28,26 @@ class MoveGenerator:
                 if piece.color != color:
                     continue
 
-                moves.extend(
-                    self.generate_piece_moves(board, piece)
-                )
+                moves.extend(self.generate_piece_moves(board, piece, captures_only))
 
         return moves
 
-    def generate_piece_moves(self, board, piece):
-        handlers = {
-            PieceType.ROOK: self._rook_moves,
-            PieceType.HORSE: self._horse_moves,
-            PieceType.CANNON: self._cannon_moves,
-            PieceType.ELEPHANT: self._elephant_moves,
-            PieceType.ADVISOR: self._advisor_moves,
-            PieceType.KING: self._king_moves,
-            PieceType.PAWN: self._pawn_moves,
-        }
-
-        handler = handlers.get(piece.type)
-
-        if handler is None:
-            return []
-
-        return handler(board, piece)
+    def generate_piece_moves(self, board, piece, captures_only=False):
+        if piece.type == PieceType.ROOK:
+            return self._rook_moves(board, piece, captures_only)
+        if piece.type == PieceType.HORSE:
+            return self._horse_moves(board, piece, captures_only)
+        if piece.type == PieceType.CANNON:
+            return self._cannon_moves(board, piece, captures_only)
+        if piece.type == PieceType.ELEPHANT:
+            return self._elephant_moves(board, piece, captures_only)
+        if piece.type == PieceType.ADVISOR:
+            return self._advisor_moves(board, piece, captures_only)
+        if piece.type == PieceType.KING:
+            return self._king_moves(board, piece, captures_only)
+        if piece.type == PieceType.PAWN:
+            return self._pawn_moves(board, piece, captures_only)
+        return []
 
     def _make_move(self, piece, to_pos, target):
         move = Move(piece.position(), to_pos)
@@ -61,7 +58,7 @@ class MoveGenerator:
     # ------------------------------------------------------------------
     # Rook (车): moves any distance orthogonally, blocked by pieces.
     # ------------------------------------------------------------------
-    def _rook_moves(self, board, piece):
+    def _rook_moves(self, board, piece, captures_only=False):
         moves = []
         directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 
@@ -78,7 +75,8 @@ class MoveGenerator:
                 target = board.get(x, y)
 
                 if target is None:
-                    moves.append(self._make_move(piece, (x, y), None))
+                    if not captures_only:
+                        moves.append(self._make_move(piece, (x, y), None))
                 else:
                     if target.color != piece.color:
                         moves.append(self._make_move(piece, (x, y), target))
@@ -90,7 +88,7 @@ class MoveGenerator:
     # Cannon (炮): moves like a Rook when not capturing. To capture, it
     # must jump over exactly one piece (the "screen") in that direction.
     # ------------------------------------------------------------------
-    def _cannon_moves(self, board, piece):
+    def _cannon_moves(self, board, piece, captures_only=False):
         moves = []
         directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 
@@ -109,7 +107,8 @@ class MoveGenerator:
 
                 if not screen_found:
                     if target is None:
-                        moves.append(self._make_move(piece, (x, y), None))
+                        if not captures_only:
+                            moves.append(self._make_move(piece, (x, y), None))
                     else:
                         # First piece encountered becomes the screen.
                         # The cannon cannot land on it directly.
@@ -129,7 +128,7 @@ class MoveGenerator:
     # Horse (马): moves 1 orthogonal + 1 diagonal, blocked by the piece
     # directly adjacent in the orthogonal direction ("horse leg" / 蹩腿).
     # ------------------------------------------------------------------
-    def _horse_moves(self, board, piece):
+    def _horse_moves(self, board, piece, captures_only=False):
         moves = []
 
         # (target offset, leg/blocking offset)
@@ -162,8 +161,10 @@ class MoveGenerator:
 
             target = board.get(x, y)
 
-            if target is None or target.color != piece.color:
+            if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
+            elif target is None and not captures_only:
+                moves.append(self._make_move(piece, (x, y), None))
 
         return moves
 
@@ -172,7 +173,7 @@ class MoveGenerator:
     # the midpoint ("elephant eye" / 塞象眼) is occupied. May never
     # cross the river.
     # ------------------------------------------------------------------
-    def _elephant_moves(self, board, piece):
+    def _elephant_moves(self, board, piece, captures_only=False):
         moves = []
         offsets = [(2, 2), (2, -2), (-2, 2), (-2, -2)]
 
@@ -194,15 +195,17 @@ class MoveGenerator:
 
             target = board.get(x, y)
 
-            if target is None or target.color != piece.color:
+            if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
+            elif target is None and not captures_only:
+                moves.append(self._make_move(piece, (x, y), None))
 
         return moves
 
     # ------------------------------------------------------------------
     # Advisor (士/仕): moves 1 square diagonally, confined to the palace.
     # ------------------------------------------------------------------
-    def _advisor_moves(self, board, piece):
+    def _advisor_moves(self, board, piece, captures_only=False):
         moves = []
         offsets = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
 
@@ -215,8 +218,10 @@ class MoveGenerator:
 
             target = board.get(x, y)
 
-            if target is None or target.color != piece.color:
+            if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
+            elif target is None and not captures_only:
+                moves.append(self._make_move(piece, (x, y), None))
 
         return moves
 
@@ -225,7 +230,7 @@ class MoveGenerator:
     # The "flying general" rule is enforced separately by Rule, since it
     # is a position-level restriction rather than a normal move pattern.
     # ------------------------------------------------------------------
-    def _king_moves(self, board, piece):
+    def _king_moves(self, board, piece, captures_only=False):
         moves = []
         offsets = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 
@@ -238,8 +243,10 @@ class MoveGenerator:
 
             target = board.get(x, y)
 
-            if target is None or target.color != piece.color:
+            if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
+            elif target is None and not captures_only:
+                moves.append(self._make_move(piece, (x, y), None))
 
         return moves
 
@@ -247,7 +254,7 @@ class MoveGenerator:
     # Pawn (卒/兵): 1 square forward only before crossing the river.
     # After crossing, gains 1 square sideways, but never moves backward.
     # ------------------------------------------------------------------
-    def _pawn_moves(self, board, piece):
+    def _pawn_moves(self, board, piece, captures_only=False):
         moves = []
 
         forward = 1 if piece.color == Color.RED else -1
@@ -268,7 +275,9 @@ class MoveGenerator:
 
             target = board.get(x, y)
 
-            if target is None or target.color != piece.color:
+            if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
+            elif target is None and not captures_only:
+                moves.append(self._make_move(piece, (x, y), None))
 
         return moves

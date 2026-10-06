@@ -146,6 +146,24 @@ def test_search_scores_no_legal_moves_as_a_loss():
     assert result.depth == 0
 
 
+def test_quiescence_recognizes_stalemate_as_a_loss():
+    from alphazetacchess.core.fen import board_from_fen
+
+    board = board_from_fen(
+        "3aca3/1Cnrk4/b3r4/2p1n4/2b6/9/9/9/4C4/ppppcK3 b - - 0 1"
+    )
+    score = SearchEngine(depth=1)._quiescence(
+        board,
+        alpha=float("-inf"),
+        beta=float("inf"),
+        color=Color.BLACK,
+        root_depth=0,
+        qply=0,
+    )
+
+    assert score == -MATE_SCORE
+
+
 def test_repetition_draw_is_checked_before_transposition_table():
     board = repeated_initial_position()
     engine = SearchEngine(depth=2)

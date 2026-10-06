@@ -81,23 +81,42 @@ class Rule:
         board array and the moved piece's coordinates to be correct --
         the Zobrist hash, side-to-move flip, and history bookkeeping
         `move()` also maintains are all discarded immediately when the
-        probe is undone, and profiling showed them to be one of the
-        engine's largest single costs at 156,554 probes per depth-3
-        search. See `Board.probe_move`'s own docstring for why that
-        method is deliberately not exposed as a general-purpose faster
-        `move()`.
+        probe is undone. See `Board.probe_move`'s own docstring for why
+        that method is deliberately not exposed as a general-purpose
+        faster `move()`.
         """
         legal_moves = []
 
         for move in cls.pseudo_legal_moves(board, color):
-            piece, captured = board.probe_move(move.from_pos, move.to_pos)
-            still_in_check = cls.is_in_check(board, color)
-            board.undo_probe(move.from_pos, move.to_pos, piece, captured)
-
-            if not still_in_check:
+            if cls._is_legal_candidate(board, move, color):
                 legal_moves.append(move)
 
         return legal_moves
+
+    @classmethod
+    def generate_legal_captures(cls, board, color):
+        """Generate and validate captures without constructing quiet moves."""
+        captures = []
+        for move in cls._generator.generate_moves(board, color, captures_only=True):
+            if cls._is_legal_candidate(board, move, color):
+                captures.append(move)
+        return captures
+
+    @classmethod
+    def has_legal_move(cls, board, color):
+        """Return as soon as one legal move is found."""
+        for move in cls.pseudo_legal_moves(board, color):
+            if cls._is_legal_candidate(board, move, color):
+                return True
+        return False
+
+    @classmethod
+    def _is_legal_candidate(cls, board, move, color):
+        piece, captured = board.probe_move(move.from_pos, move.to_pos)
+        try:
+            return not cls.is_in_check(board, color)
+        finally:
+            board.undo_probe(move.from_pos, move.to_pos, piece, captured)
 
     @classmethod
     def is_legal_move(cls, board, move, color):

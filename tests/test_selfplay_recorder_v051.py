@@ -81,6 +81,22 @@ def test_a_decisive_forced_mate_game_records_the_correct_winner_and_moves():
     assert record["moves"][0]["to"] == [5, 7]  # (6,5)->(5,7) delivers mate on (4,9)
 
 
+def test_terminal_move_on_the_limit_is_not_misrecorded_as_a_draw():
+    board = empty_board()
+    put(board, PieceType.KING, Color.BLACK, 4, 9)
+    put(board, PieceType.ADVISOR, Color.BLACK, 3, 9)
+    put(board, PieceType.ADVISOR, Color.BLACK, 5, 9)
+    put(board, PieceType.ELEPHANT, Color.BLACK, 4, 8)
+    put(board, PieceType.ROOK, Color.BLACK, 0, 9)
+    put(board, PieceType.HORSE, Color.RED, 6, 5)
+    put(board, PieceType.KING, Color.RED, 3, 0)
+
+    record = play_recorded_game(SearchEngine(depth=2), RandomEngine(), max_moves=1, board=board)
+
+    assert record["total_moves"] == 1
+    assert record["result"] == "RED_WINS"
+
+
 def test_append_and_load_records_round_trip():
     record_a = play_recorded_game(RandomEngine(), RandomEngine(), max_moves=0)
     record_b = play_recorded_game(

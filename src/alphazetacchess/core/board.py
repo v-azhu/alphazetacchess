@@ -158,11 +158,9 @@ class Board:
         need: four Zobrist `PIECE_KEYS` lookups (each hashing a
         4-tuple containing two enums -- genuinely expensive in Python),
         the side-to-move flip, and appends to both `history` and
-        `position_history`. Profiling showed `generate_legal_moves`
-        driving 156,554 make/unmake pairs in a single depth-3 search,
-        making all of that bookkeeping one of the engine's largest
-        costs -- and every bit of it is discarded microseconds later
-        when the probe is undone.
+        `position_history`. Search profiling showed that this
+        make/unmake bookkeeping was a significant repeated cost, and
+        every bit of it is discarded when the probe is undone.
 
         A probe only needs what the attack detector actually reads:
         the board array, and the moved piece's own `x`/`y`. So that is

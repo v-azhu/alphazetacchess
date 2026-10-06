@@ -3,8 +3,8 @@
 
 Deliberately minimal -- this only implements the handful of UCI
 commands needed to ask "what do you think of this position": `uci`/
-`uciok`, `isready`/`readyok`, `position fen ...`, and `go movetime
-...` followed by reading `info ...` lines until `bestmove ...`. It is
+`uciok`, `isready`/`readyok`, `position fen ...`, and either `go movetime
+...` or `go depth ...`, followed by reading `info ...` lines until `bestmove ...`. It is
 NOT a general UCI GUI backend (no pondering, no multi-PV, no time
 management beyond a fixed per-position `movetime`).
 
@@ -36,8 +36,15 @@ class PikafishClient:
     negligible).
     """
 
-    def __init__(self, engine_path, movetime_ms=200, network_path=None):
+    def __init__(
+        self, engine_path, movetime_ms=200, network_path=None, search_depth=None
+    ):
+        if movetime_ms < 1:
+            raise ValueError("movetime_ms must be positive")
+        if search_depth is not None and search_depth < 1:
+            raise ValueError("search_depth must be positive")
         self.movetime_ms = movetime_ms
+        self.search_depth = search_depth
         self._process = subprocess.Popen(
             engine_path if isinstance(engine_path, list) else [engine_path],
             stdin=subprocess.PIPE,
@@ -47,7 +54,7 @@ class PikafishClient:
             bufsize=1,  # line-buffered
         )
         self._send("uci")
-        self._read_until("uciok")
+        self.uci_lines = self._read_until("uciok")
         if network_path is not None:
             # Pikafish (and NNUE engines generally) can't search at
             # all without a network loaded -- if it isn't sitting next
@@ -93,14 +100,15 @@ class PikafishClient:
 
     def evaluate_fen(self, fen):
         """
-        Ask the engine to evaluate `fen` for `self.movetime_ms`
-        milliseconds. Returns a dict:
+        Ask the engine to evaluate `fen` using the configured time limit
+        or search depth. Returns a dict:
             {"score_cp": <int, from the side-to-move's perspective, or
                           None if the engine only ever reported a mate
                           score>,
              "mate_in": <int, plies to mate, signed (positive = the
                          side to move delivers it), or None>,
-             "best_move": <str, engine's UCI move notation>}
+             "best_move": <str, engine's UCI move notation>,
+             "depth": <int, last reported search depth, or None>}
 
         Per the UCI protocol, `score cp` is always from the
         perspective of whichever side is to move in the FEN sent --
@@ -111,15 +119,21 @@ class PikafishClient:
         scheme.
         """
         self._send(f"position fen {fen}")
-        self._send(f"go movetime {self.movetime_ms}")
+        if self.search_depth is None:
+            self._send(f"go movetime {self.movetime_ms}")
+        else:
+            self._send(f"go depth {self.search_depth}")
         lines = self._read_until("bestmove")
 
         score_cp = None
         mate_in = None
+        depth = None
         for line in lines:
             if not line.startswith("info "):
                 continue
             tokens = line.split()
+            if "depth" in tokens:
+                depth = int(tokens[tokens.index("depth") + 1])
             if "score" not in tokens:
                 continue
             score_index = tokens.index("score")
@@ -134,14 +148,29 @@ class PikafishClient:
 
         best_move = lines[-1].split()[1] if len(lines[-1].split()) > 1 else None
 
-        return {"score_cp": score_cp, "mate_in": mate_in, "best_move": best_move}
+        return {
+            "score_cp": score_cp,
+            "mate_in": mate_in,
+            "best_move": best_move,
+            "depth": depth,
+        }
 
     def close(self):
+        if self._process.poll() is None:
+            try:
+                self._send("quit")
+            except BrokenPipeError:
+                pass
         try:
-            self._send("quit")
             self._process.wait(timeout=5)
-        except Exception:
+        except subprocess.TimeoutExpired:
             self._process.kill()
+            self._process.wait()
+        finally:
+            if self._process.stdin is not None:
+                self._process.stdin.close()
+            if self._process.stdout is not None:
+                self._process.stdout.close()
 
     def __enter__(self):
         return self

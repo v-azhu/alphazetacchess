@@ -1,7 +1,10 @@
 from alphazetacchess.core.fen import board_from_fen
+from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color
+from alphazetacchess.core.piece import Piece, PieceType
 from alphazetacchess.core.rule import Rule
 from alphazetacchess.engine.see import StaticExchangeEvaluator
+from alphazetacchess.engine.search_see import SeeSearchEngine
 
 
 def _capture(board, from_pos, to_pos):
@@ -42,3 +45,27 @@ def test_see_does_not_modify_board():
 
     assert board.zobrist_hash == before
     assert board.current_player == Color.RED
+
+
+def test_see_search_engine_uses_board_for_capture_ordering():
+    board = Board()
+    board.board = [[None for _ in range(Board.WIDTH)] for _ in range(Board.HEIGHT)]
+    for piece in (
+        Piece(PieceType.KING, Color.RED, 4, 0),
+        Piece(PieceType.KING, Color.BLACK, 5, 9),
+        Piece(PieceType.ROOK, Color.RED, 0, 5),
+        Piece(PieceType.ROOK, Color.RED, 8, 5),
+        Piece(PieceType.PAWN, Color.BLACK, 0, 6),
+        Piece(PieceType.HORSE, Color.BLACK, 8, 6),
+    ):
+        board._place(piece)
+    captures = [
+        move for move in Rule.generate_legal_moves(board, Color.RED)
+        if move.captured_piece is not None
+    ]
+    engine = SeeSearchEngine(depth=3, use_see=True)
+
+    engine._order_moves(captures, None, board=board)
+
+    assert len(captures) == 2
+    assert engine.see.calls == 2

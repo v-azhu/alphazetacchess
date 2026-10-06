@@ -67,9 +67,8 @@ class StaticExchangeEvaluator:
             return cached
 
         captures = [
-            move
-            for move in Rule.generate_legal_moves(board, side)
-            if move.to_pos == target and move.captured_piece is not None
+            move for move in Rule.generate_legal_captures(board, side)
+            if move.to_pos == target
         ]
         if not captures:
             memo[key] = 0

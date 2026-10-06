@@ -70,7 +70,10 @@ def play_recorded_game(
         })
         board.move(move.from_pos, move.to_pos)
     else:
-        result = "DRAW"  # move limit reached without the while loop's own break firing
+        if Rule.is_game_over(board, board.current_player):
+            result = "BLACK_WINS" if board.current_player == Color.RED else "RED_WINS"
+        else:
+            result = "DRAW"  # move limit reached without the while loop's own break firing
 
     return {
         "red_config": red_config or {},

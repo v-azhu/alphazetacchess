@@ -1,5 +1,5 @@
 from alphazetacchess.core.board import Board
-from alphazetacchess.core.fen import board_from_fen
+from alphazetacchess.core.fen import board_from_fen, board_to_fen
 from alphazetacchess.core.move_generator import MoveGenerator
 from alphazetacchess.core.piece import Piece, PieceType, Color
 from alphazetacchess.core.rule import Rule, TerminationReason
@@ -139,3 +139,59 @@ def test_repetition_becomes_a_draw_after_three_occurrences():
     result = Rule.game_result(board)
     assert result.reason is TerminationReason.REPETITION
     assert result.winner is None
+
+
+def test_capture_generation_and_early_legal_move_check_match_full_legal_moves():
+    board = empty_board()
+    board._place(Piece(PieceType.KING, Color.RED, 4, 0))
+    board._place(Piece(PieceType.KING, Color.BLACK, 5, 9))
+    board._place(Piece(PieceType.ROOK, Color.RED, 0, 5))
+    board._place(Piece(PieceType.HORSE, Color.BLACK, 4, 5))
+
+    full_legal_moves = Rule.generate_legal_moves(board, Color.RED)
+    captures = Rule.generate_legal_captures(board, Color.RED)
+
+    assert {(move.from_pos, move.to_pos) for move in captures} == {
+        (move.from_pos, move.to_pos)
+        for move in full_legal_moves
+        if move.captured_piece is not None
+    }
+    assert Rule.has_legal_move(board, Color.RED) is bool(full_legal_moves)
+    assert Rule.has_legal_move(board, Color.RED) is True
+
+
+def test_early_legal_move_checks_detect_stalemate():
+    board = board_from_fen(
+        "3aca3/1Cnrk4/b3r4/2p1n4/2b6/9/9/9/4C4/ppppcK3 b - - 0 1"
+    )
+
+    captures = Rule.generate_legal_captures(board, Color.BLACK)
+
+    assert captures == []
+    assert Rule.has_legal_move(board, Color.BLACK) is False
+
+
+def test_capture_only_moves_match_full_generator_on_opening_positions():
+    board = Board()
+    positions = [board_to_fen(board)]
+    for from_pos, to_pos in (
+        ((1, 0), (2, 2)),
+        ((1, 9), (2, 7)),
+        ((1, 2), (1, 4)),
+        ((1, 7), (1, 5)),
+    ):
+        board.move(from_pos, to_pos)
+        positions.append(board_to_fen(board))
+
+    for fen in positions:
+        position = board_from_fen(fen)
+        for color in (Color.RED, Color.BLACK):
+            full_moves = Rule.generate_legal_moves(position, color)
+            capture_moves = Rule.generate_legal_captures(position, color)
+            expected = {
+                (move.from_pos, move.to_pos)
+                for move in full_moves
+                if move.captured_piece is not None
+            }
+            actual = {(move.from_pos, move.to_pos) for move in capture_moves}
+            assert actual == expected

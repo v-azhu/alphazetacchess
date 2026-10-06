@@ -35,7 +35,10 @@ class SearchEngine(ChessEngine):
                  use_killer_moves=True, use_mvv_lva=False,
                  use_history=True, use_null_move=False,
                  null_move_reduction=2, null_move_min_depth=3,
+                 aspiration_window=100,
                  null_move_min_pieces=7):
+        if aspiration_window < 1:
+            raise ValueError("aspiration_window must be at least 1")
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
         self.iterative_deepening = iterative_deepening
@@ -64,6 +67,9 @@ class SearchEngine(ChessEngine):
         self.null_move_reduction = max(1, null_move_reduction)
         self.null_move_min_depth = max(1, null_move_min_depth)
         self.null_move_min_pieces = max(2, null_move_min_pieces)
+        self.aspiration_window = aspiration_window
+        self.aspiration_researches = 0
+        self._aspiration_guess = None
         self.nodes_evaluated = 0
         self.null_move_attempts = 0
         self.null_move_cutoffs = 0
@@ -105,6 +111,8 @@ class SearchEngine(ChessEngine):
         self.nodes_evaluated = 0
         self.null_move_attempts = 0
         self.null_move_cutoffs = 0
+        self.aspiration_researches = 0
+        self._aspiration_guess = None
         self.tt.reset_stats()
         if self.use_killer_moves:
             self.killer_moves.clear()
@@ -134,9 +142,18 @@ class SearchEngine(ChessEngine):
         root_moves = list(legal_moves)
         for current_depth in range(1, self.depth + 1):
             try:
-                result = self._search_fixed_depth(board, color, root_moves, current_depth, stop_event)
+                self._aspiration_guess = (
+                    best_result.score
+                    if best_result is not None and self.use_alpha_beta
+                    else None
+                )
+                result = self._search_fixed_depth(
+                    board, color, root_moves, current_depth, stop_event
+                )
             except SearchCancelled:
                 break
+            finally:
+                self._aspiration_guess = None
             best_result = SearchResult(result.best_move, result.score, self.nodes_evaluated, current_depth)
             if best_result.best_move is not None:
                 root_moves = self._order_root_moves(root_moves, best_result.best_move)
@@ -155,11 +172,24 @@ class SearchEngine(ChessEngine):
             return None
         return SearchResult(matching, None, 0, 0, from_book=True)
 
-    def _search_fixed_depth(self, board, color, legal_moves, depth, stop_event=None):
+    def _search_fixed_depth(
+        self,
+        board,
+        color,
+        legal_moves,
+        depth,
+        stop_event=None,
+    ):
+        aspiration_guess = self._aspiration_guess
         root_moves = self._order_root_moves(legal_moves, None)
         best_move = None
         best_score = float("-inf")
-        alpha, beta = float("-inf"), float("inf")
+        if aspiration_guess is None:
+            alpha, beta = float("-inf"), float("inf")
+        else:
+            alpha = aspiration_guess - self.aspiration_window
+            beta = aspiration_guess + self.aspiration_window
+        original_alpha, original_beta = alpha, beta
         opponent = board.opponent(color)
         for index, move in enumerate(root_moves):
             self._check_stop(stop_event)
@@ -181,6 +211,22 @@ class SearchEngine(ChessEngine):
                 best_move = move
             if self.use_alpha_beta:
                 alpha = max(alpha, best_score)
+        if (
+            aspiration_guess is not None
+            and (best_score <= original_alpha or best_score >= original_beta)
+        ):
+            self.aspiration_researches += 1
+            self._aspiration_guess = None
+            try:
+                return self._search_fixed_depth(
+                    board,
+                    color,
+                    legal_moves,
+                    depth,
+                    stop_event,
+                )
+            finally:
+                self._aspiration_guess = aspiration_guess
         return SearchResult(best_move, best_score, self.nodes_evaluated, depth)
 
     @staticmethod
@@ -194,7 +240,7 @@ class SearchEngine(ChessEngine):
                 return [move] + ordered[:index] + ordered[index + 1:]
         return ordered
 
-    def _order_moves(self, moves, preferred_move, ply=None):
+    def _order_moves(self, moves, preferred_move, ply=None, board=None):
         ordered = list(moves)
         preferred = None
         if preferred_move is not None:
@@ -279,7 +325,7 @@ class SearchEngine(ChessEngine):
         key = board.zobrist_hash
         preferred_move = None
         if board.is_repetition():
-            if not Rule.generate_legal_moves(board, current_color):
+            if not Rule.has_legal_move(board, current_color):
                 return -(MATE_SCORE - ply)
             return 0
         if self.use_transposition_table:
@@ -322,7 +368,7 @@ class SearchEngine(ChessEngine):
                 self.null_move_cutoffs += 1
                 return score
 
-        legal_moves = self._order_moves(legal_moves, preferred_move, ply)
+        legal_moves = self._order_moves(legal_moves, preferred_move, ply, board=board)
         best_score = float("-inf")
         best_move = None
         opponent = board.opponent(current_color)
@@ -375,26 +421,39 @@ class SearchEngine(ChessEngine):
         q_key = (key, qply)
         alpha_original = alpha
         if board.is_repetition():
-            if not Rule.generate_legal_moves(board, color):
+            if not Rule.has_legal_move(board, color):
                 return -(MATE_SCORE - ply)
             return 0
         if self.use_transposition_table:
             cached_score, _ = self.tt.probe(q_key, 0, alpha, beta, ply=ply)
             if cached_score is not None:
                 return cached_score
-        legal_moves = Rule.generate_legal_moves(board, color)
-        if not legal_moves:
-            score = -(MATE_SCORE - ply)
-            if self.use_transposition_table:
-                self.tt.store(q_key, 0, score, Bound.EXACT, None, ply=ply)
-            return score
         in_check = Rule.is_in_check(board, color)
-        if qply >= self.quiescence_max_ply and not in_check:
-            return self._evaluate(board, color)
         if in_check:
+            legal_moves = Rule.generate_legal_moves(board, color)
+            if not legal_moves:
+                score = -(MATE_SCORE - ply)
+                if self.use_transposition_table:
+                    self.tt.store(q_key, 0, score, Bound.EXACT, None, ply=ply)
+                return score
             candidates = legal_moves
             best_score = float("-inf")
         else:
+            if qply >= self.quiescence_max_ply:
+                if not Rule.has_legal_move(board, color):
+                    score = -(MATE_SCORE - ply)
+                    if self.use_transposition_table:
+                        self.tt.store(q_key, 0, score, Bound.EXACT, None, ply=ply)
+                    return score
+                return self._evaluate(board, color)
+
+            candidates = Rule.generate_legal_captures(board, color)
+            has_legal_move = bool(candidates) or Rule.has_legal_move(board, color)
+            if not has_legal_move:
+                score = -(MATE_SCORE - ply)
+                if self.use_transposition_table:
+                    self.tt.store(q_key, 0, score, Bound.EXACT, None, ply=ply)
+                return score
             stand_pat = self._evaluate(board, color)
             if stand_pat >= beta:
                 if self.use_transposition_table:
@@ -402,7 +461,6 @@ class SearchEngine(ChessEngine):
                 return stand_pat
             alpha = max(alpha, stand_pat)
             best_score = stand_pat
-            candidates = [move for move in legal_moves if move.captured_piece is not None]
             if not candidates:
                 if self.use_transposition_table:
                     self.tt.store(q_key, 0, stand_pat, Bound.EXACT, None, ply=ply)

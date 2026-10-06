@@ -45,6 +45,11 @@ def main():
                 print("info string ERROR: The engine will be terminated now.")
                 sys.stdout.flush()
                 return
+            if mode == "expect_depth4" and command != "go depth 4":
+                print("info depth 1 score cp 0 pv a0a1")
+                print("bestmove 0000")
+                sys.stdout.flush()
+                continue
             print(f"info depth 1 score {score_kind} {score_value} pv a0a1")
             print("bestmove a0a1")
         elif command == "quit":
