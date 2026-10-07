@@ -141,10 +141,14 @@ class Board:
             return False
 
         x = red_king.x
-        y_low, y_high = sorted([red_king.y, black_king.y])
+        if red_king.y < black_king.y:
+            y_low, y_high = red_king.y, black_king.y
+        else:
+            y_low, y_high = black_king.y, red_king.y
 
+        grid = self.board
         for y in range(y_low + 1, y_high):
-            if self.get(x, y) is not None:
+            if grid[y][x] is not None:
                 return False
 
         return True

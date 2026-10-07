@@ -3,6 +3,7 @@ from alphazetacchess.core.fen import board_from_fen
 from alphazetacchess.core.piece import Color
 from alphazetacchess.core.rule import Rule
 from alphazetacchess.engine.search import SearchEngine
+from tools.compare_null_move_paired import TimedSearch
 
 
 def test_null_move_preserves_board_and_restores_exact_state():
@@ -94,3 +95,13 @@ def test_null_move_search_restores_board_state():
     assert str(board) == before_text
     assert board.history == []
     assert len(board.position_history) == 1
+
+
+def test_paired_null_move_runner_can_hold_lmr_constant():
+    baseline = TimedSearch(100, 4, use_null_move=False, use_lmr=True)
+    variant = TimedSearch(100, 4, use_null_move=True, use_lmr=True)
+
+    assert baseline.engine.use_late_move_reductions is True
+    assert baseline.engine.use_null_move is False
+    assert variant.engine.use_late_move_reductions is True
+    assert variant.engine.use_null_move is True

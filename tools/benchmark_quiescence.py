@@ -40,8 +40,13 @@ POSITIONS = (
 def move_key(move):
     return None if move is None else (move.from_pos, move.to_pos)
 
-def run_case(board, color, depth, use_quiescence):
-    engine = SearchEngine(depth=depth, use_quiescence=use_quiescence, use_null_move=False)
+def run_case(board, color, depth, use_quiescence, check_plies=0):
+    engine = SearchEngine(
+        depth=depth,
+        use_quiescence=use_quiescence,
+        use_null_move=False,
+        quiescence_check_plies=check_plies,
+    )
     before_hash = board.zobrist_hash
     before_player = board.current_player
     started = time.perf_counter()
@@ -54,17 +59,29 @@ def run_case(board, color, depth, use_quiescence):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--depths", nargs="+", type=int, default=[2, 3, 4], help="search depths to benchmark (default: 2 3 4)")
+    parser.add_argument(
+        "--check-plies",
+        type=int,
+        default=0,
+        help="also compare a candidate with this many quiet-check qsearch plies (default: 0)",
+    )
     args = parser.parse_args()
     depths = sorted(set(args.depths))
     if any(depth < 1 for depth in depths):
         parser.error("all depths must be >= 1")
-    print(f"depths={depths}  quiescence A/B  null_move=False")
+    if args.check_plies < 0:
+        parser.error("--check-plies must be non-negative")
+    print(f"depths={depths}  quiescence A/B  quiet_check_plies={args.check_plies}  null_move=False")
     for name, fen, color in POSITIONS:
         print(f"\n=== {name} ===")
         board = Board() if fen is None else board_from_fen(fen)
         for depth in depths:
             off = run_case(board, color, depth, use_quiescence=False)
             on = run_case(board, color, depth, use_quiescence=True)
+            checks = (
+                run_case(board, color, depth, use_quiescence=True, check_plies=args.check_plies)
+                if args.check_plies else None
+            )
             move_same = off["move"] == on["move"]
             score_delta = on["score"] - off["score"]
             print(
@@ -75,6 +92,15 @@ def main():
                     on["time"], on["nodes"], on["nps"], on["score"], on["move"], on["state_ok"], move_same, score_delta,
                 )
             )
+            if checks:
+                print(
+                    "   quiet-check: time={:.3f}s nodes={} score={} move={} state_ok={} | "
+                    "vs capture-only move_same={} score_delta={:+d}".format(
+                        checks["time"], checks["nodes"], checks["score"], checks["move"],
+                        checks["state_ok"], checks["move"] == on["move"],
+                        checks["score"] - on["score"],
+                    )
+                )
 
 if __name__ == "__main__":
     main()

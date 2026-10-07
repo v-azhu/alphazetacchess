@@ -96,6 +96,24 @@ def test_select_book_move_returns_none_for_unknown_position():
     assert select_book_move(book, board, Color.RED, min_games=1) is None
 
 
+def test_select_book_move_reads_pikafish_teacher_entry():
+    board = Board()
+    key = f"{board.zobrist_hash}-RED"
+    book = {
+        "_format": "alphazeta-pikafish-opening-book-v1",
+        key: {
+            "best_move": "b2e2",
+            "score_cp": 24,
+            "depth": 17,
+            "source_games": 500,
+            "fen": "starting position",
+        },
+    }
+
+    assert select_book_move(book, board, Color.RED) == ((1, 2), (4, 2))
+    assert select_book_move(book, board, Color.RED, min_games=501) is None
+
+
 def test_save_and_load_book_round_trip():
     book = build_book_from_records([WIN_RECORD, DRAW_RECORD], max_ply=1)
 
@@ -120,6 +138,30 @@ def test_search_engine_uses_book_move_when_confident():
     assert result.best_move.from_pos == (1, 2)
     assert result.best_move.to_pos == (4, 2)
     assert result.nodes_evaluated == 0  # search never ran
+
+
+def test_search_engine_uses_pikafish_teacher_book_entry():
+    from alphazetacchess.engine.search import SearchEngine
+
+    board = Board()
+    key = f"{board.zobrist_hash}-RED"
+    book = {
+        "_format": "alphazeta-pikafish-opening-book-v1",
+        key: {
+            "best_move": "b2e2",
+            "score_cp": 24,
+            "depth": 17,
+            "source_games": 100,
+        },
+    }
+    engine = SearchEngine(use_opening_book=True, opening_book=book)
+
+    result = engine.choose_move(board, Color.RED)
+
+    assert result.from_book is True
+    assert result.best_move.from_pos == (1, 2)
+    assert result.best_move.to_pos == (4, 2)
+    assert result.nodes_evaluated == 0
 
 
 def test_search_engine_falls_back_to_search_when_book_has_no_confident_entry():

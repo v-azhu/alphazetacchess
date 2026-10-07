@@ -1,20 +1,152 @@
 # AlphaZetaChess Current Progress
 
-Snapshot date: 2026-10-05
+Snapshot date: 2026-10-06
 
 Starting revision: `dbb9ff9`; this checkpoint's changes are in the current worktree.
 
 ## Current engine status
 
-- The primary playing engine is the alpha-beta `SearchEngine`; the CLI defaults to
-  depth 4. The Web UI uses its SEE-enhanced search variant, also at depth 4.
+- The primary playing engine is the alpha-beta `SearchEngine`; CLI and UCCI default to
+  depth 5 with late-move reductions (LMR) enabled. The Web UI uses SEE-enhanced search,
+  defaults to depth 5 with LMR, and offers depths 1–6 plus toggles for these search
+  options. SEE capture ordering in quiescence is an opt-in Web experiment.
 - MCTS, neural evaluation, and policy networks remain runnable experiments. Existing
   match results do not show them outperforming the traditional search baseline.
-- Null Move pruning remains opt-in. The latest correctness and search-boundary work is
-  recorded in [`v0.10.0.md`](v0.10.0.md); older experiments remain in
-  [`roadmap.md`](roadmap.md) and their version-specific documents.
+- Null-move pruning remains disabled by default. A current LMR-controlled paired match
+  comparison is recorded below. The latest correctness and search-boundary work is in
+  [`v0.10.0.md`](v0.10.0.md); older experiments remain in [`roadmap.md`](roadmap.md)
+  and their version-specific documents.
 
 ## Latest completed work
+
+### Raising the default search depth
+
+Responding to feedback that the engine is still too easy to beat, raised the default
+depth from 4 to 5 in the CLI, UCCI adapter, and Web UI. Depth 4 remains selectable in
+the Web UI for quicker turns. On three reference positions, depth 5 took 3.9–5.8
+seconds with the Web UI's SEE-enabled search, versus 0.9–1.0 seconds at depth 4.
+Depth 5 kept the depth-4 move in all three positions; its evaluation changed by 60
+points in each. The tactical fixtures continued to find the immediate mate and safe
+capture; the exchange-trap fixture's selected move also remained unchanged.
+
+This is a deliberate strength-versus-response-time tradeoff based on the request to
+make the default opponent stronger. Greater depth is expected to improve play but
+these spot checks are not a depth-5-vs-depth-4 match and do not quantify a playing
+strength gain. The Web UI now indicates that depth 5 takes several seconds per move.
+
+### Optional depth-six Web search
+
+Measured depth 6 on the same three reference positions. The standard SearchEngine
+completed iterative depth 6 in 13.1s (initial), 18.7s (early development), and 23.9s
+(central development). The Web UI uses SEE-aware search, which completed in 17.7s,
+23.6s, and 24.1s respectively. The mate-in-one and safe-capture tactical fixtures
+continued to select the objective moves at depth 6; the exchange-trap fixture kept
+the same selected move as at depth 5.
+
+Added depth 6 as an optional Web UI choice, labeled as a slow experiment, while
+retaining depth 5 as the default. These measurements quantify the response-time cost,
+not a playing-strength gain; no depth-six match has been run.
+
+### Enabling conservative LMR in play defaults
+
+Compared late-move reductions (LMR) enabled and disabled at depths 5 and 6 on the
+initial, early-development, and central-development reference positions, using both
+the base search and the SEE search used by the Web UI. At depth 5, all six
+base/SEE position comparisons retained the same score and best move. Base-search
+times changed from 2.8/3.7/5.1s to 1.7/2.6/3.0s, and SEE-search times from
+3.9/4.4/5.8s to 2.3/2.5/2.8s (initial/early/central). Node counts fell by about
+45–60%.
+
+At depth 6, LMR cut measured times by about 40–60%, but did not preserve the best move
+in every position: one of three base-search cases and one of three SEE cases changed
+its move; scores also shifted slightly. This confirms the expected selective-search
+tradeoff rather than exact equivalence at deeper depth. An earlier 8-pair equal-time
+match was neutral (50%, wide 25–75% paired interval), while LMR reached greater mean
+depth; there is not enough match evidence to claim improved playing strength.
+
+In an additional 3-second-per-move probe on the same three positions using the
+SEE-enabled Web search, baseline completed depth 4 in each case while LMR completed
+depth 5 in each. Both selected the same move at their respective completed iterations.
+This is a small fixed-position throughput result, not a playing-strength measurement.
+
+Enabled LMR by default in the CLI, UCCI, and Web UI to reduce search cost and make
+deeper searches more practical. The Web UI exposes a checked-by-default toggle so it
+can be disabled for comparison. It remains an explicitly experimental search
+heuristic; users prioritizing conservative full-width search can turn it off.
+
+### Null-move pruning on top of LMR
+
+Extended `tools/compare_null_move_paired.py` with `--use-lmr`, so both sides can use
+LMR while the paired match isolates null-move pruning. The runner now excludes every
+opening in existing paired-match manifests, records both pruning settings, and reports
+LMR counts. A disjoint 8-opening, 16-game match at 500 ms/move scored **6 wins, 6
+losses, and 4 draws** for null-move search (50%). The paired bootstrap 95% interval
+was **40.6–59.4%**. Both sides used LMR; null-move search averaged depth **3.72** over
+718 moves versus **3.53** over 718 control moves. All games were replay-validated.
+
+This is consistent with extra search throughput, not a playing-strength gain; the
+interval spans neutral and the paired result is exactly even. Keep null-move pruning
+disabled by default. Records and opening manifest:
+`data/v0.10_null_move_with_lmr_vs_lmr_500ms_8pairs.jsonl` and its
+`.manifest.json`.
+
+A second disjoint 12-opening, 24-game batch scored **12 wins, 9 losses, and 3 draws**
+(56.2%) for null-move search, with paired 95% interval **43.8–70.8%**. Across both
+batches (20 opening pairs / 40 games), the result is **18 wins, 15 losses, and 7 draws**
+(53.75%); a paired-opening bootstrap interval is **45.0–62.5%** (about **-35 to +88
+Elo**). Null-move search averaged depth **3.61** over 1,664 moves versus **3.37** over
+1,663 control moves. All additional games were replay-validated and the opening pairs
+were disjoint. The larger sample remains inconclusive and does not justify enabling
+null-move pruning by default.
+
+Additional records and manifest:
+`data/v0.10_null_move_with_lmr_vs_lmr_500ms_additional_12pairs.jsonl` and its
+`.manifest.json`.
+
+A third disjoint 12-opening, 24-game batch scored **6 wins, 10 losses, and 8 draws**
+(41.7%) for null-move search; its paired interval was **29.2–50.0%**. Across all
+32 opening pairs / 64 games, null-move search scored **24 wins, 25 losses, and 15
+draws** (49.2%). The paired-opening bootstrap 95% interval was **42.2–56.2%** (about
+**-55 to +43 Elo**). Null-move search still reached greater mean depth (**3.54** over
+2,659 moves vs. **3.26** over 2,660 baseline moves), but this did not translate to a
+match-score benefit in the expanded sample. Keep null-move pruning disabled by
+default. All games were replay-validated and the new openings were disjoint from
+previous paired experiments.
+
+Third-batch records and manifest:
+`data/v0.10_null_move_with_lmr_vs_lmr_500ms_final_12pairs.jsonl` and its
+`.manifest.json`.
+
+### Transposition-table capacity check
+
+Compared 50,000-, 200,000-, and 500,000-entry caps on depth-6 LMR + SEE searches.
+With the 50,000 cap, the table filled and searches needed 211,513 nodes / 10.86s
+(initial) and 216,334 nodes / 13.61s (central development). At both 200,000 and
+500,000 caps, the table never exceeded 113,327 entries; node counts and selected
+moves were identical between capacities: 169,555 nodes / 8.49s initially and
+203,308 nodes / about 12.1s centrally. Increasing the existing 200,000 default would
+not help these searches; lowering it materially hurt. No capacity change is warranted
+from this sample.
+
+### SEE capture ordering in quiescence
+
+The Web UI's SEE-aware search previously used SEE only for captures at normal
+alpha-beta nodes; quiescence searched captures in generator order. Routed quiescence
+captures through a dedicated ordering hook and enabled SEE ordering in the Web search,
+with a Web UI toggle to disable it. Check evasions and quiet-check extensions keep
+their existing behavior; only capture ordering changes.
+
+At fixed depths 4 and 5 on the initial, early-development, and central-development
+positions, scores and best moves matched the prior SEE search in all six cases. At
+depth 5, node counts fell from 51,674 to 47,111 initially (8.8%), 50,080 to 47,795
+in early development (4.6%), and 56,177 to 53,348 centrally (5.0%). Wall-clock time
+was roughly unchanged to slightly slower (2.18 to 2.21s, 2.50 to 2.63s, 2.78 to
+2.84s in the measured runs). SEE calls rose because quiescence captures are now
+evaluated too. This is a modest node-count/order refinement, not yet a playing-strength
+claim; a 3-second fixed-time probe reached the same depth and selected the same move in
+all three positions. Since wall-clock time was neutral to slightly worse, keep this
+option off by default and expose it only as a Web UI experiment pending paired match
+evidence.
 
 V0.10.0 fixed three search correctness issues:
 
@@ -316,6 +448,13 @@ Neither prototype is promoted. The result indicates that shallow static scores a
 PVS root bounds are not reliable enough here to improve the established root order.
 Existing previous-best-move ordering remains unchanged.
 
+The optional prior-iteration root-score implementation was also checked at depth 4
+with three repeated searches per position. Scores and moves matched baseline in all
+three positions. Median nodes/time changed from 17,109/0.763s to 16,864/0.763s
+(initial), 10,324/0.497s to 9,934/0.445s (early development), and
+15,045/0.910s to 18,590/1.146s (central development). The central-position regression
+outweighs the small, position-specific savings; leave the option disabled by default.
+
 Also rechecked the existing optional MVV-LVA capture ordering at depths 3 and 4 on
 the same positions (three runs each). Scores and selected moves matched the default
 in all six cases, but performance was mixed: depth-4 nodes changed from 17,079 to
@@ -371,6 +510,318 @@ and wide-window parity through depth 4, fixed-depth behavior, alpha-beta-disable
 search, invalid windows, and cancellation compatibility. The full suite passes
 **373 tests**; the depth-2–4 mate, safe-capture, and exchange-trap
 diagnostics also pass.
+
+### Equal-time paired match: aspiration vs full-window control
+
+Ran 20 games at a 500 ms/move budget using 10 distinct 10-ply positions selected
+from `data/external_games.jsonl` (seed `20261005`). Each opening was played twice
+from the same FEN, once with aspiration (100-point half-window) as Red and once as
+Black; order was alternated between opening pairs. The full-window control used a
+10,000-point half-window. The result for aspiration was **9 wins, 9 losses, 2 draws**
+(50% score). The 10-opening paired bootstrap 95% interval was **37.5–60.0%**, or
+approximately **-89 to +70 Elo** under the usual score-to-Elo conversion. Paired
+opening scores were `[75%, 50%, 0%, 50%, 50%, 75%, 50%, 50%, 50%, 50%]`.
+
+Aspiration averaged depth **3.071** over 659 moves versus **3.062** over 660 control
+moves. By aspiration color, it scored 3/10 points as Red (2 wins, 6 losses, 2 draws)
+and 7/10 as Black (7 wins, 3 losses); the color-swapped pairs account for the
+opening/color effect, and the net paired result remained neutral. All 20 records
+were replay-validated for legal moves, side-to-move, terminal state, and draw limit.
+This does not support a measurable strength gain from aspiration; it is primarily a
+search-efficiency optimization with position-dependent time savings. Records and
+opening manifest:
+`data/v0.10_aspiration_vs_full_window_500ms_10pairs.jsonl` and
+`data/v0.10_aspiration_vs_full_window_500ms_10pairs.jsonl.manifest.json`.
+
+### Experimental quiescence quiet checks
+
+Added an opt-in quiescence extension for legal quiet checks (`quiescence_check_plies`,
+default `0`, so normal search behavior is unchanged). The focused `free_capture`
+fixture demonstrates a horizon effect: after Red captures the Horse, Black has two
+legal replies and each permits an immediate Red mate. At depth 2, capture-only
+quiescence evaluates the position at 1,570; a one-ply quiet-check extension finds the
+forced mate in three plies (score 99,997). At depth 3, baseline search already finds
+the mate. Separate rule-level validation confirms the new move generator returns
+exactly the legal, non-capturing checks and restores the board.
+
+The local six-position depth-2 benchmark showed quiet-check search taking 0.092s vs.
+0.067s on the initial position, 0.048s vs. 0.035s on the tactical-exchange position,
+and 0.010s vs. 0.004s on the mate-in-three fixture, compared with ordinary
+capture-only quiescence. These are single-run timings and the sparse tactical
+positions are especially sensitive to fixed overhead. The full suite passes **376
+tests**. The extension remains disabled by default pending an equal-time paired match:
+finding the fixture tactic does not establish a net playing-strength gain if added
+work reduces the depth reached elsewhere.
+
+The first equal-time match covered 10 distinct external-game openings, with each
+played once per color at 500 ms/move. Quiet-check search scored **11 wins, 9 losses,
+and 0 draws** (55%). The paired-opening bootstrap 95% interval was **35–75%** (about
+**-107 to +191 Elo**), so this remains inconclusive. Quiet-check search averaged
+depth **2.64** over 640 moves versus **2.80** for capture-only search over 639 moves,
+consistent with its additional move-generation cost. All 20 game records passed
+replay validation. This first sample was followed by a second, disjoint 20-opening
+paired run; the combined result below remains inconclusive. Records:
+`data/v0.10_qchecks_vs_capture_only_500ms_10pairs.jsonl` and its `.manifest.json`.
+
+That disjoint second run completed **40 additional games / 20 opening pairs**.
+Quiet-check search scored **17 wins, 19 losses, and 4 draws** (47.5%); the paired
+95% interval was **32.5–62.5%** (about **-122 to +88 Elo**). Combining both
+disjoint runs gives **30 opening pairs**, an even **30/60 points**, with a paired
+bootstrap 95% interval of **37.5–62.5%** (about **-89 to +89 Elo**). Across the
+combined samples, quiet-check search averaged depth **2.95** over 2,269 moves versus
+**3.05** for capture-only search over 2,268 moves. All games were replay-validated.
+This is no evidence of a net strength gain; retain the experiment as opt-in and off
+by default. Additional records and opening manifest:
+`data/v0.10_qchecks_vs_capture_only_500ms_additional_20pairs.jsonl` and its
+`.manifest.json`.
+
+### Evaluation hot-path profiling
+
+Depth-3 profiling on the initial and early-development positions found evaluation
+accounted for about 23% of cumulative search time. Its King Safety term rescanned
+all 90 squares twice to count surviving Advisors and Elephants, after the main
+evaluation loop had already visited those squares. `evaluate()` now accumulates those
+guard scores during its existing scan and only performs the two short open-file
+checks afterward; `_king_safety_score()` remains unchanged for feature extraction and
+the reference calculation.
+
+On repeated isolated evaluation calls (3,000 per sample, seven samples), the revised
+evaluator took a median 48.2 ms vs. 56.8 ms on the initial position and 46.5 ms vs.
+54.1 ms in early development (about 16–18% faster for that microbenchmark). Search
+scores, moves, and node counts were identical at depth 3, but full-search wall time
+did not show a clear improvement above run-to-run variation. This is a small
+implementation-level saving, not evidence of a playing-strength gain. The full suite
+passes **378 tests**.
+
+Inlining material, pawn-river, and piece-square lookup work into the existing
+evaluation loop removed two helper calls per piece and repeated table lookups. The
+inlined version matched the helper-based reference exactly across 26 positions, both
+perspectives, and five evaluation configurations. In an interleaved benchmark of
+5,000 calls per sample over nine samples, median evaluation time fell from 87.2 ms to
+63.4 ms (about 27%). Interleaved depth-3 search medians improved 4.7–6.9% on three
+reference positions with identical scores, moves, and node counts. At a 500 ms
+budget on 12 fresh external-game positions, the optimized evaluator completed one
+extra iteration in one case, matched depth in the other 11, never fell behind, and
+selected the same move in every position. This is a speed benefit that can sometimes
+buy an additional ply, not proof that the resulting move is stronger.
+
+The same profile showed move generation repeatedly calling `Board.get()` while
+scanning the board for pieces. `MoveGenerator.generate_moves()` now binds the board
+grid once and reads each row directly. Its full and capture-only outputs matched the
+previous accessor-based scan for both sides across 20 replayed positions. In a
+repeated mixed-position generator benchmark, median time fell from 11.7 ms to 10.8 ms
+(about 8%). Depth-3 search timings improved about 3–5% on early/central development
+positions but were effectively unchanged on the initial position; scores, moves,
+and node counts matched exactly. Treat the end-to-end difference as modest and
+position-dependent. Static movement offsets are also now stored as tuples on the
+generator instead of allocating direction/candidate lists at every piece expansion;
+the focused correctness suite remains green. A further profile-guided step inlined
+the 9x10 bounds checks and grid lookups within piece move generation. Against the
+pre-change generator from HEAD, full and capture-only move sequences matched for
+both colors across 50 replayed positions; a mixed-position, repeated generator
+benchmark improved median runtime from 29.38 ms to 20.42 ms (about 30% less time).
+Seven-run depth-3 search medians moved from 206 to 192 ms on the initial position,
+191 to 170 ms in early development, and 183 to 162 ms in central development, with
+the same node counts, scores, and best moves. This throughput improvement is
+position-dependent and does not itself establish stronger move choices.
+
+A fixed-time depth check compared the HEAD generator against the optimized generator
+on 12 additional, distinct 10-ply external-game positions, with a 1-second budget per
+search. The optimized generator completed one extra iteration in 1/12 positions,
+matched the control's depth in the other 11, and never completed a shallower
+iteration. Mean completed depth was 3.00 vs. 3.08; the chosen move changed only in
+the position where the optimized search completed an extra depth. This small,
+single-run sample shows a possible practical time-control benefit but cannot support
+a playing-strength claim.
+
+Profiling also showed `Board.kings_facing()` on the legality-check hot path. It now
+orders the two king ranks with a branch instead of allocating/sorting a list, and
+reads the intervening file directly from the grid. Results matched the former
+implementation across 50 replayed positions. A repeated isolated benchmark improved
+median time from 68.1 ms to 54.1 ms per 100,000 calls. In seven interleaved depth-3
+search comparisons, end-to-end medians improved by about 1–3% across the initial,
+early-development, and central-development positions, with identical nodes, scores,
+and moves. This remains a small performance-only change.
+
+### Conservative null-move paired match
+
+A new, disjoint 12-opening match compared conservative null-move pruning against
+baseline search at 500 ms/move, with each opening played once per color. Null-move
+search scored **13 wins, 8 losses, and 3 draws** (60.4%); the paired 95% bootstrap
+interval was **47.9–72.9%** (about **-15 to +171 Elo**), so this single batch is
+promising but not conclusive. It averaged completed depth **3.71** over 1,035 moves,
+versus **3.36** over 1,034 baseline moves. The feature recorded 50,957 null attempts
+and 31,408 cutoffs; mean reported nodes were higher because the pruning variant
+completed deeper searches. All records were replay-validated. A second disjoint batch
+has completed; null-move pruning remains opt-in pending further confirmation.
+Records:
+`data/v0.10_null_move_vs_baseline_500ms_12pairs.jsonl` and its `.manifest.json`.
+
+The second disjoint batch scored **13 wins, 11 losses, and 0 draws** (54.2%), with a
+paired 95% interval of **37.5–70.8%** (about **-89 to +151 Elo**). Combining both
+samples yields **26 wins, 19 losses, and 3 draws** across 24 opening pairs (57.3%);
+the paired bootstrap 95% interval is **45.8–68.8%** (about **-29 to +137 Elo**).
+Average completed depth was 3.54 with null-move versus 3.19 for baseline across both
+samples. This suggests the pruning may help under this time budget, but uncertainty
+still includes neutral or negative effect. Keep it off by default for now; expand
+the paired match before a promotion decision. Additional records and manifest:
+`data/v0.10_null_move_vs_baseline_500ms_additional_12pairs.jsonl` and its
+`.manifest.json`.
+
+A third disjoint 12-pair batch scored **12 wins, 9 losses, and 3 draws** (56.2%),
+with a paired 95% interval of **50.0–66.7%**. Across all 36 opening pairs / 72
+games, null-move search scored **38 wins, 28 losses, and 6 draws** (56.9%); the
+paired bootstrap 95% interval was **49.3–64.6%** (about **-5 to +104 Elo**). Average
+completed depth was **3.65** with null-move versus **3.26** for baseline. The lower
+interval bound remains just below neutral; continue to keep the feature experimental
+while gathering another disjoint sample. Third-batch records and manifest:
+`data/v0.10_null_move_vs_baseline_500ms_final_12pairs.jsonl` and its
+`.manifest.json`.
+
+A fourth disjoint batch scored **11 wins, 10 losses, and 3 draws** (52.1%), with a
+paired interval of **35.4–68.8%**. Across all 48 opening pairs / 96 games,
+null-move search scored **49 wins, 38 losses, and 9 draws** (55.7%); the paired
+bootstrap 95% interval is **48.4–63.0%** (about **-11 to +93 Elo**). Mean completed
+depth was **3.60** with null-move and **3.23** for baseline. All four batches used
+disjoint 10-ply openings and passed replay validation. The engine reaches greater
+depth, but match evidence still does not rule out a slight strength regression;
+keep null-move pruning opt-in. Fourth-batch records and manifest:
+`data/v0.10_null_move_vs_baseline_500ms_more_12pairs.jsonl` and its
+`.manifest.json`.
+
+### Conservative late-move reductions
+
+Added optional late-move reductions (LMR) for late quiet moves at non-check nodes,
+starting at move index 8 and depth 3. A reduced null-window search is followed by a
+full-depth re-search if it beats alpha. Checks and captures are excluded, and the
+feature remains disabled by default.
+
+Fixed-depth checks showed substantially fewer nodes with unchanged score and best move
+at depth 5 on the initial, early-development, and central-development positions; the
+depth-6 central-development result also matched. At depth 5, node counts fell from
+97,574 to 45,211 (initial), 69,142 to 41,367 (early), and 144,927 to 55,859 (central).
+On the central position at depth 6, nodes fell from 477,533 to 256,346. At equal
+time controls on 12 fresh positions, LMR matched baseline depth at 500 ms and 1.5 s.
+At 3 s it completed one extra iteration on two positions, never completed a shallower
+iteration, and selected a different move once.
+
+The 8-opening, 16-game paired match at 3 s/move scored **7 wins, 7 losses, and 2
+draws** for LMR (50%); the paired 95% bootstrap interval was **25–75%** (about
+**-192 to +192 Elo**). Mean completed depth was **4.37** for LMR versus **4.01** for
+baseline across recorded engine moves. All games passed legal replay and result
+validation, and all eight openings were played with colors swapped. This is evidence
+of increased search depth on this sample, not a demonstrated playing-strength gain;
+at that checkpoint LMR remained opt-in pending more strength evidence. Subsequent
+fixed-position testing motivated enabling it in the play front ends for throughput,
+while keeping it configurable and experimental as described above. Records and
+opening manifest:
+`data/v0.10_lmr_vs_baseline_3s_8pairs.jsonl` and its `.manifest.json`.
+
+After LMR was added, the complete test suite passed **383 tests** and
+`git diff --check` was clean.
+
+### Killer/history move-order integration
+
+Corrected the ordering interaction in both the base and SEE search paths: history
+sorting previously ran after killer promotion, so a high-history quiet move could
+undo the killer priority. With MVV-LVA enabled, captures remain ahead of killers,
+killers remain ahead of history-ranked quiets, and the transposition-table move stays
+first. A regression test seeds conflicting history and killer scores in both search
+implementations.
+
+The fix preserved depth-4 score and best move on the initial and early-development
+positions. In single fixed-depth runs, nodes increased from 14,668 to 15,298 and
+16,853 to 17,450 respectively; this ordering correction has not shown a speed or
+strength gain and should not be treated as one. The earlier full suite had 383 tests;
+after the added regression test, **384 tests passed**.
+
+### Side-specific history scores
+
+History scores were keyed only by from/to coordinates, allowing a Red quiet move's
+cutoff reward to affect the ordering of a Black move with the same coordinates (and
+vice versa). The table now includes the moved piece's color in each key. Tests verify
+that rewards and penalties remain isolated by side. Three depth-4 comparisons against
+the coordinate-only history table produced identical scores, best moves, and node
+counts; this fixes cross-side score contamination but does not demonstrate a strength
+gain. The full suite now passes **385 tests**.
+
+### Quiet-history isolation from captures
+
+History lookup now returns zero for captures. Although history updates already ignore
+captures, coordinate-matching quiet history could otherwise leak onto a later capture
+and influence ordering. In the base search when MVV-LVA is disabled, history ranks
+quiet moves only; captures keep their original relative order. The SEE path already
+separates captures and quiets before applying history ordering.
+
+Regression tests cover capture lookup after a matching quiet move was rewarded and
+quiet reordering without changing capture order. The full suite passes **387 tests**.
+Depth-4 score and best move stayed unchanged on initial, early-development, and
+central-development positions. Single-run node counts were 17,109, 18,909, and 15,202
+respectively; compared with the immediately prior recorded runs, these were higher.
+This correctness refinement prevents stale capture-history bias, but has not shown a
+strength or performance gain.
+
+### Pikafish teacher book from the tournament archives
+
+The two archived ICCS collections contain 41,743 WXF and 99,771 dpxq
+result-bearing games. Mining their first 20 plies found **506,056 distinct positions**
+over **141,514 games**. The archives document that illegal games were filtered before
+distribution; this builder applies inexpensive turn/occupancy checks to every source
+prefix and independently verifies each Pikafish-selected move with the Rule engine.
+Ten sampled starting positions from the existing external-game set had no exact
+book-root match after 4, 6, 8, or 10 plies, showing that coverage depends on common
+lines.
+
+Added `tools/build_pikafish_opening_book.py` to query a local Pikafish binary/network
+on frequent positions and write an opt-in teacher book. The pilot selected the 300
+most frequent positions among those seen in at least 500 distinct games. All 300
+teacher moves were legal; search depths were 15–21 (mean 17.8) at 250 ms/position.
+The resulting local artifact is `/tmp/alphazeta-pikafish-opening-book-pilot.json`.
+It contains best moves and search metadata, not Pikafish code or weights. The local
+Pikafish license restricts commercial use of its NNUE weights without permission;
+do not redistribute the weights or assume generated artifacts are cleared for
+commercial use.
+
+An 8-opening / 16-game color-swapped, 500 ms/move pilot compared the book-enabled
+SearchEngine with baseline search from common positions represented in the book.
+Book scored **4 wins, 8 losses, and 4 draws** (37.5%); the paired 95% interval was
+**18.8–59.4%** (approximately **-255 to +66 Elo**). Only 10 of the 16 games actually
+used a teacher-book move, as opponent replies often left the covered lines. Every
+game passed replay and result validation. This small experiment does not support
+promoting the book; retain it as an opt-in experiment. Records and opening manifest:
+`data/v0.10_pikafish_teacher_book_vs_search_500ms_8pairs.jsonl` and its
+`.manifest.json`.
+
+To test the poor coverage rather than immediately abandon the approach, built a
+larger 2,000-position book from the same archives. The threshold was lowered to 100
+source games per position (2,294 candidates qualified); all 2,000 Pikafish moves were
+validated, with reported search depths 13–23 (mean 16.3). The reusable, ignored local
+artifact is `trainingdata/pikafish_opening_book_2000.json`.
+
+A second, disjoint 12-opening / 24-game color-swapped match at 500 ms/move scored
+**10 wins, 7 losses, and 7 draws** for the expanded-book engine (56.25%); paired
+95% interval **41.7–70.8%** (about **-58 to +154 Elo**). The book selected 20 moves
+in the 24 games, compared with 10 in the first match's 16 games, but this modest
+coverage increase does not establish a strength benefit. The opening positions were
+disjoint from the first sample, all games passed replay/result validation, and the
+interval still includes neutral and negative outcomes. Records and manifest:
+`data/v0.10_pikafish_teacher_book_expanded_vs_search_500ms_12pairs.jsonl` and its
+`.manifest.json`.
+
+An additional 16 disjoint opening pairs / 32 games with the exact same 2,000-entry
+book and time control scored **10 wins, 9 losses, and 13 draws** (51.6%); paired 95%
+interval **39.1–65.6%**. All games passed replay validation. Combining only these
+two same-configuration, disjoint batches gives **28 opening pairs / 56 games**,
+**20 wins, 16 losses, and 20 draws** (53.6%), with a paired 95% bootstrap interval of
+**43.8–63.4%** (approximately **-44 to +95 Elo**). Across the combined match the book
+was used for 43 moves. The evidence remains inconclusive, with the interval spanning
+neutral; do not enable the book by default. Additional records and manifest:
+`data/v0.10_pikafish_teacher_book_expanded_vs_search_500ms_additional_16pairs.jsonl`
+and its `.manifest.json`.
+
+This is a direct, low-inference-cost form of Pikafish distillation into opening moves,
+not a neural policy retraining. Earlier external-policy imitation did not improve
+MCTS strength (see `docs/v0.9.4.md`), so no new neural policy was trained here.
 
 The paired fixed-opening follow-up can be reproduced with:
 

@@ -69,3 +69,62 @@ def test_see_search_engine_uses_board_for_capture_ordering():
 
     assert len(captures) == 2
     assert engine.see.calls == 2
+
+
+def test_see_search_engine_uses_see_to_order_quiescence_captures():
+    board = Board()
+    board.board = [[None for _ in range(Board.WIDTH)] for _ in range(Board.HEIGHT)]
+    for piece in (
+        Piece(PieceType.KING, Color.RED, 4, 0),
+        Piece(PieceType.KING, Color.BLACK, 5, 9),
+        Piece(PieceType.ROOK, Color.RED, 0, 5),
+        Piece(PieceType.ROOK, Color.RED, 8, 5),
+        Piece(PieceType.PAWN, Color.BLACK, 0, 6),
+        Piece(PieceType.HORSE, Color.BLACK, 8, 6),
+    ):
+        board._place(piece)
+
+    before_hash = board.zobrist_hash
+    engine = SeeSearchEngine(depth=2, use_see=True)
+
+    engine._quiescence(
+        board,
+        float("-inf"),
+        float("inf"),
+        Color.RED,
+        root_depth=0,
+        qply=0,
+    )
+
+    assert engine.see.calls >= 2
+    assert board.zobrist_hash == before_hash
+
+
+def test_see_quiescence_capture_ordering_can_be_disabled():
+    board = Board()
+    board.board = [[None for _ in range(Board.WIDTH)] for _ in range(Board.HEIGHT)]
+    for piece in (
+        Piece(PieceType.KING, Color.RED, 4, 0),
+        Piece(PieceType.KING, Color.BLACK, 5, 9),
+        Piece(PieceType.ROOK, Color.RED, 0, 5),
+        Piece(PieceType.ROOK, Color.RED, 8, 5),
+        Piece(PieceType.PAWN, Color.BLACK, 0, 6),
+        Piece(PieceType.HORSE, Color.BLACK, 8, 6),
+    ):
+        board._place(piece)
+    engine = SeeSearchEngine(
+        depth=2,
+        use_see=True,
+        use_see_quiescence_ordering=False,
+    )
+
+    engine._quiescence(
+        board,
+        float("-inf"),
+        float("inf"),
+        Color.RED,
+        root_depth=0,
+        qply=0,
+    )
+
+    assert engine.see.calls == 0

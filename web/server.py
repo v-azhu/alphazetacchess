@@ -40,7 +40,7 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 
 HUMAN_COLOR = Color.RED
 AI_COLOR = Color.BLACK
-DEFAULT_AI_DEPTH = 4
+DEFAULT_AI_DEPTH = 5
 
 OPENING_BOOK_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "data", "opening_book.json"
@@ -62,6 +62,8 @@ DEFAULT_EVAL_FLAGS = {
     "use_endgame_heuristics": False,
     # V0.9.11: legality-aware Static Exchange Evaluation for capture ordering.
     "use_see": True,
+    "use_see_quiescence_ordering": False,
+    "use_late_move_reductions": True,
 }
 
 game = {

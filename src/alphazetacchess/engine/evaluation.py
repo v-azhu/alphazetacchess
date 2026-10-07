@@ -297,24 +297,65 @@ def evaluate(
         material_values = MATERIAL_VALUES
 
     score = 0
+    own_guard_score = 0
+    opponent_guard_score = 0
 
     for row in board.board:
         for piece in row:
             if piece is None:
                 continue
 
-            piece_score = _piece_score(piece, material_values)
-            piece_score += pst_weight * _pst_component(piece, use_piece_square_tables)
+            piece_type = piece.type
+            piece_color = piece.color
+            piece_score = material_values[piece_type]
+            if piece_type == PieceType.PAWN and Board.has_crossed_river(
+                piece.y, piece_color
+            ):
+                piece_score += PAWN_CROSSED_RIVER_BONUS
 
-            if piece.color == perspective_color:
-                score += piece_score
-            else:
-                score -= piece_score
+            if use_piece_square_tables:
+                table = _PIECE_SQUARE_TABLES.get(piece_type)
+                if table is not None:
+                    row_index = (
+                        piece.y
+                        if piece_color == Color.RED
+                        else Board.HEIGHT - 1 - piece.y
+                    )
+                    piece_score += pst_weight * table[row_index][piece.x]
+            elif piece_type in (PieceType.HORSE, PieceType.CANNON, PieceType.ROOK):
+                piece_score += (
+                    pst_weight
+                    * (4 - abs(piece.x - 4))
+                    * CENTER_FILE_BONUS
+                )
+
+            sign = 1 if piece_color == perspective_color else -1
+            score += sign * piece_score
+
+            if use_king_safety:
+                if sign > 0:
+                    if piece_type == PieceType.ADVISOR:
+                        own_guard_score += ADVISOR_ALIVE_BONUS
+                    elif piece_type == PieceType.ELEPHANT:
+                        own_guard_score += ELEPHANT_ALIVE_BONUS
+                else:
+                    if piece_type == PieceType.ADVISOR:
+                        opponent_guard_score += ADVISOR_ALIVE_BONUS
+                    elif piece_type == PieceType.ELEPHANT:
+                        opponent_guard_score += ELEPHANT_ALIVE_BONUS
 
     if use_king_safety:
         opponent_color = Board.opponent(perspective_color)
-        score += king_safety_weight * _king_safety_score(board, perspective_color)
-        score -= king_safety_weight * _king_safety_score(board, opponent_color)
+        own_king = board.find_king(perspective_color)
+        opponent_king = board.find_king(opponent_color)
+        if own_king is not None:
+            score += king_safety_weight * (
+                own_guard_score + _open_file_exposure_score(board, own_king)
+            )
+        if opponent_king is not None:
+            score -= king_safety_weight * (
+                opponent_guard_score + _open_file_exposure_score(board, opponent_king)
+            )
 
     if use_mobility:
         score += mobility_weight * mobility_balance(board, perspective_color)

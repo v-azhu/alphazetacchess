@@ -27,6 +27,8 @@ const EVAL_FLAG_CHECKBOXES = {
   use_piece_coordination: document.getElementById("flag-piece-coordination"),
   use_opening_book: document.getElementById("flag-opening-book"),
   use_endgame_heuristics: document.getElementById("flag-endgame-heuristics"),
+  use_see_quiescence_ordering: document.getElementById("flag-see-quiescence"),
+  use_late_move_reductions: document.getElementById("flag-late-move-reductions"),
 };
 const openingBookNoteEl = document.getElementById("opening-book-note");
 

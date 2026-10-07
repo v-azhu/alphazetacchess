@@ -14,10 +14,13 @@ hybrid engine, inspired by the AlphaZero approach.
 
 ## 当前进度 (Current Status)
 
-**当前主力是传统搜索引擎，不是 MCTS 或神经网络。** CLI 默认使用
-`SearchEngine(depth=4)`；Web UI 使用带 SEE 吃子排序的搜索引擎，默认深度也是
-4。MCTS、神经评估和策略网络仍是可运行的实验模块，但已有对局记录尚未证明它们
-强于主力搜索。最新的搜索正确性修复、基准和后续任务见
+**当前主力是传统搜索引擎，不是 MCTS 或神经网络。** CLI、UCCI 和 Web UI 默认
+搜索深度为 5，并默认启用实验性的延迟走法缩减 (LMR)。在三个参考局面上，LMR
+约将深度 5 用时减半；Web UI 仍可关闭它进行比较，也可选深度 4 快速应答或深度 6
+进一步搜索。深度 6 配合 LMR 在参考局面约需 9–14 秒/步。LMR 等优化尚未被充分
+对局验证为更强，默认启用是为了更高效地搜索，不代表已证明的等级分提升。MCTS、
+神经评估和策略网络仍是可运行的实验模块，但已有对局记录尚未证明它们强于主力
+搜索。最新的搜索正确性修复、基准和后续任务见
 [`docs/PROGRESS_NOTES.md`](docs/PROGRESS_NOTES.md)；版本实验历史见
 [`docs/roadmap.md`](docs/roadmap.md)。
 

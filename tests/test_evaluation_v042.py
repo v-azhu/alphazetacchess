@@ -14,6 +14,7 @@ from alphazetacchess.engine.evaluation import (
     ELEPHANT_ALIVE_BONUS,
     OPEN_FILE_ROOK_PENALTY,
     OPEN_FILE_CANNON_PENALTY,
+    _king_safety_score,
 )
 
 
@@ -116,6 +117,19 @@ def test_king_safety_reflects_the_difference_between_both_sides():
 
     assert red_perspective > 0
     assert red_perspective == -black_perspective
+
+
+def test_evaluation_king_safety_matches_reference_with_or_without_a_king():
+    board = Board()
+    board.board[9][4] = None
+
+    for color in (Color.RED, Color.BLACK):
+        opponent = Board.opponent(color)
+        base_score = evaluate(board, color, use_king_safety=False)
+        expected = base_score + 3 * (
+            _king_safety_score(board, color) - _king_safety_score(board, opponent)
+        )
+        assert evaluate(board, color, king_safety_weight=3) == expected
 
 
 def test_pst_and_king_safety_toggles_are_independent():

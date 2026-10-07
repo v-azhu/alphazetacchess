@@ -24,15 +24,18 @@
               <option value="1">1 (最快，很弱)</option>
               <option value="2">2 (快)</option>
               <option value="3">3 (中等)</option>
-              <option value="4" selected>4 (默认，推荐)</option>
-              <option value="5">5 (慢，最强)</option>
+              <option value="4">4 (较快)</option>
+              <option value="5" selected>5 (默认，较强，约数秒/步)</option>
+              <option value="6">6 (更强尝试，较慢，约20秒/步)</option>
             </select>
           </label>
         </div>
 
         <div class="panel-section">
-          <h3>评估函数组件 (点新局生效)</h3>
+          <h3>搜索与评估选项 (点新局生效)</h3>
           <div class="eval-flags">
+            <label><input type="checkbox" id="flag-late-move-reductions" checked> 延迟走法缩减 (默认，实验性)</label>
+            <label><input type="checkbox" id="flag-see-quiescence"> 静态交换排序：静态搜索吃子 (实验性)</label>
             <label><input type="checkbox" id="flag-pst" checked> 棋子位置表 (V0.4.1)</label>
             <label><input type="checkbox" id="flag-king-safety" checked> 王的安全性 (V0.4.2)</label>
             <label><input type="checkbox" id="flag-mobility"> 机动性 (V0.4.3)</label>

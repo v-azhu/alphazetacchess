@@ -44,9 +44,9 @@ AI_COLOR = Color.BLACK
 # interesting (user feedback: a 专业1-1 club player beat it while
 # giving a horse AND three free moves).
 # V0.10 follow-up removes redundant legal-move generation at the
-# quiescence boundary; the depth-3 benchmark is about 39-43% faster
-# on the reference positions with identical scores and best moves.
-AI_SEARCH_DEPTH = 4
+# quiescence boundary. Depth 5 typically takes several seconds, but is
+# the stronger default; depth 4 remains available in the Web UI.
+AI_SEARCH_DEPTH = 5
 
 
 def print_board(board):
@@ -146,7 +146,10 @@ def main():
     print()
 
     board = Board()
-    ai_engine = SearchEngine(depth=AI_SEARCH_DEPTH)
+    ai_engine = SearchEngine(
+        depth=AI_SEARCH_DEPTH,
+        use_late_move_reductions=True,
+    )
 
     while True:
         print_board(board)

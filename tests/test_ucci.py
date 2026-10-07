@@ -12,6 +12,13 @@ from alphazetacchess.protocol.ucci import UCCIEngine, UCCIError, run_ucci
 INITIAL_FEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
 
 
+def test_default_ucci_search_depth_is_five():
+    engine = UCCIEngine().search_engine
+
+    assert engine.depth == 5
+    assert engine.use_late_move_reductions is True
+
+
 class FakeSearchEngine:
     depth = 3
 

@@ -8,7 +8,18 @@ rationale behind each table.
 from alphazetacchess.core.board import Board
 from alphazetacchess.core.piece import Color, Piece, PieceType
 from alphazetacchess.core.zobrist import Zobrist
-from alphazetacchess.engine.evaluation import evaluate, MATERIAL_VALUES
+from alphazetacchess.engine.evaluation import (
+    CALIBRATED_MATERIAL_VALUES,
+    MATERIAL_VALUES,
+    _king_safety_score,
+    _piece_score,
+    _pst_component,
+    evaluate,
+)
+from alphazetacchess.engine.endgame import endgame_balance
+from alphazetacchess.engine.mobility import mobility_balance
+from alphazetacchess.engine.pawn_structure import pawn_structure_balance
+from alphazetacchess.engine.piece_coordination import piece_coordination_balance
 
 
 def empty_board():
@@ -16,6 +27,78 @@ def empty_board():
     board.board = [[None for _ in range(Board.WIDTH)] for _ in range(Board.HEIGHT)]
     board.zobrist_hash = Zobrist.board_hash(board)
     return board
+
+
+def reference_evaluate(board, perspective_color, **options):
+    material_values = options.get("material_values") or MATERIAL_VALUES
+    use_piece_square_tables = options.get("use_piece_square_tables", True)
+    use_king_safety = options.get("use_king_safety", True)
+    pst_weight = options.get("pst_weight", 1)
+    king_safety_weight = options.get("king_safety_weight", 1)
+    score = 0
+    for row in board.board:
+        for piece in row:
+            if piece is None:
+                continue
+            piece_score = _piece_score(piece, material_values)
+            piece_score += pst_weight * _pst_component(
+                piece, use_piece_square_tables
+            )
+            score += piece_score if piece.color == perspective_color else -piece_score
+    if use_king_safety:
+        opponent = Board.opponent(perspective_color)
+        score += king_safety_weight * (
+            _king_safety_score(board, perspective_color)
+            - _king_safety_score(board, opponent)
+        )
+    if options.get("use_mobility", False):
+        score += options.get("mobility_weight", 1) * mobility_balance(
+            board, perspective_color
+        )
+    if options.get("use_pawn_structure", False):
+        score += pawn_structure_balance(board, perspective_color)
+    if options.get("use_piece_coordination", False):
+        score += piece_coordination_balance(board, perspective_color)
+    if options.get("use_endgame_heuristics", False):
+        score += endgame_balance(board, perspective_color)
+    return score
+
+
+def test_inlined_evaluation_matches_reference_across_options():
+    board = empty_board()
+    for piece_type, color, x, y in (
+        (PieceType.KING, Color.RED, 4, 0),
+        (PieceType.KING, Color.BLACK, 3, 9),
+        (PieceType.ROOK, Color.RED, 0, 5),
+        (PieceType.CANNON, Color.BLACK, 4, 8),
+        (PieceType.HORSE, Color.RED, 2, 5),
+        (PieceType.PAWN, Color.BLACK, 6, 3),
+        (PieceType.ADVISOR, Color.RED, 3, 0),
+        (PieceType.ELEPHANT, Color.BLACK, 2, 9),
+    ):
+        board._place(Piece(piece_type, color, x, y))
+
+    configurations = (
+        {},
+        {"use_piece_square_tables": False},
+        {"use_king_safety": False},
+        {
+            "pst_weight": 10,
+            "king_safety_weight": 8,
+            "material_values": CALIBRATED_MATERIAL_VALUES,
+        },
+        {
+            "use_mobility": True,
+            "use_pawn_structure": True,
+            "use_piece_coordination": True,
+            "use_endgame_heuristics": True,
+        },
+    )
+    for color in (Color.RED, Color.BLACK):
+        for options in configurations:
+            assert evaluate(board, color, **options) == reference_evaluate(
+                board, color, **options
+            )
 
 
 def test_pst_is_color_symmetric_on_initial_position():

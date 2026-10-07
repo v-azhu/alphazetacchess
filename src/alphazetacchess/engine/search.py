@@ -24,7 +24,8 @@ class SearchEngine(ChessEngine):
 
     def __init__(self, depth=3, use_alpha_beta=True, iterative_deepening=True,
                  use_transposition_table=True, use_pvs=True, use_quiescence=True,
-                 quiescence_max_ply=8, use_piece_square_tables=True,
+                 quiescence_max_ply=8, quiescence_check_plies=0,
+                 use_piece_square_tables=True,
                  use_king_safety=True, pst_weight=CALIBRATED_PST_WEIGHT,
                  king_safety_weight=CALIBRATED_KING_SAFETY_WEIGHT,
                  use_mobility=False, mobility_weight=1,
@@ -34,11 +35,15 @@ class SearchEngine(ChessEngine):
                  eval_fn=None, material_values=CALIBRATED_MATERIAL_VALUES,
                  use_killer_moves=True, use_mvv_lva=False,
                  use_history=True, use_null_move=False,
+                 use_late_move_reductions=False,
+                 use_root_move_scores=False,
                  null_move_reduction=2, null_move_min_depth=3,
                  aspiration_window=100,
                  null_move_min_pieces=7):
         if aspiration_window < 1:
             raise ValueError("aspiration_window must be at least 1")
+        if quiescence_check_plies < 0:
+            raise ValueError("quiescence_check_plies must be non-negative")
         self.depth = depth
         self.use_alpha_beta = use_alpha_beta
         self.iterative_deepening = iterative_deepening
@@ -46,6 +51,7 @@ class SearchEngine(ChessEngine):
         self.use_pvs = use_pvs
         self.use_quiescence = use_quiescence
         self.quiescence_max_ply = quiescence_max_ply
+        self.quiescence_check_plies = quiescence_check_plies
         self.use_piece_square_tables = use_piece_square_tables
         self.use_king_safety = use_king_safety
         self.pst_weight = pst_weight
@@ -64,15 +70,20 @@ class SearchEngine(ChessEngine):
         self.use_mvv_lva = use_mvv_lva
         self.use_history = use_history
         self.use_null_move = use_null_move
+        self.use_late_move_reductions = use_late_move_reductions
+        self.use_root_move_scores = use_root_move_scores
         self.null_move_reduction = max(1, null_move_reduction)
         self.null_move_min_depth = max(1, null_move_min_depth)
         self.null_move_min_pieces = max(2, null_move_min_pieces)
         self.aspiration_window = aspiration_window
         self.aspiration_researches = 0
         self._aspiration_guess = None
+        self._root_move_scores = {}
         self.nodes_evaluated = 0
         self.null_move_attempts = 0
         self.null_move_cutoffs = 0
+        self.late_move_reductions = 0
+        self.late_move_researches = 0
         self.tt = TranspositionTable(tt_max_entries)
         self.killer_moves = KillerMoves()
         self.history = HistoryHeuristic()
@@ -111,8 +122,11 @@ class SearchEngine(ChessEngine):
         self.nodes_evaluated = 0
         self.null_move_attempts = 0
         self.null_move_cutoffs = 0
+        self.late_move_reductions = 0
+        self.late_move_researches = 0
         self.aspiration_researches = 0
         self._aspiration_guess = None
+        self._root_move_scores = {}
         self.tt.reset_stats()
         if self.use_killer_moves:
             self.killer_moves.clear()
@@ -156,7 +170,11 @@ class SearchEngine(ChessEngine):
                 self._aspiration_guess = None
             best_result = SearchResult(result.best_move, result.score, self.nodes_evaluated, current_depth)
             if best_result.best_move is not None:
-                root_moves = self._order_root_moves(root_moves, best_result.best_move)
+                root_moves = self._order_root_moves(
+                    root_moves,
+                    best_result.best_move,
+                    self._root_move_scores if self.use_root_move_scores else None,
+                )
         if best_result is not None:
             return best_result
         return SearchResult(root_moves[0], self._evaluate(board, color), self.nodes_evaluated, 0)
@@ -191,6 +209,7 @@ class SearchEngine(ChessEngine):
             beta = aspiration_guess + self.aspiration_window
         original_alpha, original_beta = alpha, beta
         opponent = board.opponent(color)
+        root_move_scores = {}
         for index, move in enumerate(root_moves):
             self._check_stop(stop_event)
             board.move(move.from_pos, move.to_pos)
@@ -206,11 +225,13 @@ class SearchEngine(ChessEngine):
                                            use_pruning=self.use_alpha_beta, stop_event=stop_event)
             finally:
                 board.undo()
+            root_move_scores[(move.from_pos, move.to_pos)] = score
             if score > best_score:
                 best_score = score
                 best_move = move
             if self.use_alpha_beta:
                 alpha = max(alpha, best_score)
+        self._root_move_scores = root_move_scores
         if (
             aspiration_guess is not None
             and (best_score <= original_alpha or best_score >= original_beta)
@@ -230,14 +251,20 @@ class SearchEngine(ChessEngine):
         return SearchResult(best_move, best_score, self.nodes_evaluated, depth)
 
     @staticmethod
-    def _order_root_moves(moves, preferred_move):
+    def _order_root_moves(moves, preferred_move, move_scores=None):
         ordered = list(moves)
-        if preferred_move is None:
-            return ordered
-        preferred = (preferred_move.from_pos, preferred_move.to_pos)
-        for index, move in enumerate(ordered):
-            if (move.from_pos, move.to_pos) == preferred:
-                return [move] + ordered[:index] + ordered[index + 1:]
+        if move_scores is not None:
+            ordered.sort(
+                key=lambda move: move_scores.get(
+                    (move.from_pos, move.to_pos), float("-inf")
+                ),
+                reverse=True,
+            )
+        if preferred_move is not None:
+            preferred = (preferred_move.from_pos, preferred_move.to_pos)
+            for index, move in enumerate(ordered):
+                if (move.from_pos, move.to_pos) == preferred:
+                    return [move] + ordered[:index] + ordered[index + 1:]
         return ordered
 
     def _order_moves(self, moves, preferred_move, ply=None, board=None):
@@ -250,15 +277,29 @@ class SearchEngine(ChessEngine):
                     preferred = ordered.pop(index)
                     break
 
-        if self.use_killer_moves and ply is not None:
-            ordered = self._promote_killer_moves(ordered, ply)
-
         if self.use_mvv_lva:
-            ordered = self._order_captures_by_mvv_lva(ordered)
-
-        if self.use_history:
-            ordered.sort(key=self.history.get, reverse=True)
-
+            captures = [move for move in ordered if move.captured_piece is not None]
+            quiets = [move for move in ordered if move.captured_piece is None]
+            captures.sort(key=self._mvv_lva_score, reverse=True)
+            if self.use_history:
+                quiets.sort(key=self.history.get, reverse=True)
+            if self.use_killer_moves and ply is not None:
+                quiets = self._promote_killer_moves(quiets, ply)
+            ordered = captures + quiets
+        else:
+            if self.use_history:
+                quiets = sorted(
+                    (move for move in ordered if move.captured_piece is None),
+                    key=self.history.get,
+                    reverse=True,
+                )
+                quiet_iter = iter(quiets)
+                ordered = [
+                    move if move.captured_piece is not None else next(quiet_iter)
+                    for move in ordered
+                ]
+            if self.use_killer_moves and ply is not None:
+                ordered = self._promote_killer_moves(ordered, ply)
         if preferred is not None:
             ordered = [preferred] + ordered
         return ordered
@@ -273,6 +314,13 @@ class SearchEngine(ChessEngine):
         captures = [move for move in moves if move.captured_piece is not None]
         quiets = [move for move in moves if move.captured_piece is None]
         captures.sort(key=self._mvv_lva_score, reverse=True)
+        return captures + quiets
+
+    def _order_quiescence_moves(self, moves, board):
+        captures = [move for move in moves if move.captured_piece is not None]
+        quiets = [move for move in moves if move.captured_piece is None]
+        if self.use_mvv_lva and len(captures) > 1:
+            captures.sort(key=self._mvv_lva_score, reverse=True)
         return captures + quiets
 
     def _promote_killer_moves(self, ordered, ply):
@@ -369,6 +417,12 @@ class SearchEngine(ChessEngine):
                 return score
 
         legal_moves = self._order_moves(legal_moves, preferred_move, ply, board=board)
+        lmr_node = (
+            self.use_late_move_reductions
+            and use_pruning
+            and depth >= 3
+            and not Rule.is_in_check(board, current_color)
+        )
         best_score = float("-inf")
         best_move = None
         opponent = board.opponent(current_color)
@@ -377,7 +431,37 @@ class SearchEngine(ChessEngine):
             self._check_stop(stop_event)
             board.move(move.from_pos, move.to_pos)
             try:
-                if use_pruning and self.use_pvs and index > 0:
+                reduce_move = (
+                    lmr_node
+                    and index >= 8
+                    and move.captured_piece is None
+                    and not Rule.is_in_check(board, opponent)
+                )
+                if reduce_move:
+                    self.late_move_reductions += 1
+                    score = -self._negamax(
+                        board,
+                        depth - 2,
+                        -alpha - 1,
+                        -alpha,
+                        opponent,
+                        root_depth,
+                        use_pruning=True,
+                        stop_event=stop_event,
+                    )
+                    if score > alpha:
+                        self.late_move_researches += 1
+                        score = -self._negamax(
+                            board,
+                            depth - 1,
+                            -beta,
+                            -alpha,
+                            opponent,
+                            root_depth,
+                            use_pruning=True,
+                            stop_event=stop_event,
+                        )
+                elif use_pruning and self.use_pvs and index > 0:
                     score = -self._negamax(board, depth - 1, -alpha - 1, -alpha, opponent,
                                            root_depth, use_pruning, stop_event)
                     if alpha < score < beta:
@@ -461,10 +545,13 @@ class SearchEngine(ChessEngine):
                 return stand_pat
             alpha = max(alpha, stand_pat)
             best_score = stand_pat
+            if qply < self.quiescence_check_plies:
+                candidates.extend(Rule.generate_legal_checks(board, color))
             if not candidates:
                 if self.use_transposition_table:
                     self.tt.store(q_key, 0, stand_pat, Bound.EXACT, None, ply=ply)
                 return stand_pat
+        candidates = self._order_quiescence_moves(candidates, board)
         opponent = board.opponent(color)
         for move in candidates:
             self._check_stop(stop_event)

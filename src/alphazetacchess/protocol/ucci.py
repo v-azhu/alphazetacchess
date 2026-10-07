@@ -26,7 +26,10 @@ class UCCIEngine:
     AUTHOR = "v-azhu"
 
     def __init__(self, search_engine=None):
-        self.search_engine = search_engine or SearchEngine(depth=3)
+        self.search_engine = search_engine or SearchEngine(
+            depth=5,
+            use_late_move_reductions=True,
+        )
         self.board = Board()
         self.record = GameRecord.from_board(self.board)
         self.debug = False

@@ -2,6 +2,7 @@ from alphazetacchess.core.fen import board_from_fen
 from alphazetacchess.core.piece import Color, PieceType
 from alphazetacchess.core.rule import Rule
 from alphazetacchess.engine.search import SearchEngine
+from alphazetacchess.engine.transposition_table import MATE_SCORE
 
 
 TACTICAL_POSITIONS = {
@@ -178,6 +179,53 @@ def test_search_respects_objectively_checked_tactical_properties():
     }
     free_result = SearchEngine(depth=2).choose_move(free_board, Color.RED)
     assert (free_result.best_move.from_pos, free_result.best_move.to_pos) in safe_captures
+
+
+def test_quiescence_check_extension_finds_the_fixture_mate_in_one():
+    board = board_from_fen(TACTICAL_POSITIONS["mate_in_one"]["fen"])
+    before_hash = board.zobrist_hash
+    baseline = SearchEngine(quiescence_check_plies=0)._quiescence(
+        board, float("-inf"), float("inf"), Color.RED, 0, 0
+    )
+    extended = SearchEngine(quiescence_check_plies=1)._quiescence(
+        board, float("-inf"), float("inf"), Color.RED, 0, 0
+    )
+
+    assert baseline < MATE_SCORE - 1
+    assert extended == MATE_SCORE - 1
+    assert board.zobrist_hash == before_hash
+
+
+def test_quiescence_check_extension_sees_forced_mate_after_capture():
+    board = board_from_fen(TACTICAL_POSITIONS["free_capture"]["fen"])
+    capture = _move(board, (0, 6), (4, 6))
+    board.move(capture.from_pos, capture.to_pos)
+    try:
+        replies = Rule.generate_legal_moves(board, Color.BLACK)
+        assert len(replies) == 2
+        for reply in replies:
+            board.move(reply.from_pos, reply.to_pos)
+            try:
+                assert immediate_mates(board, Color.RED)
+            finally:
+                board.undo()
+    finally:
+        board.undo()
+
+    baseline = SearchEngine(depth=2, use_null_move=False).choose_move(
+        board, Color.RED
+    )
+    extended = SearchEngine(
+        depth=2,
+        use_null_move=False,
+        quiescence_check_plies=1,
+    ).choose_move(board, Color.RED)
+
+    assert (extended.best_move.from_pos, extended.best_move.to_pos) == (
+        (0, 6), (4, 6)
+    )
+    assert baseline.score < MATE_SCORE - 3
+    assert extended.score == MATE_SCORE - 3
 
     trap_board = board_from_fen(TACTICAL_POSITIONS["exchange_trap"]["fen"])
     unsafe_captures = {

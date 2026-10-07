@@ -160,6 +160,32 @@ def test_capture_generation_and_early_legal_move_check_match_full_legal_moves():
     assert Rule.has_legal_move(board, Color.RED) is True
 
 
+def test_legal_quiet_checks_match_full_legal_move_probe_and_restore_board():
+    board = board_from_fen("3aka3/4b4/9/p4N3/9/9/9/9/9/4K4 w - - 0 1")
+    before_hash = board.zobrist_hash
+    before_player = board.current_player
+    expected = set()
+    for move in Rule.generate_legal_moves(board, Color.RED):
+        if move.captured_piece is not None:
+            continue
+        piece, captured = board.probe_move(move.from_pos, move.to_pos)
+        try:
+            if Rule.is_in_check(board, Color.BLACK):
+                expected.add((move.from_pos, move.to_pos))
+        finally:
+            board.undo_probe(move.from_pos, move.to_pos, piece, captured)
+
+    actual = {
+        (move.from_pos, move.to_pos)
+        for move in Rule.generate_legal_checks(board, Color.RED)
+    }
+
+    assert actual == expected
+    assert actual
+    assert board.zobrist_hash == before_hash
+    assert board.current_player == before_player
+
+
 def test_early_legal_move_checks_detect_stalemate():
     board = board_from_fen(
         "3aca3/1Cnrk4/b3r4/2p1n4/2b6/9/9/9/4C4/ppppcK3 b - - 0 1"

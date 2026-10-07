@@ -103,6 +103,22 @@ class Rule:
         return captures
 
     @classmethod
+    def generate_legal_checks(cls, board, color):
+        """Generate legal quiet moves that leave the opposing king in check."""
+        checks = []
+        opponent = board.opponent(color)
+        for move in cls.pseudo_legal_moves(board, color):
+            if move.captured_piece is not None:
+                continue
+            piece, captured = board.probe_move(move.from_pos, move.to_pos)
+            try:
+                if not cls.is_in_check(board, color) and cls.is_in_check(board, opponent):
+                    checks.append(move)
+            finally:
+                board.undo_probe(move.from_pos, move.to_pos, piece, captured)
+        return checks
+
+    @classmethod
     def has_legal_move(cls, board, color):
         """Return as soon as one legal move is found."""
         for move in cls.pseudo_legal_moves(board, color):

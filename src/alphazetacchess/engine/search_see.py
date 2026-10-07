@@ -10,9 +10,17 @@ class SeeSearchEngine(SearchEngine):
     changing the core search implementation.
     """
 
-    def __init__(self, *args, use_see=True, see_max_depth=12, **kwargs):
+    def __init__(
+        self,
+        *args,
+        use_see=True,
+        use_see_quiescence_ordering=True,
+        see_max_depth=12,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.use_see = use_see
+        self.use_see_quiescence_ordering = use_see_quiescence_ordering
         self.see = StaticExchangeEvaluator(
             material_values=self.material_values,
             max_depth=see_max_depth,
@@ -46,13 +54,24 @@ class SeeSearchEngine(SearchEngine):
         elif captures and not self.use_see and self.use_mvv_lva:
             captures.sort(key=self._mvv_lva_score, reverse=True)
 
-        if self.use_killer_moves and ply is not None:
-            quiets = self._promote_killer_moves(quiets, ply)
-
         if self.use_history:
             quiets.sort(key=self.history.get, reverse=True)
+        if self.use_killer_moves and ply is not None:
+            quiets = self._promote_killer_moves(quiets, ply)
 
         ordered = captures + quiets
         if preferred is not None:
             ordered = [preferred] + ordered
         return ordered
+
+    def _order_quiescence_moves(self, moves, board):
+        captures = [move for move in moves if move.captured_piece is not None]
+        quiets = [move for move in moves if move.captured_piece is None]
+        if len(captures) > 1 and self.use_see and self.use_see_quiescence_ordering:
+            captures.sort(
+                key=lambda move: self.see.evaluate_capture(board, move),
+                reverse=True,
+            )
+        elif self.use_mvv_lva and len(captures) > 1:
+            captures.sort(key=self._mvv_lva_score, reverse=True)
+        return captures + quiets

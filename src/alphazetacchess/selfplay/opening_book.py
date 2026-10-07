@@ -20,6 +20,7 @@ much larger corpus to work with.
 import json
 
 from ..core.board import Board
+from ..core.game_record import GameRecord
 from ..core.piece import Color
 
 
@@ -89,6 +90,13 @@ def select_book_move(book, board, color, min_games=3):
     entries = book.get(_position_key(board, color))
     if not entries:
         return None
+
+    teacher_move = entries.get("best_move")
+    if teacher_move is not None:
+        if entries.get("source_games", 0) < min_games:
+            return None
+        move = GameRecord.move_from_iccs(teacher_move)
+        return move.from_pos, move.to_pos
 
     best_move_key = None
     best_score = None

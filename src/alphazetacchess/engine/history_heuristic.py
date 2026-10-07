@@ -15,15 +15,21 @@ class HistoryHeuristic:
     def clear(self):
         self._scores.clear()
 
+    @staticmethod
+    def _key(move):
+        piece = getattr(move, "moved_piece", None)
+        color = getattr(piece, "color", None)
+        return color, move.from_pos, move.to_pos
+
     def get(self, move):
-        if move is None:
+        if move is None or move.captured_piece is not None:
             return 0
-        return self._scores.get((move.from_pos, move.to_pos), 0)
+        return self._scores.get(self._key(move), 0)
 
     def update(self, move, bonus):
         if move is None or move.captured_piece is not None:
             return
-        key = (move.from_pos, move.to_pos)
+        key = self._key(move)
         old = self._scores.get(key, 0)
         bonus = max(-self.MAX_SCORE, min(self.MAX_SCORE, bonus))
         # Gravity-style history update: recent evidence matters more while

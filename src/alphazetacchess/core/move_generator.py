@@ -15,12 +15,30 @@ class MoveGenerator:
     filter is the responsibility of the Rule engine.
     """
 
+    _ORTHOGONAL = ((1, 0), (-1, 0), (0, 1), (0, -1))
+    _HORSE_CANDIDATES = (
+        ((1, 2), (0, 1)),
+        ((-1, 2), (0, 1)),
+        ((1, -2), (0, -1)),
+        ((-1, -2), (0, -1)),
+        ((2, 1), (1, 0)),
+        ((2, -1), (1, 0)),
+        ((-2, 1), (-1, 0)),
+        ((-2, -1), (-1, 0)),
+    )
+    _ELEPHANT_OFFSETS = ((2, 2), (2, -2), (-2, 2), (-2, -2))
+    _ADVISOR_OFFSETS = ((1, 1), (1, -1), (-1, 1), (-1, -1))
+    _KING_OFFSETS = _ORTHOGONAL
+    _PAWN_SIDEWAYS_OFFSETS = ((1, 0), (-1, 0))
+
     def generate_moves(self, board, color, captures_only=False):
         moves = []
+        grid = board.board
 
         for y in range(board.HEIGHT):
+            row = grid[y]
             for x in range(board.WIDTH):
-                piece = board.get(x, y)
+                piece = row[x]
 
                 if piece is None:
                     continue
@@ -60,19 +78,19 @@ class MoveGenerator:
     # ------------------------------------------------------------------
     def _rook_moves(self, board, piece, captures_only=False):
         moves = []
-        directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        grid = board.board
 
-        for dx, dy in directions:
+        for dx, dy in self._ORTHOGONAL:
             x, y = piece.x, piece.y
 
             while True:
                 x += dx
                 y += dy
 
-                if not Board.in_bounds(x, y):
+                if not (0 <= x < 9 and 0 <= y < 10):
                     break
 
-                target = board.get(x, y)
+                target = grid[y][x]
 
                 if target is None:
                     if not captures_only:
@@ -90,9 +108,9 @@ class MoveGenerator:
     # ------------------------------------------------------------------
     def _cannon_moves(self, board, piece, captures_only=False):
         moves = []
-        directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        grid = board.board
 
-        for dx, dy in directions:
+        for dx, dy in self._ORTHOGONAL:
             x, y = piece.x, piece.y
             screen_found = False
 
@@ -100,10 +118,10 @@ class MoveGenerator:
                 x += dx
                 y += dy
 
-                if not Board.in_bounds(x, y):
+                if not (0 <= x < 9 and 0 <= y < 10):
                     break
 
-                target = board.get(x, y)
+                target = grid[y][x]
 
                 if not screen_found:
                     if target is None:
@@ -130,36 +148,25 @@ class MoveGenerator:
     # ------------------------------------------------------------------
     def _horse_moves(self, board, piece, captures_only=False):
         moves = []
+        grid = board.board
 
-        # (target offset, leg/blocking offset)
-        candidates = [
-            ((1, 2), (0, 1)),
-            ((-1, 2), (0, 1)),
-            ((1, -2), (0, -1)),
-            ((-1, -2), (0, -1)),
-            ((2, 1), (1, 0)),
-            ((2, -1), (1, 0)),
-            ((-2, 1), (-1, 0)),
-            ((-2, -1), (-1, 0)),
-        ]
-
-        for target_offset, leg_offset in candidates:
+        for target_offset, leg_offset in self._HORSE_CANDIDATES:
             leg_x = piece.x + leg_offset[0]
             leg_y = piece.y + leg_offset[1]
 
-            if not Board.in_bounds(leg_x, leg_y):
+            if not (0 <= leg_x < 9 and 0 <= leg_y < 10):
                 continue
 
-            if board.get(leg_x, leg_y) is not None:
+            if grid[leg_y][leg_x] is not None:
                 continue
 
             x = piece.x + target_offset[0]
             y = piece.y + target_offset[1]
 
-            if not Board.in_bounds(x, y):
+            if not (0 <= x < 9 and 0 <= y < 10):
                 continue
 
-            target = board.get(x, y)
+            target = grid[y][x]
 
             if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
@@ -175,13 +182,13 @@ class MoveGenerator:
     # ------------------------------------------------------------------
     def _elephant_moves(self, board, piece, captures_only=False):
         moves = []
-        offsets = [(2, 2), (2, -2), (-2, 2), (-2, -2)]
+        grid = board.board
 
-        for dx, dy in offsets:
+        for dx, dy in self._ELEPHANT_OFFSETS:
             x = piece.x + dx
             y = piece.y + dy
 
-            if not Board.in_bounds(x, y):
+            if not (0 <= x < 9 and 0 <= y < 10):
                 continue
 
             if Board.has_crossed_river(y, piece.color):
@@ -190,10 +197,10 @@ class MoveGenerator:
             eye_x = piece.x + dx // 2
             eye_y = piece.y + dy // 2
 
-            if board.get(eye_x, eye_y) is not None:
+            if grid[eye_y][eye_x] is not None:
                 continue
 
-            target = board.get(x, y)
+            target = grid[y][x]
 
             if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
@@ -207,16 +214,16 @@ class MoveGenerator:
     # ------------------------------------------------------------------
     def _advisor_moves(self, board, piece, captures_only=False):
         moves = []
-        offsets = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
+        grid = board.board
 
-        for dx, dy in offsets:
+        for dx, dy in self._ADVISOR_OFFSETS:
             x = piece.x + dx
             y = piece.y + dy
 
             if not Board.in_palace(x, y, piece.color):
                 continue
 
-            target = board.get(x, y)
+            target = grid[y][x]
 
             if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
@@ -232,16 +239,16 @@ class MoveGenerator:
     # ------------------------------------------------------------------
     def _king_moves(self, board, piece, captures_only=False):
         moves = []
-        offsets = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        grid = board.board
 
-        for dx, dy in offsets:
+        for dx, dy in self._KING_OFFSETS:
             x = piece.x + dx
             y = piece.y + dy
 
             if not Board.in_palace(x, y, piece.color):
                 continue
 
-            target = board.get(x, y)
+            target = grid[y][x]
 
             if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
@@ -256,24 +263,25 @@ class MoveGenerator:
     # ------------------------------------------------------------------
     def _pawn_moves(self, board, piece, captures_only=False):
         moves = []
+        grid = board.board
 
         forward = 1 if piece.color == Color.RED else -1
         crossed = Board.has_crossed_river(piece.y, piece.color)
 
-        offsets = [(0, forward)]
-
-        if crossed:
-            offsets.append((1, 0))
-            offsets.append((-1, 0))
+        offsets = (
+            ((0, forward),) + self._PAWN_SIDEWAYS_OFFSETS
+            if crossed
+            else ((0, forward),)
+        )
 
         for dx, dy in offsets:
             x = piece.x + dx
             y = piece.y + dy
 
-            if not Board.in_bounds(x, y):
+            if not (0 <= x < 9 and 0 <= y < 10):
                 continue
 
-            target = board.get(x, y)
+            target = grid[y][x]
 
             if target is not None and target.color != piece.color:
                 moves.append(self._make_move(piece, (x, y), target))
