@@ -1125,7 +1125,7 @@ Tasks:
 - [ ] Long chase (长捉) specified here, implemented in V0.13
 
 Acceptance (headline): search and adjudicator agree on all vectors and ≥ 1,000 recorded games;
-`simple_draw` reproduces V0.10 exactly; owner decision D2 recorded.
+`simple_draw` reproduces V0.10 exactly; default rule set is Chinese rules (D2, decided 2026-10-12).
 
 ### V0.11.4 — Consolidation and Baseline Freeze — PLANNED
 
@@ -1139,7 +1139,7 @@ Acceptance (headline): B0 reproducible from a clean checkout (±2 points on AZ-T
 ## V0.12 — Native Engine Core — PLANNED
 
 Goal: ≥ 50× node throughput with identical playing behavior. The Python engine becomes the
-executable specification and oracle; a C++17 core (Rust acceptable; owner decision D1) is delivered
+executable specification and oracle; a C++17 core (owner decision D1, 2026-10-12) is delivered
 as an importable module plus a standalone UCCI executable. Details: `v0.11.0.md` §5, §7.
 
 - [ ] V0.12.0 feasibility spike and ADR (go/no-go: perft ≥ 2 M leaves/s, target ≥ 5 M; Windows build from a clean checkout)
@@ -1168,7 +1168,7 @@ over ≥ 10 games.
 ## V0.14 — NNUE-lite Evaluation — PLANNED
 
 Goal: an incrementally updated small neural evaluator trained on the project's own data inside the
-alpha-beta mainline. Data policy ADR (owner decision D3), native self-play data generator, PyTorch
+alpha-beta mainline. Data policy ADR (D3 decided 2026-10-12: Pikafish evaluations may be used as labels), native self-play data generator, PyTorch
 trainer with win-probability loss, quantized incremental inference, model registry.
 
 Acceptance (headline): bit-exact inference versus the quantized reference; ≥ 50% of handcrafted
@@ -2389,7 +2389,11 @@ This section supersedes the V0.10.0 checkpoint above for next steps. The archite
 - Evidence for V0.10 search features is inconclusive by construction (±60–150 Elo intervals), and
   the only large resolved effect is depth (+134 Elo for depth 4 vs. 3).
 - Plan: V0.11 measurement + real-play fixes → V0.12 native core → V0.13 search/eval engineering →
-  V0.14 NNUE-lite. Stop list and owner decisions D1–D7 are in `v0.11.0.md` §4 and §9.
+  V0.14 NNUE-lite. Stop list and owner decisions are in `v0.11.0.md` §4 and §9.
+- Owner decisions (2026-10-12): D1 native language C++17; D2 Chinese rules; D3 Pikafish evaluations may be
+  used as training labels. D4–D7 remain open (training hardware, license, research track, platforms).
+- Agent instructions: [`../AGENTS.md`](../AGENTS.md) (standing rules) and
+  [`agent-kickoff.md`](agent-kickoff.md) (per-work-package kickoff prompts).
 
 Exact next step: **V0.11.1** — build `tools/match.py` with the SPRT core and pass the null,
 positive and negative controls before running any new strength comparison.

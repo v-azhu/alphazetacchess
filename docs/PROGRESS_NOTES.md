@@ -40,6 +40,9 @@ the "Current caveats and next steps" list below for planning purposes. Headline 
   `SearchEngine` flags, new `compare_*` scripts, numpy-MLP evaluator/policy iterations
   (`v0.11.0.md` §4).
 
+Owner decisions (2026-10-12): D1 native language C++17; D2 Chinese rules; D3 Pikafish evaluations may be
+used as training labels (D4–D7 open).
+
 Exact next step: V0.11.1 — `tools/match.py` with SPRT, passing the null/positive/negative controls.
 
 ## Latest completed work
