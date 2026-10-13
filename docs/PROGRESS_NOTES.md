@@ -1,6 +1,6 @@
 # AlphaZetaChess Current Progress
 
-Snapshot date: 2026-10-06
+Snapshot date: 2026-10-06 (architecture review added 2026-10-11; engine code unchanged since `8b7d917`)
 
 Starting revision: `dbb9ff9`; this checkpoint's changes are in the current worktree.
 
@@ -16,6 +16,31 @@ Starting revision: `dbb9ff9`; this checkpoint's changes are in the current workt
   comparison is recorded below. The latest correctness and search-boundary work is in
   [`v0.10.0.md`](v0.10.0.md); older experiments remain in [`roadmap.md`](roadmap.md)
   and their version-specific documents.
+
+## Architecture review and recovery plan (2026-10-11)
+
+An architecture review (no code changed) is recorded in [`v0.11.0.md`](v0.11.0.md); it supersedes
+the "Current caveats and next steps" list below for planning purposes. Headline findings:
+
+- **Throughput, not heuristics, is the dominant limit.** Measured 10–20K nodes/s, ≈ 414 Python function
+  calls per node. In the recorded Pikafish matches AlphaZeta's mean completed depth is 1.4–2.1.
+- **26.5% of its moves in the first 500 ms Pikafish run (13.7% and 7.2% in the two later runs, after
+  speed-ups) were depth-0 fallbacks**: `choose_move` returns the first generated legal move when
+  iteration 1 is interrupted. A complete depth-1 search in those positions costs 2.5–5.4K nodes.
+- **UCCI games lose the repetition history** (`_search_worker` → `board_from_fen`; verified:
+  history 9 on the replayed board, 1 on the searched board). Long check / long chase are not modeled.
+- **The experiments above cannot resolve their own effects**: 4–48 opening pairs give ±60–200 Elo
+  intervals. Null-move, LMR, aspiration, quiet checks and SEE are all consistent with 0; a +20 Elo
+  change needs ≈ 930 games. The one large resolved effect is depth (+134 Elo, depth 4 vs. 3).
+- **Plan**: V0.11 trustworthy measurement and real-play fixes (Python) → V0.12 native core with the
+  Python engine as executable specification → V0.13 gated search/evaluation engineering → V0.14
+  NNUE-lite. Every phase has numeric acceptance criteria in `v0.11.0.md` §7; strength gates (SPRT,
+  Pikafish node ladder, AZ-TAC-500) are in §6.
+- **Stop doing**: Python hot-path micro-optimizations, <100-game A/B tests of pruning features, new
+  `SearchEngine` flags, new `compare_*` scripts, numpy-MLP evaluator/policy iterations
+  (`v0.11.0.md` §4).
+
+Exact next step: V0.11.1 — `tools/match.py` with SPRT, passing the null/positive/negative controls.
 
 ## Latest completed work
 
@@ -360,6 +385,8 @@ python tools/benchmark_search.py --depths 2 3
 
 ## Current caveats and next steps
 
+- **Superseded for planning (2026-10-11):** the next steps are defined by [`v0.11.0.md`](v0.11.0.md). The
+  items below remain as the historical record of what was known at the 2026-10-06 snapshot.
 - The 20-game depth-4 vs. depth-3 result is inconclusive and uses only the deterministic
   initial opening. The 100-game randomized follow-up is more informative, but is still a
   single sample rather than a definitive playing-strength measurement.

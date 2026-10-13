@@ -344,6 +344,51 @@ Possible future improvements:
 
 ------------------------------------------------------------------------
 
-Version: v0.1
+# 12. Addendum (2026-10-11) — Strength Evidence and Performance Policy
 
-Status: Initial Development Standard
+Added by the architecture review in [`v0.11.0.md`](v0.11.0.md). The v0.1 text above stays as the
+baseline; the following amends it where measurements showed it no longer fits.
+
+## 12.1 Performance policy: a measured exception
+
+§10 ranks low-level optimization last and says "do not optimize before measuring". The
+measurement has now been done: ~10–20K nodes/s, ≈ 414 Python calls per node, mean completed depth
+1.4–2.1 against Pikafish (`v0.11.0.md` §2). At that throughput algorithmic improvements cannot be
+realized, so **for the V0.11–V0.12 period structural performance work (the native core of §2.1 "if
+required") is ranked ahead of further algorithm work.** Python micro-optimizations remain out of
+scope (stop list, `v0.11.0.md` §4).
+
+## 12.2 Strength claims require a gate
+
+A change may be called "stronger" only with one of: an accepted SPRT gate (G1/G2/G3), a ladder
+result, or an AZ-TAC-500 result — not from depth, node count or a sub-100-game match. Every test is
+registered before it runs; reaching the game cap without a decision means *not accepted*; a re-run
+needs a code change. Definitions and parameters: `v0.11.0.md` §6.
+
+## 12.3 Evidence package
+
+Every claim ships with: the reproduction command; game records plus manifest (openings, seed,
+engine/config hash, binary hash, machine, affinity, `nps` calibration); replay-validation pass;
+the SPRT result; a paragraph in the version document with an honest reading, including when it is
+negative (existing practice, made uniform).
+
+## 12.4 Configuration and flags
+
+One immutable `EngineConfig` with named presets is the only way to configure an engine; its hash is
+stored in every game record. No new constructor flags on `SearchEngine`. A default-on flag requires
+an accepted evidence ID in the flag registry; flags without evidence stay off or are removed.
+
+## 12.5 Tools
+
+No new per-feature `compare_*` scripts: extend `tools/match.py`. Generated game records larger
+than 1 MB are release assets or LFS objects, with the manifest kept in git.
+
+## 12.6 Native core rules
+
+Contract tests first; the Python engine is the oracle; the native core is accepted only at zero
+mismatches on the golden vectors; sanitizers (ASan/UBSan) are part of CI; after parity the Python
+engine is frozen (bug fixes only) and remains the no-compiler fallback.
+
+Version: v0.1 (addendum 2026-10-11)
+
+Status: Initial Development Standard; see addendum §12 for the current policy

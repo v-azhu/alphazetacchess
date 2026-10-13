@@ -24,6 +24,10 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
 | V0.9 | V0.9.1-9.9 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V0.10 | V0.10.0 COMPLETE | Repetition / quiescence correctness and horizon efficiency |
+| V0.11 | PLANNED | Strength foundation: trustworthy measurement (SPRT, Pikafish ladder, tactics suite) and removal of real-play defects (see `v0.11.0.md`) |
+| V0.12 | PLANNED | Native engine core (throughput leap), Python implementation kept as executable specification and fallback |
+| V0.13 | PLANNED | Search and evaluation engineering on the native core, every feature gated by SPRT |
+| V0.14 | PLANNED | NNUE-lite incremental neural evaluation |
 | V1.0 | PLANNED | Complete Xiangqi AI platform |
 
 ## V0.1 — COMPLETE
@@ -1063,6 +1067,115 @@ are directly measured; the depth-to-strength step rests on general computer-ches
 knowledge and is the natural thing for the user to confirm by playing. Full diagnosis,
 the three fixes, remaining known weaknesses, and further speed headroom in
 `docs/v0.9.9.md`.
+
+## V0.11 — Strength Foundation — PLANNED
+
+Authority: [`v0.11.0.md`](v0.11.0.md) (architecture review, evidence, pain points, target
+architecture, measurement protocol, and the **full acceptance criteria** for V0.11–V0.14). The
+sections below are summaries; if they disagree with `v0.11.0.md`, that document wins.
+
+Why: the V0.10 evidence shows three structural limits — a ~10–30K nodes/s Python substrate (mean
+completed depth 1.4–2.1 against Pikafish), unreliable shallow search (26.5% depth-0 "arbitrary
+move" fallbacks at 500 ms), and a measurement system whose 95% intervals (±60–150 Elo) cannot
+resolve the changes being tested. Stop list (no more Python micro-optimizations, no <100-game A/B
+tests, no new constructor flags, no new `compare_*` scripts): `v0.11.0.md` §4.
+
+### V0.11.1 — Unified Match Runner, SPRT, Ladder, Tactics Suite — PLANNED
+
+Goal: make strength measurable before changing anything else.
+
+Tasks:
+
+- [ ] `tools/match.py`: one runner, paired openings, replay validation, pentanomial SPRT, manifests
+- [ ] Hardware discipline (worker cap, affinity, `nps` calibration, load per game)
+- [ ] Balanced 8-ply opening suite (≥ 2,000 positions) with manifest
+- [ ] Pikafish node-limited ladder (`go nodes N`) calibration
+- [ ] AZ-TAC-500 tactics/blunder suite and AZ-FALLBACK-25 stress set
+- [ ] Consolidate the five `compare_*_paired.py` scripts and `compare_engines.py`
+
+Acceptance (headline): null control (≤ 1 false accept in 10 runs), positive control (500 ms vs.
+250 ms accepted), negative control (depth 2 vs. 3 rejected), ladder of ≥ 8 informative rungs,
+V0.10 baselines recorded on both suites, comparison-script LOC down ≥ 60%.
+
+### V0.11.2 — Real-Play Correctness and Reliable Shallow Search — PLANNED
+
+Goal: the engine never plays an arbitrary move and never forgets the game.
+
+Tasks:
+
+- [ ] UCCI search board carries the replayed game's repetition history (currently reset by `board_from_fen`)
+- [ ] `EngineConfig` + presets + flag registry; one resolution path for CLI/Web/UCCI/runner
+- [ ] Depth-1 guarantee, safe 1-ply fallback instead of `root_moves[0]`, partial-iteration use
+- [ ] Time manager (soft/hard limits; `go time` no longer capped at depth 5)
+- [ ] Quiescence budget: capture ordering, delta pruning, no stalemate probing in q-nodes
+
+Acceptance (headline): zero depth-0 results over ≥ 200 games at 500 ms; median nodes of a complete
+depth ≤ 1 search on AZ-FALLBACK-25 down ≥ 2×; UCCI repetition scenarios avoided in ≥ 95%; one
+`EngineConfig` hash across all front ends; G1 non-regression versus V0.10.
+
+### V0.11.3 — Rules Fidelity v1 (Specification Before the Port) — PLANNED
+
+Goal: freeze the rule semantics before the native core implements them.
+
+Tasks:
+
+- [ ] `RuleSet` (`simple_draw`, `chinese_v1`): long check loses, mutual long check draws, natural move limit
+- [ ] Check-aware in-tree repetition scoring; structured `Rule.game_result` reasons
+- [ ] ≥ 40 rule vectors; adjudication audit of the 141K-game archive
+- [ ] Long chase (长捉) specified here, implemented in V0.13
+
+Acceptance (headline): search and adjudicator agree on all vectors and ≥ 1,000 recorded games;
+`simple_draw` reproduces V0.10 exactly; owner decision D2 recorded.
+
+### V0.11.4 — Consolidation and Baseline Freeze — PLANNED
+
+Tasks: freeze Python micro-optimization/pruning experiments; archive the inline hand-off chain of
+this file into `docs/history/`; clear the documentation-debt list (`v0.11.0.md` §10); tag the
+**B0 baseline** (config hash, launcher, ladder rung, AZ-TAC-500 numbers).
+
+Acceptance (headline): B0 reproducible from a clean checkout (±2 points on AZ-TAC-500);
+`roadmap.md` ≤ 600 lines; no contradictory default-depth statements.
+
+## V0.12 — Native Engine Core — PLANNED
+
+Goal: ≥ 50× node throughput with identical playing behavior. The Python engine becomes the
+executable specification and oracle; a C++17 core (Rust acceptable; owner decision D1) is delivered
+as an importable module plus a standalone UCCI executable. Details: `v0.11.0.md` §5, §7.
+
+- [ ] V0.12.0 feasibility spike and ADR (go/no-go: perft ≥ 2 M leaves/s, target ≥ 5 M; Windows build from a clean checkout)
+- [ ] V0.12.1 golden vectors (perft, legal-move sets, eval, P-exact search, rules) and contract document
+- [ ] V0.12.2 native position, rules, move generation, perft (0 mismatches)
+- [ ] V0.12.3 native evaluation and search, parity preset (≥ 1 M nodes/s, ≥ 50× Python)
+- [ ] V0.12.4 integration: binding, UCCI executable, `--core native|python|auto`, CI, no-compiler fallback
+
+Acceptance (headline, exit gate): 10,000-game soak with 0 crashes/illegal moves; native at 1/20 of the
+time scores ≥ 50% against the Python reference; median completed depth ≥ 8 at 500 ms; AZ-TAC-500
+solve rate +20 points; ≥ +4 ladder rungs (provisional).
+
+## V0.13 — Search and Evaluation Engineering — PLANNED
+
+Goal: convert throughput into strength with established techniques, each gated (G1/G2 SPRT,
+registered before it runs). Workstreams: (A) ordering and quiescence redesign, (B) transposition
+table, (C) selectivity (null move, LMR, futility, check extension, IIR), (D) time management,
+(E) tapered, tuned handcrafted evaluation with a reproducible fitting pipeline, (F) long chase,
+(G) Lazy SMP (optional), (H) master-game opening book (optional).
+
+Acceptance (headline, exit gate = "recovery target"): ≥ +150 Elo over V0.12 (lower bound ≥ +100);
+median depth ≥ 14 at 1 s; AZ-TAC-500 solve ≥ 90% / blunder ≤ 3%; ≥ +2 ladder rungs; every
+default-on flag has an accepted evidence ID; ≥ 50% against the V0.9.9 reporter at even strength
+over ≥ 10 games.
+
+## V0.14 — NNUE-lite Evaluation — PLANNED
+
+Goal: an incrementally updated small neural evaluator trained on the project's own data inside the
+alpha-beta mainline. Data policy ADR (owner decision D3), native self-play data generator, PyTorch
+trainer with win-probability loss, quantized incremental inference, model registry.
+
+Acceptance (headline): bit-exact inference versus the quantized reference; ≥ 50% of handcrafted
+nodes/s; ≥ +100 Elo over V0.13 (lower bound ≥ +50); reproducible training; repository license decided.
+
+MCTS, the policy network and the numpy-MLP evaluator are **frozen** as research code until they can
+be tested against the V0.14 mainline (`v0.11.0.md` §7, "Research track").
 
 ## V1.0 — Complete AI Platform — PLANNED
 
@@ -2263,4 +2376,22 @@ estimated Elo). Its rough 95% score-rate interval is 30–70%; because it repeat
 same deterministic opening, the result is inconclusive. The next substantive strength
 step is a color-balanced comparison across multiple openings.
 
-Last updated: 2026-09-28
+## Current checkpoint — V0.11.0 (2026-10-11)
+
+This section supersedes the V0.10.0 checkpoint above for next steps. The architecture review in
+[`v0.11.0.md`](v0.11.0.md) diagnoses why the engine is weak and defines V0.11–V0.14:
+
+- Against Pikafish (500 ms, 3 runs) the engine lost 19–1, 19–1, 20–0; its mean completed depth was
+  1.4–2.1 and 26.5% / 13.7% / 7.2% of its moves in the three runs were depth-0 arbitrary-move
+  fallbacks. Throughput measures 10–20K nodes/s (≈ 414 Python calls per node).
+- The UCCI path discards the real game's repetition history (verified); long check/chase are not
+  modeled; Web, CLI, UCCI and the match harness run different configurations.
+- Evidence for V0.10 search features is inconclusive by construction (±60–150 Elo intervals), and
+  the only large resolved effect is depth (+134 Elo for depth 4 vs. 3).
+- Plan: V0.11 measurement + real-play fixes → V0.12 native core → V0.13 search/eval engineering →
+  V0.14 NNUE-lite. Stop list and owner decisions D1–D7 are in `v0.11.0.md` §4 and §9.
+
+Exact next step: **V0.11.1** — build `tools/match.py` with the SPRT core and pass the null,
+positive and negative controls before running any new strength comparison.
+
+Last updated: 2026-10-11

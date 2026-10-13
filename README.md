@@ -24,6 +24,8 @@ hybrid engine, inspired by the AlphaZero approach.
 [`docs/PROGRESS_NOTES.md`](docs/PROGRESS_NOTES.md)；版本实验历史见
 [`docs/roadmap.md`](docs/roadmap.md)。
 
+> **2026-10-11 架构评审**：目前的主要限制不是评估项或剪枝启发式，而是搜索吞吐量与度量体系。诊断、目标架构与分阶段验收标准见 [`docs/v0.11.0.md`](docs/v0.11.0.md)，路线图摘要见 [`docs/roadmap.md`](docs/roadmap.md)。
+
 - [x] 棋盘与棋子表示 (Board / Piece representation)
 - [x] 七种棋子的完整走子规则 (Full move generation for all 7 piece types)
   - 车 Rook / 马 Horse (含蹩马腿 leg-blocking) / 炮 Cannon (隔子吃 screen-capture)
@@ -49,6 +51,7 @@ hybrid engine, inspired by the AlphaZero approach.
 - [x] 神经网络评估管线 (v0.6.2)：不直接搬运 Pikafish 权重（许可证边界模糊 + NNUE 特征编码/量化推理复刻成本高），改为**蒸馏**——本地跑 Pikafish 给局面打分，训练一个完全自己从零训练的小型网络。包含 Xiangqi FEN 编解码 (`core/fen.py`)、局面特征提取 (`neural/features.py`，含 8 个复用 `evaluate()` 子模块的手工特征)、纯 numpy 手写 MLP 及反向传播 (`neural/network.py`，经数值梯度校验，含早停机制)、UCI 客户端 (`neural/pikafish_client.py`)、打标签与训练 CLI 工具、`SearchEngine`/`MCTSEngine` 可插拔 `eval_fn`。**结论（真实、已收敛的结果）**：即使加大网络容量、扩充到 94,872 条真实标注数据、加入手工特征，20 局真实强度对比中神经网络评估依然落后启发式评估约 269 Elo——这是一个诚实的负面结果，`use_neural_eval` 默认关闭。详见 `docs/v0.6.2.md`
 - [x] 启发式评估校准 (v0.6.3-6.5)：Pikafish 标注数据用于比较材料、位置表和王安全权重；V0.6.5 将组合权重设为 `SearchEngine` 默认，基于 200 局对比结果（深度 3 +81 Elo，统计显著）。实验细节见 `docs/v0.6.3.md`–`docs/v0.6.5.md`
 - [x] 搜索正确性与性能诊断 (v0.10.0)：处理搜索中的重复局面和棋、静态搜索边界应将；隔离 null move 虚着历史；去掉重复的边界走法生成后，参考局面深度 3 耗时降低约 39–43%，搜索结果保持一致。详见 [`docs/v0.10.0.md`](docs/v0.10.0.md)
+- [ ] **棋力重建计划 (V0.11–V0.14，规划中)**：2026-10 的架构评审认定棋力瓶颈是纯 Python 的吞吐量（实测约 1–2 万节点/秒，对 Pikafish 对局平均仅完成 1.4–2.1 层，500 ms 下 26.5% 的着法是"深度 0 回退"）、浅层搜索不可靠，以及度量体系无法分辨小幅改进。方案：V0.11 度量基础设施（SPRT、Pikafish 节点阶梯、战术测试集）与实战缺陷修复 → V0.12 原生核心（Python 实现作为可执行规格）→ V0.13 逐特性门禁的搜索/评估工程化 → V0.14 NNUE-lite 评估。每阶段均有量化验收标准，详见 [`docs/v0.11.0.md`](docs/v0.11.0.md)
 
 详细的分版本验收数据（每次性能声明都配有实测数字）见 `docs/roadmap.md`（完整版本历史与验收记录）
 与各版本单独文档，如 `docs/v0.3.1-benchmark.md` / `docs/v0.4.5.md` / `docs/v0.5.1.md` /
