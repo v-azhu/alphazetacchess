@@ -371,8 +371,6 @@ def run(args):
         raise ValueError("--a-command is required when --a-kind process")
     if args.b_kind == "process" and not args.b_command:
         raise ValueError("--b-command is required when --b-kind process")
-    if args.limit_kind == "nodes" and (args.a_kind == "python" or args.b_kind == "python"):
-        raise ValueError("node limits are supported for process engines only")
     output = Path(args.output)
     manifest_path = output.with_suffix(output.suffix + ".manifest.json")
     registration_path = output.with_suffix(output.suffix + ".registration.json")
