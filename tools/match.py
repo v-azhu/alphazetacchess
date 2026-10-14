@@ -364,6 +364,12 @@ def run(args):
     if output.exists() or manifest_path.exists() or registration_path.exists():
         raise ValueError("refusing to overwrite an existing output, manifest, or registration")
     openings = load_openings(args.openings, args.opening_count, args.opening_plies, args.seed)
+    if args.fixed_pairs:
+        if args.fixed_pairs < 1 or args.fixed_pairs > len(openings):
+            raise ValueError("--fixed-pairs must be between 1 and --opening-count")
+        run_openings = openings[:args.fixed_pairs]
+    else:
+        run_openings = openings
     configs = {
         "a": {"kind": args.a_kind, "command": args.a_command, "protocol": args.a_protocol, "depth": args.a_depth, "network_path": args.a_network_path},
         "b": {"kind": args.b_kind, "command": args.b_command, "protocol": args.b_protocol, "depth": args.b_depth, "network_path": args.b_network_path},
@@ -473,14 +479,15 @@ def run(args):
             alpha=0.05, beta=0.05, draw_rate=args.draw_rate,
         )
         counts = {"candidate_wins": 0, "candidate_losses": 0, "draws": 0}
+        observed_pair_scores = []
         with output.open("x", encoding="utf-8") as records_file:
             game_index = 0
-            for opening in openings:
-                if sprt.state.value != "CONTINUE":
+            for opening in run_openings:
+                if not args.fixed_pairs and sprt.state.value != "CONTINUE":
                     break
                 # Same opening twice, candidate switches colors.
                 for candidate_color in ("RED", "BLACK"):
-                    if sprt.state.value != "CONTINUE":
+                    if not args.fixed_pairs and sprt.state.value != "CONTINUE":
                         break
                     game_index += 1
                     red_engine, black_engine = (a, b) if candidate_color == "RED" else (b, a)
@@ -504,27 +511,42 @@ def run(args):
                     if candidate_color == "BLACK":
                         # Candidate played Red then Black for this opening.
                         pair_score = pair_scores[0] + value
-                        sprt.update(pair_score)
+                        observed_pair_scores.append(pair_score)
+                        if not args.fixed_pairs:
+                            sprt.update(pair_score)
                     else:
                         pair_scores = [value]
-        if sprt.state.value == "CONTINUE":
+        if not args.fixed_pairs and sprt.state.value == "CONTINUE":
             sprt.finish("configured opening set exhausted before a likelihood boundary")
         result = sprt.result()
+        sprt_summary = {
+            "state": "NOT_RUN_FIXED_SAMPLE" if args.fixed_pairs else result.state.value,
+            "llr": None if args.fixed_pairs else result.llr,
+            "lower_bound": None if args.fixed_pairs else result.lower_bound,
+            "upper_bound": None if args.fixed_pairs else result.upper_bound,
+            "pairs": len(observed_pair_scores) if args.fixed_pairs else result.pairs,
+            "games": 2 * len(observed_pair_scores) if args.fixed_pairs else result.games,
+            "pair_counts": None if args.fixed_pairs else result.pair_counts,
+            "reason": "fixed-sample mode; no sequential acceptance claim" if args.fixed_pairs else result.reason,
+        }
+        total_games = sum(counts.values())
+        score_rate = (
+            (counts["candidate_wins"] + 0.5 * counts["draws"]) / total_games
+            if total_games else None
+        )
         manifest = {
             "test_id": args.test_id, "registration": registration,
             "gate": gate.__dict__, "limits": limits, "seed": args.seed,
-            "openings": openings, "engine_configs": configs,
+            "fixed_sample_mode": bool(args.fixed_pairs),
+            "openings": run_openings, "engine_configs": configs,
+            "candidate_score_rate": score_rate,
+            "observed_pair_scores": observed_pair_scores,
             "engine_hashes": {
                 "a": sha256_file(shlex.split(args.a_command, posix=(os.name != "nt"))[0]) if args.a_kind == "process" and Path(shlex.split(args.a_command, posix=(os.name != "nt"))[0]).is_file() else None,
                 "b": sha256_file(shlex.split(args.b_command, posix=(os.name != "nt"))[0]) if args.b_kind == "process" and Path(shlex.split(args.b_command, posix=(os.name != "nt"))[0]).is_file() else None,
             },
             "machine": machine, "affinity": affinity, "nps_calibration": calibration,
-            "counts": counts, "sprt": {
-                "state": result.state.value, "llr": result.llr,
-                "lower_bound": result.lower_bound, "upper_bound": result.upper_bound,
-                "pairs": result.pairs, "games": result.games,
-                "pair_counts": result.pair_counts, "reason": result.reason,
-            },
+            "counts": counts, "sprt": sprt_summary,
             "records": str(output), "generated_at_unix": time.time(),
         }
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -534,7 +556,7 @@ def run(args):
                 "status": result.state.value,
                 "finished_at_unix": time.time(),
             }) + "\n")
-        print(json.dumps(manifest["sprt"], indent=2))
+        print(json.dumps({"candidate_score_rate": score_rate, "sprt": manifest["sprt"]}, indent=2))
     finally:
         for engine in engines:
             if isinstance(engine, ProcessEngine):
@@ -548,6 +570,7 @@ def build_parser():
     parser.add_argument("--revision", default=None)
     parser.add_argument("--openings", default=None, help="opening-suite JSON; defaults to local archive")
     parser.add_argument("--opening-count", type=int, default=100)
+    parser.add_argument("--fixed-pairs", type=int, default=0, help="play exactly N opening pairs without sequential stopping; no SPRT decision is claimed")
     parser.add_argument("--opening-plies", type=int, default=8)
     parser.add_argument("--seed", type=int, default=20261013)
     parser.add_argument("--draw-rate", type=float, default=0.2)
