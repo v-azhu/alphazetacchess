@@ -11,3 +11,12 @@ re-running `tools/self_play.py` with the same configuration -- though
 if you want to preserve a specific corpus (e.g. before changing an
 evaluation term's default), it's plain JSON-lines text and safe to
 commit deliberately whenever that's useful.
+
+## V0.11 evaluation suites
+
+`suites/` contains the fixed opening set and the extracted depth-zero fallback positions used by
+the V0.11 measurement plan (`docs/v0.11.1.md`). The opening manifest records whether its balance
+filter used Pikafish or the explicitly permitted material-only fallback. `az_tac_500_smoke.json`
+is a 20-position synthetic fixture for testing the labeling/evaluation pipeline only; it is not
+Pikafish ground truth and must not be used for strength claims. The owner-generated, Pikafish-labeled
+AZ-TAC-500 data and baseline reports are intentionally not included until their runs are complete.

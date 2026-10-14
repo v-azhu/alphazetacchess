@@ -1,0 +1,24 @@
+{
+  "balanced_openings": 11232,
+  "count": 2000,
+  "distinct_openings": 11786,
+  "filter": "pikafish",
+  "format": "alphazeta-opening-suite-manifest-v1",
+  "inputs": [
+    {
+      "path": "trainingdata/wxf-41743games.zip",
+      "sha256": "bb356e319b727ec249356d700c150cecb2f8729a37468d3c1c43911b0532cde8"
+    },
+    {
+      "path": "trainingdata/dpxq-99813games.zip",
+      "sha256": "9e50e0310aeb7e7960e4b187d5702cfeafe3cabade684c7a3842526179885575"
+    }
+  ],
+  "max_abs_eval_cp": 100,
+  "opening_plies": 8,
+  "pikafish_eval_depth": 12,
+  "pikafish_filtered": true,
+  "seed": 0,
+  "source_records_replayed": 141503,
+  "suite": "openings_8ply_v1.json"
+}
