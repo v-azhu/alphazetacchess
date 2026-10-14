@@ -175,7 +175,7 @@ class PythonEngine:
 
 class ProcessEngine:
     """Minimal persistent UCI/UCCI process adapter for fixed search limits."""
-    def __init__(self, command, protocol="uci", limit=None, timeout=60):
+    def __init__(self, command, protocol="uci", limit=None, network_path=None, timeout=60):
         if protocol not in {"uci", "ucci"}:
             raise ValueError("protocol must be uci or ucci")
         if not command:
@@ -190,7 +190,7 @@ class ProcessEngine:
         self.process = None
         if protocol == "uci":
             # Reuse the project's established UCI handshake/process client.
-            self.client = PikafishClient(command, movetime_ms=500)
+            self.client = PikafishClient(command, movetime_ms=500, network_path=network_path)
         else:
             self.process = subprocess.Popen(
                 command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -365,8 +365,8 @@ def run(args):
         raise ValueError("refusing to overwrite an existing output, manifest, or registration")
     openings = load_openings(args.openings, args.opening_count, args.opening_plies, args.seed)
     configs = {
-        "a": {"kind": args.a_kind, "command": args.a_command, "protocol": args.a_protocol, "depth": args.a_depth},
-        "b": {"kind": args.b_kind, "command": args.b_command, "protocol": args.b_protocol, "depth": args.b_depth},
+        "a": {"kind": args.a_kind, "command": args.a_command, "protocol": args.a_protocol, "depth": args.a_depth, "network_path": args.a_network_path},
+        "b": {"kind": args.b_kind, "command": args.b_command, "protocol": args.b_protocol, "depth": args.b_depth, "network_path": args.b_network_path},
     }
     limits = {
         "a": {
@@ -441,18 +441,18 @@ def run(args):
 
     engines = []
     try:
-        def build(side, kind, command, protocol, depth):
+        def build(side, kind, command, protocol, depth, network_path):
             if kind == "python":
                 engine = PythonEngine(depth=depth, limit=limits[side])
             else:
                 engine = ProcessEngine(
                     shlex.split(command, posix=(os.name != "nt")),
-                    protocol=protocol, limit=limits[side],
+                    protocol=protocol, limit=limits[side], network_path=network_path,
                 )
             engines.append(engine)
             return engine
-        a = build("a", args.a_kind, args.a_command, args.a_protocol, args.a_depth)
-        b = build("b", args.b_kind, args.b_command, args.b_protocol, args.b_depth)
+        a = build("a", args.a_kind, args.a_command, args.a_protocol, args.a_depth, args.a_network_path)
+        b = build("b", args.b_kind, args.b_command, args.b_protocol, args.b_depth, args.b_network_path)
         affinity = apply_affinity()
         machine = machine_info()
         # Calibrate Python reference NPS with a short, reproducible depth-2 search.
@@ -514,8 +514,8 @@ def run(args):
             "gate": gate.__dict__, "limits": limits, "seed": args.seed,
             "openings": openings, "engine_configs": configs,
             "engine_hashes": {
-                "a": sha256_file(args.a_command.split()[0]) if args.a_kind == "process" and Path(args.a_command.split()[0]).is_file() else None,
-                "b": sha256_file(args.b_command.split()[0]) if args.b_kind == "process" and Path(args.b_command.split()[0]).is_file() else None,
+                "a": sha256_file(shlex.split(args.a_command, posix=(os.name != "nt"))[0]) if args.a_kind == "process" and Path(shlex.split(args.a_command, posix=(os.name != "nt"))[0]).is_file() else None,
+                "b": sha256_file(shlex.split(args.b_command, posix=(os.name != "nt"))[0]) if args.b_kind == "process" and Path(shlex.split(args.b_command, posix=(os.name != "nt"))[0]).is_file() else None,
             },
             "machine": machine, "affinity": affinity, "nps_calibration": calibration,
             "counts": counts, "sprt": {
@@ -558,6 +558,7 @@ def build_parser():
     for side in ("a", "b"):
         parser.add_argument(f"--{side}-kind", choices=["python", "process"], default="python")
         parser.add_argument(f"--{side}-command", default=None)
+        parser.add_argument(f"--{side}-network-path", default=None)
         parser.add_argument(f"--{side}-protocol", choices=["uci", "ucci"], default="uci")
         parser.add_argument(f"--{side}-depth", type=int, default=5)
         parser.add_argument(f"--{side}-limit-kind", choices=["movetime", "depth", "nodes"], default=None)
