@@ -177,6 +177,13 @@ class PentanomialSPRT:
             self._reason = "game cap reached before either likelihood boundary"
         return self.result()
 
+    def finish(self, reason: str = "opening set exhausted before a likelihood boundary") -> SPRTResult:
+        """Close a test without acceptance when its planned observations run out."""
+        if self._state == SPRTState.CONTINUE:
+            self._state = SPRTState.INCONCLUSIVE
+            self._reason = reason
+        return self.result()
+
     def result(self) -> SPRTResult:
         return SPRTResult(
             state=self._state,
