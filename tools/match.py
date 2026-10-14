@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import platform
+import queue
 import random
 import subprocess
 import sys
@@ -197,18 +198,33 @@ class ProcessEngine:
         self.stats = []
         self.client = None
         self.process = None
+        self._lines = queue.Queue()
+        self._reader = None
         if protocol == "uci":
             # Reuse the project's established UCI handshake/process client.
             self.client = PikafishClient(command, movetime_ms=500, network_path=network_path)
+            self.process = self.client._process
+            self._start_reader()
         else:
             self.process = subprocess.Popen(
                 command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, text=True, bufsize=1,
             )
+            self._start_reader()
             self._send(protocol)
             self._read_until("ucciok")
             self._send("isready")
             self._read_until("readyok")
+
+    def _start_reader(self):
+        def read_lines():
+            try:
+                for line in self.process.stdout:
+                    self._lines.put(line.strip())
+            finally:
+                self._lines.put(None)
+        self._reader = threading.Thread(target=read_lines, daemon=True)
+        self._reader.start()
 
     def _send(self, line):
         if self.process.poll() is not None:
@@ -219,15 +235,19 @@ class ProcessEngine:
     def _read_until(self, prefix):
         deadline = time.monotonic() + self.timeout
         lines = []
-        while time.monotonic() < deadline:
-            line = self.process.stdout.readline()
-            if not line:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"engine timed out waiting for {prefix!r}; saw {lines[-8:]}")
+            try:
+                line = self._lines.get(timeout=remaining)
+            except queue.Empty as exc:
+                raise TimeoutError(f"engine timed out waiting for {prefix!r}; saw {lines[-8:]}") from exc
+            if line is None:
                 raise RuntimeError(f"engine exited before {prefix!r}; saw {lines[-8:]}")
-            line = line.strip()
             lines.append(line)
             if line.startswith(prefix):
                 return lines
-        raise TimeoutError(f"engine timed out waiting for {prefix!r}")
 
     def choose_move(self, board, color, limit, initial_fen=None, moves=None):
         if limit["kind"] == "nodes" and self.protocol != "uci":
@@ -240,9 +260,9 @@ class ProcessEngine:
         if self.protocol == "uci":
             # PikafishClient owns UCI process startup/handshake; reuse its
             # established transport for all search limits, including nodes.
-            self.client._send(f"position fen {fen}{suffix}")
-            self.client._send(f"go {command} {int(limit['value'])}")
-            lines = self.client._read_until("bestmove")
+            self._send(f"position fen {fen}{suffix}")
+            self._send(f"go {command} {int(limit['value'])}")
+            lines = self._read_until("bestmove")
         else:
             self._send(f"position fen {fen}{suffix}")
             self._send(f"go {command} {int(limit['value'])}")
@@ -265,10 +285,7 @@ class ProcessEngine:
             process = self.process
         if process is not None and process.poll() is None:
             try:
-                if self.protocol == "uci":
-                    self.client._send("quit")
-                else:
-                    self._send("quit")
+                self._send("quit")
                 process.wait(timeout=2)
             except Exception:
                 process.kill()
