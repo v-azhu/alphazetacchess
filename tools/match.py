@@ -452,6 +452,12 @@ def run(args):
             "records": str(output), "generated_at_unix": time.time(),
         }
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        with registry_path.open("a", encoding="utf-8") as registry:
+            registry.write(json.dumps({
+                "registration_id": registration["registration_id"],
+                "status": result.state.value,
+                "finished_at_unix": time.time(),
+            }) + "\\n")
         print(json.dumps(manifest["sprt"], indent=2))
     finally:
         for engine in engines:
