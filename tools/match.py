@@ -144,7 +144,6 @@ class PythonEngine:
         self.limit = limit or {"kind": "movetime", "value": 500}
         self.config = {"kind": "python", "depth": depth, "limit": self.limit, **(config or {})}
         self.engine = SearchEngine(depth=depth, **(config or {}))
-        self.movetime_ms = movetime_ms
         self.stats = []
 
     def choose_move(self, board, color, limit, initial_fen=None, moves=None):
@@ -267,7 +266,7 @@ class ProcessEngine:
                 process.wait()
 
 
-def play_game(opening, red_engine, black_engine, limit, max_moves, game_id, variant_color):
+def play_game(opening, red_engine, black_engine, max_moves, game_id, variant_color):
     board = board_from_fen(opening["initial_fen"])
     initial_fen = opening["initial_fen"]
     moves = []
@@ -442,19 +441,18 @@ def run(args):
 
     engines = []
     try:
-        def build(kind, command, protocol, depth):
+        def build(side, kind, command, protocol, depth):
             if kind == "python":
-                engine = PythonEngine(depth=depth, limit=limits["a" if depth == args.a_depth and kind == args.a_kind else "b"])
+                engine = PythonEngine(depth=depth, limit=limits[side])
             else:
-                side = "a" if command == args.a_command and kind == args.a_kind else "b"
                 engine = ProcessEngine(
                     shlex.split(command, posix=(os.name != "nt")),
                     protocol=protocol, limit=limits[side],
                 )
             engines.append(engine)
             return engine
-        a = build(args.a_kind, args.a_command, args.a_protocol, args.a_depth)
-        b = build(args.b_kind, args.b_command, args.b_protocol, args.b_depth)
+        a = build("a", args.a_kind, args.a_command, args.a_protocol, args.a_depth)
+        b = build("b", args.b_kind, args.b_command, args.b_protocol, args.b_depth)
         affinity = apply_affinity()
         machine = machine_info()
         # Calibrate Python reference NPS with a short, reproducible depth-2 search.
@@ -487,7 +485,7 @@ def run(args):
                     red_engine, black_engine = (a, b) if candidate_color == "RED" else (b, a)
                     load_before = system_load()
                     record = play_game(
-                        opening, red_engine, black_engine, limit, args.max_moves,
+                        opening, red_engine, black_engine, args.max_moves,
                         f"{args.test_id}-{game_index:06d}", candidate_color,
                     )
                     record["load"] = {"before": load_before, "after": system_load()}
@@ -534,7 +532,7 @@ def run(args):
                 "registration_id": registration["registration_id"],
                 "status": result.state.value,
                 "finished_at_unix": time.time(),
-            }) + "\\n")
+            }) + "\n")
         print(json.dumps(manifest["sprt"], indent=2))
     finally:
         for engine in engines:
