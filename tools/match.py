@@ -12,7 +12,7 @@ import json
 import os
 import platform
 import random
-import shutil
+import shlex
 import subprocess
 import sys
 import threading
@@ -145,7 +145,7 @@ class PythonEngine:
         self.movetime_ms = movetime_ms
         self.stats = []
 
-    def choose_move(self, board, color, limit):
+    def choose_move(self, board, color, limit, initial_fen=None, moves=None):
         stop_event = threading.Event()
         timer = None
         if limit["kind"] == "movetime":
@@ -212,11 +212,13 @@ class ProcessEngine:
                 return lines
         raise TimeoutError(f"engine timed out waiting for {prefix!r}")
 
-    def choose_move(self, board, color, limit):
+    def choose_move(self, board, color, limit, initial_fen=None, moves=None):
         if limit["kind"] == "nodes" and self.protocol != "uci":
             raise ValueError("UCCI node limits are not supported by the current UCCI protocol")
-        fen = board_to_fen(board)
-        self._send(f"position fen {fen}")
+        fen = initial_fen or board_to_fen(board)
+        move_text = " ".join(moves or [])
+        suffix = f" moves {move_text}" if move_text else ""
+        self._send(f"position fen {fen}{suffix}")
         command = {"movetime": "movetime", "depth": "depth", "nodes": "nodes"}[limit["kind"]]
         self._send(f"go {command} {int(limit['value'])}")
         started = time.monotonic()
@@ -246,6 +248,7 @@ def play_game(opening, red_engine, black_engine, limit, max_moves, game_id, vari
     board = board_from_fen(opening["initial_fen"])
     initial_fen = opening["initial_fen"]
     moves = []
+    move_notations = []
     started = time.monotonic()
     while len(moves) < max_moves:
         side = board.current_player
@@ -253,7 +256,9 @@ def play_game(opening, red_engine, black_engine, limit, max_moves, game_id, vari
             result = "BLACK_WINS" if side == Color.RED else "RED_WINS"
             break
         engine = red_engine if side == Color.RED else black_engine
-        move = engine.choose_move(board, side, limit)
+        move = engine.choose_move(
+            board, side, limit, initial_fen=initial_fen, moves=move_notations
+        )
         if not Rule.is_legal_move(board, move, side):
             raise ValueError(f"engine returned illegal move at ply {len(moves)}: {move}")
         moves.append({
@@ -261,6 +266,7 @@ def play_game(opening, red_engine, black_engine, limit, max_moves, game_id, vari
             "from": list(move.from_pos),
             "to": list(move.to_pos),
         })
+        move_notations.append(GameRecord.move_to_iccs(move))
         board.move(move.from_pos, move.to_pos)
     else:
         result = "DRAW" if not Rule.is_game_over(board, board.current_player) else (
@@ -328,7 +334,7 @@ def run(args):
         raise ValueError("--a-command is required when --a-kind process")
     if args.b_kind == "process" and not args.b_command:
         raise ValueError("--b-command is required when --b-kind process")
-    if args.limit_kind == "nodes" and args.a_kind == "python" and args.b_kind == "python":
+    if args.limit_kind == "nodes" and (args.a_kind == "python" or args.b_kind == "python"):
         raise ValueError("node limits are supported for process engines only")
     output = Path(args.output)
     manifest_path = output.with_suffix(output.suffix + ".manifest.json")
@@ -409,7 +415,7 @@ def run(args):
             if kind == "python":
                 engine = PythonEngine(depth=depth)
             else:
-                engine = ProcessEngine(command.split(), protocol=protocol)
+                engine = ProcessEngine(shlex.split(command, posix=(os.name != "nt")), protocol=protocol)
             engines.append(engine)
             return engine
         a = build(args.a_kind, args.a_command, args.a_protocol, args.a_depth)
