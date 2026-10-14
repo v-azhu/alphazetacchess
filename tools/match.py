@@ -29,6 +29,7 @@ from alphazetacchess.core.move import Move
 from alphazetacchess.core.piece import Color
 from alphazetacchess.core.rule import Rule
 from alphazetacchess.engine.search import SearchEngine
+from alphazetacchess.neural.pikafish_client import PikafishClient
 from alphazetacchess.selfplay.paired_openings import select_paired_openings
 from alphazetacchess.selfplay.sprt import GATES, PentanomialSPRT
 from alphazetacchess.selfplay.recorder import load_records
@@ -184,14 +185,20 @@ class ProcessEngine:
         self.timeout = timeout
         self.config = {"kind": "process", "command": command, "protocol": protocol}
         self.stats = []
-        self.process = subprocess.Popen(
-            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, text=True, bufsize=1,
-        )
-        self._send(protocol)
-        self._read_until("uciok" if protocol == "uci" else "ucciok")
-        self._send("isready")
-        self._read_until("readyok")
+        self.client = None
+        self.process = None
+        if protocol == "uci":
+            # Reuse the project's established UCI handshake/process client.
+            self.client = PikafishClient(command, movetime_ms=500)
+        else:
+            self.process = subprocess.Popen(
+                command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True, bufsize=1,
+            )
+            self._send(protocol)
+            self._read_until("ucciok")
+            self._send("isready")
+            self._read_until("readyok")
 
     def _send(self, line):
         if self.process.poll() is not None:
@@ -218,11 +225,18 @@ class ProcessEngine:
         fen = initial_fen or board_to_fen(board)
         move_text = " ".join(moves or [])
         suffix = f" moves {move_text}" if move_text else ""
-        self._send(f"position fen {fen}{suffix}")
         command = {"movetime": "movetime", "depth": "depth", "nodes": "nodes"}[limit["kind"]]
-        self._send(f"go {command} {int(limit['value'])}")
         started = time.monotonic()
-        lines = self._read_until("bestmove")
+        if self.protocol == "uci":
+            # PikafishClient owns UCI process startup/handshake; reuse its
+            # established transport for all search limits, including nodes.
+            self.client._send(f"position fen {fen}{suffix}")
+            self.client._send(f"go {command} {int(limit['value'])}")
+            lines = self.client._read_until("bestmove")
+        else:
+            self._send(f"position fen {fen}{suffix}")
+            self._send(f"go {command} {int(limit['value'])}")
+            lines = self._read_until("bestmove")
         fields = lines[-1].split()
         if len(fields) < 2 or fields[1] in {"(none)", "0000"}:
             raise RuntimeError(f"engine did not return a move: {lines[-1]}")
@@ -235,13 +249,20 @@ class ProcessEngine:
         return move
 
     def close(self):
-        if self.process.poll() is None:
+        if self.protocol == "uci" and self.client is not None:
+            process = self.client._process
+        else:
+            process = self.process
+        if process is not None and process.poll() is None:
             try:
-                self._send("quit")
-                self.process.wait(timeout=2)
+                if self.protocol == "uci":
+                    self.client._send("quit")
+                else:
+                    self._send("quit")
+                process.wait(timeout=2)
             except Exception:
-                self.process.kill()
-                self.process.wait()
+                process.kill()
+                process.wait()
 
 
 def play_game(opening, red_engine, black_engine, limit, max_moves, game_id, variant_color):
