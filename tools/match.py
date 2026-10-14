@@ -454,6 +454,8 @@ def run(args):
         ("a", args.a_kind, args.a_protocol), ("b", args.b_kind, args.b_protocol)
     ):
         item = limits[side]
+        if engine_kind == "process" and configs[side]["kwargs"]:
+            raise ValueError(f"--{side}-config-json applies only to in-process Python engines")
         if item["kind"] == "nodes" and engine_kind == "python":
             raise ValueError("node limits are supported for process engines only")
         if item["kind"] == "nodes" and engine_kind == "process" and protocol != "uci":
