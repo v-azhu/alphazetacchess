@@ -61,6 +61,6 @@ def test_monte_carlo_type_i_error_at_h0_boundary():
 def test_monte_carlo_power_at_h1_boundary():
     rates = monte_carlo_rates(
         elo=10.0, h0_elo=0.0, h1_elo=10.0, tests=10_000, seed=20261014,
-        draw_rate=0.2, max_games=8000,
+        draw_rate=0.2, max_games=16000,
     )
     assert rates["ACCEPT_H1"] >= 0.93  # within 0.02 of nominal 1 - beta = 0.95
