@@ -324,6 +324,10 @@ def run(args):
         )
     if args.workers != 1:
         raise ValueError("this initial runner serializes games; use --workers 1 until parallel workers land")
+    if args.a_kind == "process" and not args.a_command:
+        raise ValueError("--a-command is required when --a-kind process")
+    if args.b_kind == "process" and not args.b_command:
+        raise ValueError("--b-command is required when --b-kind process")
     if args.limit_kind == "nodes" and args.a_kind == "python" and args.b_kind == "python":
         raise ValueError("node limits are supported for process engines only")
     output = Path(args.output)
@@ -350,7 +354,10 @@ def run(args):
     # A durable registration is written before any engine starts or game begins.
     registration_path.parent.mkdir(parents=True, exist_ok=True)
     registration_path.write_text(json.dumps(registration, indent=2) + "\n", encoding="utf-8")
-    if args.limit_kind == "nodes" and (args.a_protocol == "ucci" or args.b_protocol == "ucci"):
+    if args.limit_kind == "nodes" and (
+        (args.a_kind == "process" and args.a_protocol == "ucci")
+        or (args.b_kind == "process" and args.b_protocol == "ucci")
+    ):
         raise ValueError("node limits require UCI process engines; UCCI node limits are unsupported")
     limit = {"kind": args.limit_kind, "value": args.limit_value}
     if args.limit_kind == "movetime" and limit["value"] < 1:
@@ -419,15 +426,13 @@ def run(args):
                         counts["draws"] += 1
                     # A pair is complete only after both colors for this opening.
                     if candidate_color == "BLACK":
-                        pair_score = sum(
-                            candidate_score(json.loads(line)["result"], json.loads(line)["variant_color"])
-                            for line in []
-                        )
-                        # Read the two just-completed results from the in-memory pair.
+                        # Candidate played Red then Black for this opening.
                         pair_score = pair_scores[0] + value
                         sprt.update(pair_score)
                     else:
                         pair_scores = [value]
+        if sprt.state.value == "CONTINUE":
+            sprt.finish("configured opening set exhausted before a likelihood boundary")
         result = sprt.result()
         manifest = {
             "test_id": args.test_id, "registration": registration,
