@@ -140,8 +140,9 @@ def load_openings(path, count, plies, seed):
 
 
 class PythonEngine:
-    def __init__(self, depth=5, movetime_ms=None, config=None):
-        self.config = {"kind": "python", "depth": depth, **(config or {})}
+    def __init__(self, depth=5, limit=None, config=None):
+        self.limit = limit or {"kind": "movetime", "value": 500}
+        self.config = {"kind": "python", "depth": depth, "limit": self.limit, **(config or {})}
         self.engine = SearchEngine(depth=depth, **(config or {}))
         self.movetime_ms = movetime_ms
         self.stats = []
@@ -175,7 +176,7 @@ class PythonEngine:
 
 class ProcessEngine:
     """Minimal persistent UCI/UCCI process adapter for fixed search limits."""
-    def __init__(self, command, protocol="uci", timeout=60):
+    def __init__(self, command, protocol="uci", limit=None, timeout=60):
         if protocol not in {"uci", "ucci"}:
             raise ValueError("protocol must be uci or ucci")
         if not command:
@@ -183,7 +184,8 @@ class ProcessEngine:
         self.command = command
         self.protocol = protocol
         self.timeout = timeout
-        self.config = {"kind": "process", "command": command, "protocol": protocol}
+        self.limit = limit or {"kind": "movetime", "value": 500}
+        self.config = {"kind": "process", "command": command, "protocol": protocol, "limit": self.limit}
         self.stats = []
         self.client = None
         self.process = None
@@ -278,7 +280,7 @@ def play_game(opening, red_engine, black_engine, limit, max_moves, game_id, vari
             break
         engine = red_engine if side == Color.RED else black_engine
         move = engine.choose_move(
-            board, side, limit, initial_fen=initial_fen, moves=move_notations
+            board, side, engine.limit, initial_fen=initial_fen, moves=move_notations
         )
         if not Rule.is_legal_move(board, move, side):
             raise ValueError(f"engine returned illegal move at ply {len(moves)}: {move}")
@@ -367,7 +369,16 @@ def run(args):
         "a": {"kind": args.a_kind, "command": args.a_command, "protocol": args.a_protocol, "depth": args.a_depth},
         "b": {"kind": args.b_kind, "command": args.b_command, "protocol": args.b_protocol, "depth": args.b_depth},
     }
-    limit = {"kind": args.limit_kind, "value": args.limit_value}
+    limits = {
+        "a": {
+            "kind": args.a_limit_kind or args.limit_kind,
+            "value": args.a_limit_value if args.a_limit_value is not None else args.limit_value,
+        },
+        "b": {
+            "kind": args.b_limit_kind or args.limit_kind,
+            "value": args.b_limit_value if args.b_limit_value is not None else args.limit_value,
+        },
+    }
     revision = args.revision or os.environ.get("GITHUB_SHA")
     if not revision:
         try:
@@ -381,8 +392,8 @@ def run(args):
         "test_id": args.test_id,
         "git_revision": revision,
         "config_hashes": {
-            "a": canonical_hash({"engine": configs["a"], "limit": limit}),
-            "b": canonical_hash({"engine": configs["b"], "limit": limit}),
+            "a": canonical_hash({"engine": configs["a"], "limit": limits["a"]}),
+            "b": canonical_hash({"engine": configs["b"], "limit": limits["b"]}),
         },
         "opening_set_hash": canonical_hash(openings),
         "opening_count": len(openings),
@@ -418,25 +429,28 @@ def run(args):
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     with registry_path.open("a", encoding="utf-8") as registry:
         registry.write(json.dumps({**registration, "status": "REGISTERED"}) + "\n")
-    if args.limit_kind == "nodes" and (
-        (args.a_kind == "process" and args.a_protocol == "ucci")
-        or (args.b_kind == "process" and args.b_protocol == "ucci")
+    for side, engine_kind, protocol in (
+        ("a", args.a_kind, args.a_protocol), ("b", args.b_kind, args.b_protocol)
     ):
-        raise ValueError("node limits require UCI process engines; UCCI node limits are unsupported")
-    if args.limit_kind == "movetime" and limit["value"] < 1:
-        raise ValueError("movetime must be positive")
-    if args.limit_kind == "depth" and limit["value"] < 1:
-        raise ValueError("depth must be positive")
-    if args.limit_kind == "nodes" and limit["value"] < 1:
-        raise ValueError("nodes must be positive")
+        item = limits[side]
+        if item["kind"] == "nodes" and engine_kind == "python":
+            raise ValueError("node limits are supported for process engines only")
+        if item["kind"] == "nodes" and engine_kind == "process" and protocol != "uci":
+            raise ValueError("node limits require UCI process engines; UCCI node limits are unsupported")
+        if item["kind"] not in {"movetime", "depth", "nodes"} or item["value"] < 1:
+            raise ValueError(f"invalid limit for engine {side}: {item}")
 
     engines = []
     try:
         def build(kind, command, protocol, depth):
             if kind == "python":
-                engine = PythonEngine(depth=depth)
+                engine = PythonEngine(depth=depth, limit=limits["a" if depth == args.a_depth and kind == args.a_kind else "b"])
             else:
-                engine = ProcessEngine(shlex.split(command, posix=(os.name != "nt")), protocol=protocol)
+                side = "a" if command == args.a_command and kind == args.a_kind else "b"
+                engine = ProcessEngine(
+                    shlex.split(command, posix=(os.name != "nt")),
+                    protocol=protocol, limit=limits[side],
+                )
             engines.append(engine)
             return engine
         a = build(args.a_kind, args.a_command, args.a_protocol, args.a_depth)
@@ -499,7 +513,7 @@ def run(args):
         result = sprt.result()
         manifest = {
             "test_id": args.test_id, "registration": registration,
-            "gate": gate.__dict__, "limit": limit, "seed": args.seed,
+            "gate": gate.__dict__, "limits": limits, "seed": args.seed,
             "openings": openings, "engine_configs": configs,
             "engine_hashes": {
                 "a": sha256_file(args.a_command.split()[0]) if args.a_kind == "process" and Path(args.a_command.split()[0]).is_file() else None,
@@ -548,6 +562,8 @@ def build_parser():
         parser.add_argument(f"--{side}-command", default=None)
         parser.add_argument(f"--{side}-protocol", choices=["uci", "ucci"], default="uci")
         parser.add_argument(f"--{side}-depth", type=int, default=5)
+        parser.add_argument(f"--{side}-limit-kind", choices=["movetime", "depth", "nodes"], default=None)
+        parser.add_argument(f"--{side}-limit-value", type=int, default=None)
     return parser
 
 
