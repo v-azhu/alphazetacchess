@@ -120,8 +120,8 @@ def load_openings(path, count, plies, seed):
         openings = []
         seen = set()
         for item in records:
-            if not isinstance(item, dict) or not item.get("initial_fen") or "opening_prefix" not in item:
-                raise ValueError("each opening needs initial_fen and opening_prefix")
+            if not isinstance(item, dict) or not item.get("initial_fen"):
+                raise ValueError("each opening needs initial_fen")
             board = board_from_fen(item["initial_fen"])
             if board.current_player != Color.RED:
                 raise ValueError("paired opening position must have Red to move")
@@ -131,7 +131,7 @@ def load_openings(path, count, plies, seed):
             seen.add(key)
             openings.append({
                 "initial_fen": item["initial_fen"],
-                "opening_prefix": item["opening_prefix"],
+                "opening_prefix": item.get("opening_prefix", []),
             })
         if len(openings) < count:
             raise ValueError(f"opening file has {len(openings)} distinct positions; need {count}")
@@ -275,6 +275,15 @@ class ProcessEngine:
                 process.wait()
 
 
+def terminal_result(board):
+    status = Rule.game_result(board, board.current_player)
+    if not status.is_over:
+        return None
+    if status.winner is None:
+        return "DRAW"
+    return f"{status.winner.name}_WINS"
+
+
 def play_game(opening, red_engine, black_engine, max_moves, game_id, variant_color):
     board = board_from_fen(opening["initial_fen"])
     initial_fen = opening["initial_fen"]
@@ -283,8 +292,9 @@ def play_game(opening, red_engine, black_engine, max_moves, game_id, variant_col
     started = time.monotonic()
     while len(moves) < max_moves:
         side = board.current_player
-        if Rule.is_game_over(board, side):
-            result = "BLACK_WINS" if side == Color.RED else "RED_WINS"
+        finished = terminal_result(board)
+        if finished is not None:
+            result = finished
             break
         engine = red_engine if side == Color.RED else black_engine
         move = engine.choose_move(
@@ -300,9 +310,7 @@ def play_game(opening, red_engine, black_engine, max_moves, game_id, variant_col
         move_notations.append(GameRecord.move_to_iccs(move))
         board.move(move.from_pos, move.to_pos)
     else:
-        result = "DRAW" if not Rule.is_game_over(board, board.current_player) else (
-            "BLACK_WINS" if board.current_player == Color.RED else "RED_WINS"
-        )
+        result = terminal_result(board) or "DRAW"
     record = {
         "game_id": game_id,
         "opening_index": opening["opening_index"],
@@ -326,7 +334,7 @@ def validate_game(record, max_moves):
     if record.get("total_moves") != len(moves):
         raise ValueError("recorded move count does not match move list")
     for ply, raw in enumerate(moves, 1):
-        if Rule.is_game_over(board, board.current_player):
+        if terminal_result(board) is not None:
             raise ValueError(f"game continued after terminal position at ply {ply}")
         if raw["color"] != board.current_player.name:
             raise ValueError(f"wrong side to move at ply {ply}")
@@ -334,16 +342,14 @@ def validate_game(record, max_moves):
         if not Rule.is_legal_move(board, move, board.current_player):
             raise ValueError(f"illegal recorded move at ply {ply}")
         board.move(move.from_pos, move.to_pos)
-    terminal = Rule.is_game_over(board, board.current_player)
-    if len(moves) == max_moves and not terminal:
+    terminal = terminal_result(board)
+    if len(moves) == max_moves and terminal is None:
         if record["result"] != "DRAW":
             raise ValueError("non-terminal move-limit result must be DRAW")
-    elif not terminal:
+    elif terminal is None:
         raise ValueError("game ended before a terminal result or move limit")
-    else:
-        winner = "BLACK_WINS" if board.current_player == Color.RED else "RED_WINS"
-        if record["result"] != winner:
-            raise ValueError("recorded result disagrees with terminal position")
+    elif record["result"] != terminal:
+        raise ValueError("recorded result disagrees with terminal position")
 
 
 def candidate_score(result, candidate_color):
