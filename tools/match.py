@@ -506,7 +506,10 @@ def run(args):
                         f"{args.test_id}-{game_index:06d}", candidate_color,
                     )
                     record["load"] = {"before": load_before, "after": system_load()}
+                    record["machine"] = machine
                     record["affinity"] = affinity
+                    record["nps_calibration"] = calibration
+                    record["config_hashes"] = registration["config_hashes"]
                     records_file.write(json.dumps(record, separators=(",", ":")) + "\n")
                     records_file.flush()
                     value = candidate_score(record["result"], candidate_color)
@@ -562,7 +565,7 @@ def run(args):
         with registry_path.open("a", encoding="utf-8") as registry:
             registry.write(json.dumps({
                 "registration_id": registration["registration_id"],
-                "status": result.state.value,
+                "status": "FIXED_SAMPLE" if args.fixed_pairs else result.state.value,
                 "finished_at_unix": time.time(),
             }) + "\n")
         print(json.dumps({"candidate_score_rate": score_rate, "sprt": manifest["sprt"]}, indent=2))
