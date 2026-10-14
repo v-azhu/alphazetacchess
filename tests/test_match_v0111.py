@@ -1,7 +1,7 @@
 """Focused tests for match-runner helpers; no external engine is required."""
 import pytest
 
-from tools.match import candidate_score, canonical_hash, validate_game
+from tools.match import candidate_score, canonical_hash, parse_command, validate_game
 from alphazetacchess.core.fen import board_to_fen
 from alphazetacchess.core.board import Board
 
@@ -45,3 +45,15 @@ def test_replay_validation_rejects_wrong_result_for_empty_nonterminal_game():
     }
     with pytest.raises(ValueError):
         validate_game(record, max_moves=0)
+
+
+def test_parse_command_preserves_executable_path_with_spaces():
+    assert parse_command(r"C:\Program Files\Pikafish\pikafish.exe") == [
+        r"C:\Program Files\Pikafish\pikafish.exe"
+    ]
+
+
+def test_parse_command_supports_json_argv():
+    assert parse_command('["engine.exe", "--option", "value"]') == [
+        "engine.exe", "--option", "value"
+    ]
