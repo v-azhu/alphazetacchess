@@ -380,8 +380,8 @@ def run(args):
     else:
         run_openings = openings
     configs = {
-        "a": {"kind": args.a_kind, "command": args.a_command, "protocol": args.a_protocol, "depth": args.a_depth, "network_path": args.a_network_path},
-        "b": {"kind": args.b_kind, "command": args.b_command, "protocol": args.b_protocol, "depth": args.b_depth, "network_path": args.b_network_path},
+        "a": {"kind": args.a_kind, "command": args.a_command, "protocol": args.a_protocol, "depth": args.a_depth, "network_path": args.a_network_path, "kwargs": json.loads(args.a_config_json or "{}")},
+        "b": {"kind": args.b_kind, "command": args.b_command, "protocol": args.b_protocol, "depth": args.b_depth, "network_path": args.b_network_path, "kwargs": json.loads(args.b_config_json or "{}")},
     }
     limits = {
         "a": {
@@ -459,7 +459,10 @@ def run(args):
     try:
         def build(side, kind, command, protocol, depth, network_path):
             if kind == "python":
-                engine = PythonEngine(depth=depth, limit=limits[side])
+                kwargs = configs[side]["kwargs"]
+                if "depth" in kwargs:
+                    raise ValueError(f"--{side}-config-json must not include depth; use --{side}-depth or a depth limit")
+                engine = PythonEngine(depth=depth, limit=limits[side], config=kwargs)
             else:
                 engine = ProcessEngine(
                     parse_command(command),
@@ -595,6 +598,7 @@ def build_parser():
         parser.add_argument(f"--{side}-kind", choices=["python", "process"], default="python")
         parser.add_argument(f"--{side}-command", default=None)
         parser.add_argument(f"--{side}-network-path", default=None)
+        parser.add_argument(f"--{side}-config-json", default="{}", help="JSON object of SearchEngine kwargs for in-process engines")
         parser.add_argument(f"--{side}-protocol", choices=["uci", "ucci"], default="uci")
         parser.add_argument(f"--{side}-depth", type=int, default=5)
         parser.add_argument(f"--{side}-limit-kind", choices=["movetime", "depth", "nodes"], default=None)
