@@ -72,8 +72,8 @@ def machine_info():
     except ImportError:
         pass
     if info["physical_cores"] is None:
-        # Conservative fallback when physical-core discovery is unavailable.
-        info["physical_cores"] = info["logical_cores"]
+        # Fail closed: without physical-core discovery, permit one worker only.
+        info["physical_cores"] = 1
     return info
 
 
