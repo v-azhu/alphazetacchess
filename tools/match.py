@@ -12,7 +12,6 @@ import json
 import os
 import platform
 import random
-import shlex
 import subprocess
 import sys
 import threading
@@ -38,6 +37,16 @@ from alphazetacchess.selfplay.recorder import load_records
 def canonical_hash(value):
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def parse_command(value):
+    """Accept a plain executable path or a JSON array of argv tokens."""
+    if value.lstrip().startswith("["):
+        parsed = json.loads(value)
+        if not isinstance(parsed, list) or not parsed or not all(isinstance(x, str) for x in parsed):
+            raise ValueError("engine command JSON must be a non-empty string array")
+        return parsed
+    return [value]
 
 
 def sha256_file(path):
@@ -453,7 +462,7 @@ def run(args):
                 engine = PythonEngine(depth=depth, limit=limits[side])
             else:
                 engine = ProcessEngine(
-                    shlex.split(command, posix=(os.name != "nt")),
+                    parse_command(command),
                     protocol=protocol, limit=limits[side], network_path=network_path,
                 )
             engines.append(engine)
@@ -542,8 +551,8 @@ def run(args):
             "candidate_score_rate": score_rate,
             "observed_pair_scores": observed_pair_scores,
             "engine_hashes": {
-                "a": sha256_file(shlex.split(args.a_command, posix=(os.name != "nt"))[0]) if args.a_kind == "process" and Path(shlex.split(args.a_command, posix=(os.name != "nt"))[0]).is_file() else None,
-                "b": sha256_file(shlex.split(args.b_command, posix=(os.name != "nt"))[0]) if args.b_kind == "process" and Path(shlex.split(args.b_command, posix=(os.name != "nt"))[0]).is_file() else None,
+                "a": sha256_file(parse_command(args.a_command)[0]) if args.a_kind == "process" and Path(shlex.split(args.a_command, posix=(os.name != "nt"))[0]).is_file() else None,
+                "b": sha256_file(parse_command(args.b_command)[0]) if args.b_kind == "process" and Path(shlex.split(args.b_command, posix=(os.name != "nt"))[0]).is_file() else None,
             },
             "machine": machine, "affinity": affinity, "nps_calibration": calibration,
             "counts": counts, "sprt": sprt_summary,
