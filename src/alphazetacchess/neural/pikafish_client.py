@@ -159,7 +159,10 @@ class PikafishClient:
         if self._process.poll() is None:
             try:
                 self._send("quit")
-            except BrokenPipeError:
+            except (BrokenPipeError, OSError):
+                # The child may exit between poll() and writing to stdin.
+                # On Windows, a dead subprocess pipe can raise OSError
+                # (for example errno 22) rather than BrokenPipeError.
                 pass
         try:
             self._process.wait(timeout=5)
