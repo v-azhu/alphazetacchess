@@ -580,8 +580,8 @@ def run(args):
             "candidate_score_rate": score_rate,
             "observed_pair_scores": observed_pair_scores,
             "engine_hashes": {
-                "a": sha256_file(parse_command(args.a_command)[0]) if args.a_kind == "process" and Path(shlex.split(args.a_command, posix=(os.name != "nt"))[0]).is_file() else None,
-                "b": sha256_file(parse_command(args.b_command)[0]) if args.b_kind == "process" and Path(shlex.split(args.b_command, posix=(os.name != "nt"))[0]).is_file() else None,
+                "a": sha256_file(parse_command(args.a_command)[0]) if args.a_kind == "process" and Path(parse_command(args.a_command)[0]).is_file() else None,
+                "b": sha256_file(parse_command(args.b_command)[0]) if args.b_kind == "process" and Path(parse_command(args.b_command)[0]).is_file() else None,
             },
             "machine": machine, "affinity": affinity, "nps_calibration": calibration,
             "counts": counts, "sprt": sprt_summary,
