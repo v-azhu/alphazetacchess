@@ -404,6 +404,7 @@ def run(args):
         "git_revision": registration["git_revision"],
         "config_hashes": registration["config_hashes"],
         "opening_set_hash": registration["opening_set_hash"],
+        "seed": registration["seed"],
         "gate": registration["gate"],
     })
     # Registration history is append-only: an identical inconclusive or rejected
