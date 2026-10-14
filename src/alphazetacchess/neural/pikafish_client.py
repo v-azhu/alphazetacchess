@@ -170,10 +170,16 @@ class PikafishClient:
             self._process.kill()
             self._process.wait()
         finally:
-            if self._process.stdin is not None:
-                self._process.stdin.close()
-            if self._process.stdout is not None:
-                self._process.stdout.close()
+            # Closing a buffered stdin wrapper may attempt one last flush.
+            # If the child has already died, Windows can raise OSError here
+            # too; cleanup should remain best-effort and not mask the
+            # original engine/search exception.
+            for stream in (self._process.stdin, self._process.stdout):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
 
     def __enter__(self):
         return self
