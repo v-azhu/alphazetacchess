@@ -351,9 +351,34 @@ def run(args):
         "gate": args.gate,
         "created_at_unix": time.time(),
     }
-    # A durable registration is written before any engine starts or game begins.
+    registration["registration_id"] = canonical_hash({
+        "git_revision": registration["git_revision"],
+        "config_hashes": registration["config_hashes"],
+        "opening_set_hash": registration["opening_set_hash"],
+        "gate": registration["gate"],
+    })
+    # Registration history is append-only: an identical inconclusive or rejected
+    # test cannot be repeated under a new output filename without a code revision.
+    registry_path = ROOT / "data" / "match_registrations.jsonl"
+    prior = {}
+    if registry_path.exists():
+        for line in registry_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            prior[item.get("registration_id")] = item.get("status", "REGISTERED")
+    previous_status = prior.get(registration["registration_id"])
+    if previous_status in {"INCONCLUSIVE", "ACCEPT_H0"}:
+        raise ValueError(
+            "identical registration already ended "
+            f"{previous_status}; change code revision before rerunning"
+        )
+    # Durable registration is written before any engine starts or game begins.
     registration_path.parent.mkdir(parents=True, exist_ok=True)
     registration_path.write_text(json.dumps(registration, indent=2) + "\n", encoding="utf-8")
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    with registry_path.open("a", encoding="utf-8") as registry:
+        registry.write(json.dumps({**registration, "status": "REGISTERED"}) + "\n")
     if args.limit_kind == "nodes" and (
         (args.a_kind == "process" and args.a_protocol == "ucci")
         or (args.b_kind == "process" and args.b_protocol == "ucci")
