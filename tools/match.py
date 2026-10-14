@@ -340,11 +340,23 @@ def run(args):
         "a": {"kind": args.a_kind, "command": args.a_command, "protocol": args.a_protocol, "depth": args.a_depth},
         "b": {"kind": args.b_kind, "command": args.b_command, "protocol": args.b_protocol, "depth": args.b_depth},
     }
-    revision = args.revision or os.environ.get("GITHUB_SHA") or "unknown"
+    limit = {"kind": args.limit_kind, "value": args.limit_value}
+    revision = args.revision or os.environ.get("GITHUB_SHA")
+    if not revision:
+        try:
+            revision = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+        except (OSError, subprocess.CalledProcessError):
+            revision = "unknown"
     registration = {
         "test_id": args.test_id,
         "git_revision": revision,
-        "config_hashes": {"a": canonical_hash(configs["a"]), "b": canonical_hash(configs["b"])},
+        "config_hashes": {
+            "a": canonical_hash({"engine": configs["a"], "limit": limit}),
+            "b": canonical_hash({"engine": configs["b"], "limit": limit}),
+        },
         "opening_set_hash": canonical_hash(openings),
         "opening_count": len(openings),
         "seed": args.seed,
@@ -384,7 +396,6 @@ def run(args):
         or (args.b_kind == "process" and args.b_protocol == "ucci")
     ):
         raise ValueError("node limits require UCI process engines; UCCI node limits are unsupported")
-    limit = {"kind": args.limit_kind, "value": args.limit_value}
     if args.limit_kind == "movetime" and limit["value"] < 1:
         raise ValueError("movetime must be positive")
     if args.limit_kind == "depth" and limit["value"] < 1:
