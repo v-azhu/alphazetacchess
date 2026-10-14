@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from enum import Enum
 import math
 import random
-from typing import Iterable, Sequence
 
 
 PAIR_SCORES = (0.0, 0.5, 1.0, 1.5, 2.0)
@@ -157,6 +156,12 @@ class PentanomialSPRT:
         except ValueError as exc:
             raise ValueError(f"pair_score must be one of {PAIR_SCORES}") from exc
         self._counts[index] += 1
+        # A constant pair-score stream has no empirical outcome variance.
+        # Do not let a degenerate sample masquerade as calibrated evidence.
+        if self.pairs >= 20 and max(self._counts) == self.pairs:
+            self._state = SPRTState.INCONCLUSIVE
+            self._reason = "zero observed variance: all pair scores are identical"
+            return self.result()
         p0, p1 = self.p0[index], self.p1[index]
         if p0 <= 0.0 or p1 <= 0.0:
             self._state = SPRTState.INCONCLUSIVE
