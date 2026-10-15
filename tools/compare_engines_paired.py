@@ -1,37 +1,12 @@
-"""Compatibility CLI for the V0.11.1 unified match runner.
-
-Importing this module is side-effect free. Run this file to invoke the unified
-runner; legacy experiment-specific CLI flags have been consolidated in
-tools/match.py.
-"""
+"""Compatibility CLI for the V0.11.1 unified match runner."""
 from pathlib import Path
 import runpy
 import sys
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-def _config_for_depth(records, depth):
-    """Legacy helper retained for tests and callers that import this module."""
-    for record in records:
-        for side in ("red_config", "black_config"):
-            config = record.get(side, {})
-            if config.get("depth") == depth:
-                result = dict(config)
-                result["depth"] = depth
-                return result
-    return {
-        "engine": "search",
-        "depth": depth,
-        "use_mobility": False,
-        "use_pawn_structure": False,
-        "use_piece_coordination": False,
-        "use_endgame_heuristics": False,
-        "use_killer_moves": True,
-        "use_mvv_lva": False,
-        "use_opening_book": False,
-        "use_neural_eval": False,
-        "use_calibrated_material": False,
-        "use_calibrated_weights": False,
-    }
+from tools.legacy_compat import _config_for_depth
 
 
 def main() -> None:
