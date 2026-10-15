@@ -873,3 +873,59 @@ python tools/compare_engines_paired.py --source data/external_games.jsonl --outp
 
 For broader coverage, retain the default randomized opening plies and increase the
 game count; runtime will be substantial at depth 4.
+
+## V0.11.1 unified match runner — hand-off (2026-10-15)
+
+Branch: `dev/v0.11.1-match-runner`  
+PR: [#2 — WIP: V0.11.1 unified match runner and SPRT](https://github.com/v-azhu/alphazetacchess/pull/2) (Draft)  
+Authoritative acceptance criteria: `docs/v0.11.0.md` §6–7.
+
+### Implementation status
+
+- `src/alphazetacchess/selfplay/sprt.py`, `tools/match.py`, focused tests, and the V0.11.1
+  runbook are present on the branch.
+- Fixed-sample worker execution is implemented with a separate process per worker chunk. Each
+  worker constructs and owns its engines, pins affinity where supported, records per-game
+  machine/affinity/load/reference-NPS metadata, and returns partial records plus errors on failure.
+  The manifest records completed pair scores in opening-index order.
+- **Intentional statistical boundary:** `--workers > 1` is accepted only with `--fixed-pairs`.
+  Sequential SPRT remains serial so asynchronous results cannot move the first Wald-boundary
+  crossing or cause unaccounted games after stopping. Do not describe the parallel fixed-sample
+  mode as an SPRT run.
+- Legacy symbols `TimedSearch` and `_config_for_depth` now live in `tools/legacy_compat.py`;
+  the six comparison entry points are each 20 lines. Comparison-script line count was measured
+  from `main` versus this branch as 1,879 → 120 lines (93.6% reduction).
+- Added `.github/workflows/tests.yml` to run the full pytest suite on development branches and
+  pull requests.
+
+### Acceptance table
+
+| Criterion | State | Evidence / blocker |
+|---|---|---|
+| AC1 Pikafish reproduction | PENDING OWNER RUN | Requires owner-local Pikafish binary/network; ≥90% over ≥20 opening pairs |
+| AC2 Null control | PENDING OWNER RUN | 10 independent self-play control runs, ≥200 games each |
+| AC3 Positive control | PENDING OWNER RUN | 500 ms vs 250 ms; G2 should accept H1 within 2,000 games |
+| AC4 Negative control | PENDING OWNER RUN | Depth 2 vs depth 3; G2 should accept H0 within 300 games |
+| AC5 Ladder | PENDING OWNER RUN | Pikafish node ladder and V0.10 time-budget probes; hours of owner-local runtime |
+| AC6 Suites | OWNED BY PROMPT 1B / NOT ACCEPTED | Coordinate only after that branch's category discrepancy and full AZ-TAC-500/baselines are resolved |
+| AC7 Discipline | PARTIAL / VERIFY | Worker cap and per-game evidence fields implemented; worker tests and Windows smoke test required |
+| AC8 Consolidation | PARTIAL / VERIFY | 93.6% line reduction measured; old manifest compatibility still needs an explicit test |
+| AC9 Evidence | IN PROGRESS | Update this table after CI and owner runs; keep PR Draft until exit gate is accepted |
+
+### Required verification
+
+1. Check the GitHub Actions `Python tests` workflow on the latest branch head; do not rely on the
+   earlier owner-reported 418/418 result because that predates the worker changes.
+2. On Windows, install optional `psutil` for physical-core detection and run:
+   ```powershell
+   python -m pip install psutil
+   python -m pytest -q tests/test_sprt_v0111.py tests/test_match_v0111.py
+   python -m pytest -q
+   python tools/match.py --test-id smoke-parallel --fixed-pairs 2 --openings data/suites/openings_8ply_v1.json --opening-count 2 --workers 2 --limit-kind depth --limit-value 1 --a-depth 1 --b-depth 1 --max-moves 2 --output data/smoke-parallel.jsonl
+   ```
+3. Verify the smoke run writes 4 game records, 2 completed pair scores, per-game `machine`,
+   `affinity`, `nps_calibration`, `config_hashes`, and worker IDs; confirm each engine process exits.
+4. Add explicit tests proving a representative legacy JSONL/manifest still loads.
+5. Run AC1–AC5 exactly as documented in `docs/v0.11.1.md`. Do not fabricate or infer the results.
+6. Do not start V0.11.2 until the owner accepts the V0.11.1 exit gate. Prompt 1B remains an independent
+   work package and must not be treated as accepted merely because its files exist.
