@@ -395,7 +395,7 @@ def _build_configured_engine(side, configs, limits):
         if "depth" in kwargs:
             raise ValueError(
                 f"--{side}-config-json must not include depth; "
-                "use --{side}-depth or a depth limit"
+                f"use --{side}-depth or a depth limit"
             )
         return PythonEngine(
             depth=config["depth"], limit=limits[side], config=kwargs
