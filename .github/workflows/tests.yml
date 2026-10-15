@@ -1,0 +1,33 @@
+name: Python tests
+
+on:
+  push:
+    branches:
+      - main
+      - "dev/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run full test suite
+        run: python -m pytest -q
+      - name: Install optional physical-core detection
+        run: python -m pip install psutil
+      - name: Run two-worker fixed-sample smoke test
+        run: |
+          python tools/compare_engines.py --test-id "ci-worker-smoke-$GITHUB_RUN_ID" --fixed-pairs 2 --opening-count 2 --opening-plies 8 --workers 2 --limit-kind depth --limit-value 1 --a-depth 1 --b-depth 1 --max-moves 2 --output "$RUNNER_TEMP/worker-smoke-$GITHUB_RUN_ID.jsonl"

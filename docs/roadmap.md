@@ -24,7 +24,7 @@ Every version must remain runnable, and every claimed improvement should be meas
 | V0.8 | V0.8.1-8.3 COMPLETE | Search performance: specialized attack detector, killer move ordering, MVV-LVA capture ordering |
 | V0.9 | V0.9.1-9.9 COMPLETE | Hybrid engine (renamed from this table's original V0.7 slot) |
 | V0.10 | V0.10.0 COMPLETE | Repetition / quiescence correctness and horizon efficiency |
-| V0.11 | PLANNED | Strength foundation: trustworthy measurement (SPRT, Pikafish ladder, tactics suite) and removal of real-play defects (see `v0.11.0.md`) |
+| V0.11 | V0.11.1 IN PROGRESS; V0.11.2–V0.11.4 PLANNED | Strength foundation: trustworthy measurement (SPRT, Pikafish ladder, tactics suite) and removal of real-play defects (see `v0.11.0.md`) |
 | V0.12 | PLANNED | Native engine core (throughput leap), Python implementation kept as executable specification and fallback |
 | V0.13 | PLANNED | Search and evaluation engineering on the native core, every feature gated by SPRT |
 | V0.14 | PLANNED | NNUE-lite incremental neural evaluation |
@@ -1080,18 +1080,18 @@ move" fallbacks at 500 ms), and a measurement system whose 95% intervals (±60�
 resolve the changes being tested. Stop list (no more Python micro-optimizations, no <100-game A/B
 tests, no new constructor flags, no new `compare_*` scripts): `v0.11.0.md` §4.
 
-### V0.11.1 — Unified Match Runner, SPRT, Ladder, Tactics Suite — PLANNED
+### V0.11.1 — Unified Match Runner, SPRT, Ladder, Tactics Suite — IN PROGRESS
 
 Goal: make strength measurable before changing anything else.
 
 Tasks:
 
-- [ ] `tools/match.py`: one runner, paired openings, replay validation, pentanomial SPRT, manifests
-- [ ] Hardware discipline (worker cap, affinity, `nps` calibration, load per game)
-- [ ] Balanced 8-ply opening suite (≥ 2,000 positions) with manifest
-- [ ] Pikafish node-limited ladder (`go nodes N`) calibration
-- [ ] AZ-TAC-500 tactics/blunder suite and AZ-FALLBACK-25 stress set
-- [ ] Consolidate the five `compare_*_paired.py` scripts and `compare_engines.py`
+- [x] `tools/match.py`: paired runner, replay validation, pentanomial SPRT, registration and manifests (acceptance tests pending)
+- [x] Fixed-sample worker pool with physical-core cap, per-process affinity, `nps` calibration and per-game load metadata; sequential SPRT remains serial to preserve exact stopping semantics
+- [ ] Balanced 8-ply opening suite (≥ 2,000 positions) with manifest — owned by Prompt 1B
+- [ ] Pikafish node-limited ladder (`go nodes N`) calibration — owner machine run pending
+- [ ] AZ-TAC-500 tactics/blunder suite and AZ-FALLBACK-25 stress set — owned by Prompt 1B
+- [x] Consolidate the five `compare_*_paired.py` scripts and `compare_engines.py`: 1,879 → 120 lines (93.6% reduction); legacy-manifest compatibility still needs validation
 
 Acceptance (headline): null control (≤ 1 false accept in 10 runs), positive control (500 ms vs.
 250 ms accepted), negative control (depth 2 vs. 3 rejected), ladder of ≥ 8 informative rungs,
@@ -2399,3 +2399,31 @@ Exact next step: **V0.11.1** — build `tools/match.py` with the SPRT core and p
 positive and negative controls before running any new strength comparison.
 
 Last updated: 2026-10-11
+
+## Current checkpoint — V0.11.1 implementation (2026-10-15)
+
+The implementation branch is `dev/v0.11.1-match-runner`, with PR #2 still Draft. This
+checkpoint records implementation progress, not acceptance of V0.11.1 and not a strength claim.
+
+- `tools/match.py` now has a fixed-sample worker pool. Workers run in separate processes,
+  own their engine instances, record affinity and per-game load/calibration metadata, and preserve
+  partial records if a worker chunk fails. Parallelism is intentionally restricted to
+  `--fixed-pairs`; sequential SPRT remains serial so asynchronous completion cannot change the
+  first Wald-boundary crossing.
+- The six legacy comparison entry points are 20 lines each. Comparing the `main` versions with
+  this branch gives 1,879 → 120 lines (93.6% reduction). The legacy `TimedSearch` and
+  `_config_for_depth` imports have been moved to `tools/legacy_compat.py`; old-manifest loading
+  still needs explicit compatibility verification.
+- GitHub Actions full pytest passed **421 tests in 137.42s** on Linux at commit
+  `c7ebd162f483d86ed3f5bb4d5fd7f38f4cbdce14`. The workflow now also runs the two-worker
+  fixed-sample smoke test; its result and the required Windows multi-worker smoke test must be
+  checked before the worker path is accepted.
+- AC1–AC5 (Pikafish reproduction, null/positive/negative controls, and ladder) remain
+  `PENDING OWNER RUN`. AC6 suite/data acceptance belongs to Prompt 1B and is not yet complete.
+- Do not start V0.11.2 until the owner accepts the V0.11.1 exit gate in `docs/v0.11.0.md`.
+
+Next: verify the CI result; run focused/full pytest and the two-pair `--workers 2` smoke test
+on the owner's Windows environment; finish old-manifest compatibility checks; then run AC1–AC5
+with the exact procedures in `docs/v0.11.1.md`. Only after recording those results should the
+PR leave Draft.
+
