@@ -1,7 +1,9 @@
 """Focused tests for match-runner helpers; no external engine is required."""
 import pytest
 
-from tools.match import candidate_score, canonical_hash, parse_command, validate_game
+from tools.match import (
+    candidate_score, canonical_hash, parse_command, partition_openings, validate_game,
+)
 from alphazetacchess.core.fen import board_to_fen
 from alphazetacchess.core.board import Board
 
@@ -57,3 +59,27 @@ def test_parse_command_supports_json_argv():
     assert parse_command('["engine.exe", "--option", "value"]') == [
         "engine.exe", "--option", "value"
     ]
+
+
+
+def test_partition_openings_preserves_every_pair_exactly_once():
+    openings = [{"opening_index": index} for index in range(11)]
+    chunks = partition_openings(openings, workers=3)
+
+    flattened = [opening for chunk in chunks for opening in chunk]
+    assert len(chunks) == 3
+    assert sorted(item["opening_index"] for item in flattened) == list(range(11))
+    assert len({item["opening_index"] for item in flattened}) == len(openings)
+
+
+def test_partition_openings_is_balanced_and_caps_workers_to_work():
+    openings = [{"opening_index": index} for index in range(2)]
+    chunks = partition_openings(openings, workers=8)
+
+    assert len(chunks) == 2
+    assert [len(chunk) for chunk in chunks] == [1, 1]
+
+
+def test_partition_openings_rejects_non_positive_worker_count():
+    with pytest.raises(ValueError, match="at least 1"):
+        partition_openings([], workers=0)
