@@ -921,7 +921,7 @@ Authoritative acceptance criteria: `docs/v0.11.0.md` §6–7.
    python -m pip install psutil
    python -m pytest -q tests/test_sprt_v0111.py tests/test_match_v0111.py
    python -m pytest -q
-   python tools/match.py --test-id smoke-parallel --fixed-pairs 2 --openings data/suites/openings_8ply_v1.json --opening-count 2 --workers 2 --limit-kind depth --limit-value 1 --a-depth 1 --b-depth 1 --max-moves 2 --output data/smoke-parallel.jsonl
+   python tools/match.py --test-id smoke-parallel --fixed-pairs 2 --opening-count 2 --opening-plies 8 --workers 2 --limit-kind depth --limit-value 1 --a-depth 1 --b-depth 1 --max-moves 2 --output data/smoke-parallel.jsonl
    ```
 3. Verify the smoke run writes 4 game records, 2 completed pair scores, per-game `machine`,
    `affinity`, `nps_calibration`, `config_hashes`, and worker IDs; confirm each engine process exits.
