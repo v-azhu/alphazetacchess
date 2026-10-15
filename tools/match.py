@@ -450,6 +450,7 @@ def _run_fixed_sample_chunk(payload):
                 record["machine"] = machine
                 record["affinity"] = affinity
                 record["worker_index"] = worker_index
+                record["nps_calibration"] = payload["calibration"]
                 record["config_hashes"] = registration["config_hashes"]
                 records.append(record)
                 value = candidate_score(record["result"], candidate_color)
@@ -522,6 +523,7 @@ def run_parallel_fixed_sample(args, run_openings, configs, limits, registration,
             "limits": limits,
             "args": {"test_id": args.test_id, "max_moves": args.max_moves},
             "registration": registration,
+            "calibration": calibration,
         }
         for index, chunk in enumerate(chunks)
     ]
