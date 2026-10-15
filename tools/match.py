@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 from alphazetacchess.core.board import Board
@@ -530,9 +531,16 @@ def run_parallel_fixed_sample(args, run_openings, configs, limits, registration,
     all_pair_scores = []
     counts = {"candidate_wins": 0, "candidate_losses": 0, "draws": 0}
     errors = []
+    # When this script is launched through a legacy runpy wrapper, functions
+    # defined in __main__ are not importable by Windows spawn workers. Submit
+    # the canonical module function so pickle can resolve it in child processes.
+    worker_function = _run_fixed_sample_chunk
+    if __name__ == "__main__":
+        from tools.match import _run_fixed_sample_chunk as worker_function
+
     with output.open("x", encoding="utf-8") as records_file:
         with ProcessPoolExecutor(max_workers=len(payloads)) as executor:
-            futures = {executor.submit(_run_fixed_sample_chunk, payload): payload["worker_index"]
+            futures = {executor.submit(worker_function, payload): payload["worker_index"]
                        for payload in payloads}
             for future in as_completed(futures):
                 worker_index = futures[future]
