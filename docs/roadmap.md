@@ -2414,9 +2414,10 @@ checkpoint records implementation progress, not acceptance of V0.11.1 and not a 
   this branch gives 1,879 → 120 lines (93.6% reduction). The legacy `TimedSearch` and
   `_config_for_depth` imports have been moved to `tools/legacy_compat.py`; old-manifest loading
   still needs explicit compatibility verification.
-- A GitHub Actions full-pytest workflow has been added. The latest run status is linked from
-  [PR #2](https://github.com/v-azhu/alphazetacchess/pull/2); do not mark the worker changes
-  accepted until the workflow passes and the Windows multi-worker smoke test is run.
+- GitHub Actions full pytest passed **421 tests in 137.42s** on Linux at commit
+  `c7ebd162f483d86ed3f5bb4d5fd7f38f4cbdce14`. The workflow now also runs the two-worker
+  fixed-sample smoke test; its result and the required Windows multi-worker smoke test must be
+  checked before the worker path is accepted.
 - AC1–AC5 (Pikafish reproduction, null/positive/negative controls, and ladder) remain
   `PENDING OWNER RUN`. AC6 suite/data acceptance belongs to Prompt 1B and is not yet complete.
 - Do not start V0.11.2 until the owner accepts the V0.11.1 exit gate in `docs/v0.11.0.md`.
