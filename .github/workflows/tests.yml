@@ -30,4 +30,4 @@ jobs:
         run: python -m pip install psutil
       - name: Run two-worker fixed-sample smoke test
         run: |
-          python tools/match.py --test-id "ci-worker-smoke-$GITHUB_RUN_ID" --fixed-pairs 2 --opening-count 2 --opening-plies 8 --workers 2 --limit-kind depth --limit-value 1 --a-depth 1 --b-depth 1 --max-moves 2 --output "$RUNNER_TEMP/worker-smoke-$GITHUB_RUN_ID.jsonl"
+          python tools/compare_engines.py --test-id "ci-worker-smoke-$GITHUB_RUN_ID" --fixed-pairs 2 --opening-count 2 --opening-plies 8 --workers 2 --limit-kind depth --limit-value 1 --a-depth 1 --b-depth 1 --max-moves 2 --output "$RUNNER_TEMP/worker-smoke-$GITHUB_RUN_ID.jsonl"
