@@ -1,6 +1,7 @@
 import random
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -177,15 +178,22 @@ def test_pikafish_root_labeler_reads_multipv_and_forced_root_scores():
     ]
     fixture = Path(__file__).parent / "fixtures" / "fake_multipv_engine.py"
 
-    with PikafishRootLabeler(
+    labeler = PikafishRootLabeler(
         [sys.executable, str(fixture)],
         top_depth=3,
         rest_depth=1,
         top_moves=3,
-    ) as labeler:
+        threads=2,
+    )
+    with labeler:
         labels = labeler.label_position(fen, legal_moves)
+        provenance = labeler.provenance()
 
     scores = {score["move"]: score for score in labels["scores"]}
+    assert provenance["engine"] == "id name FakeMultiPV"
+    assert provenance["binary_name"] == Path(sys.executable).name
+    assert len(provenance["binary_sha256"]) == 64
+    assert provenance["threads"] == 2
     assert set(scores) == set(legal_moves)
     assert len(labels["top_moves"]) == 3
     assert all(scores[move]["depth"] == 3 for move in labels["top_moves"])
@@ -193,3 +201,31 @@ def test_pikafish_root_labeler_reads_multipv_and_forced_root_scores():
         scores[move]["depth"] == 1
         for move in set(legal_moves) - set(labels["top_moves"])
     )
+
+
+def test_search_tactics_evaluation_clears_transpositions_between_positions():
+    candidates = positions_from_records([_game(88, plies=14)], min_ply=10, max_ply=14)
+    suite = build_smoke_suite(candidates, count=3, labeler=FakeLabeler())
+
+    class FakeEngine:
+        def __init__(self):
+            self.clears = 0
+            self.tt = SimpleNamespace(clear=self._clear)
+
+        def _clear(self):
+            self.clears += 1
+
+        def choose_move(self, board, color, stop_event):
+            return SimpleNamespace(
+                best_move=GameRecord.move_from_iccs(
+                    GameRecord.move_to_iccs(
+                        Rule.generate_legal_moves(board, color)[0]
+                    )
+                )
+            )
+
+    engine = FakeEngine()
+    report = evaluate_suite(suite, engine_spec="search", time_ms=10, engine=engine)
+
+    assert engine.clears == len(suite["positions"])
+    assert report["overall"]["positions"] == len(suite["positions"])

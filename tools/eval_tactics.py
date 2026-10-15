@@ -49,6 +49,7 @@ def choose_move(position, engine_spec, time_ms, engine=None):
     if engine_spec == "first":
         return GameRecord.move_from_iccs(position["legal_moves"][0])
     if engine_spec == "search":
+        engine.tt.clear()
         stop_event = Event()
         timer = Timer(time_ms / 1000, stop_event.set)
         timer.start()
@@ -65,7 +66,10 @@ def choose_move(position, engine_spec, time_ms, engine=None):
         move = GameRecord.move_from_iccs(notation)
     else:
         raise ValueError(f"unsupported engine spec: {engine_spec}")
-    if move is None or move not in legal_moves:
+    if (
+        move is None
+        or GameRecord.move_to_iccs(move) not in position["legal_moves"]
+    ):
         raise RuntimeError(f"{engine_spec} returned an illegal move for {position['fen']}")
     return move
 

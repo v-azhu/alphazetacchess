@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import platform
 import subprocess
 import sys
 import time
@@ -51,6 +52,14 @@ def _canonical_fen(fen):
 
 def _fen_hash(fen):
     return hashlib.sha256(fen.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def split_for_fen(fen):
@@ -111,12 +120,23 @@ def legal_moves_for_position(position):
 class PikafishRootLabeler:
     """Label root moves with one local UCI process and MultiPV/searchmoves."""
 
-    def __init__(self, engine_path, network_path=None, top_depth=25, rest_depth=2, top_moves=5):
-        if top_depth < 1 or rest_depth < 1 or top_moves < 1:
-            raise ValueError("depths and top_moves must be positive")
+    def __init__(
+        self,
+        engine_path,
+        network_path=None,
+        top_depth=25,
+        rest_depth=2,
+        top_moves=5,
+        threads=1,
+    ):
+        if min(top_depth, rest_depth, top_moves, threads) < 1:
+            raise ValueError("depths, top_moves, and threads must be positive")
         self.top_depth = top_depth
         self.rest_depth = rest_depth
         self.top_moves = top_moves
+        self.threads = threads
+        self.engine_path = engine_path
+        self.network_path = network_path
         self._multipv = None
         command = (
             [str(part) for part in engine_path]
@@ -133,7 +153,9 @@ class PikafishRootLabeler:
         )
         try:
             self._send("uci")
-            self._read_until("uciok")
+            self.uci_lines = self._read_until("uciok")
+            if threads > 1:
+                self._send(f"setoption name Threads value {threads}")
             if network_path is not None:
                 self._send(f"setoption name EvalFile value {network_path}")
             self._send("isready")
@@ -180,12 +202,12 @@ class PikafishRootLabeler:
             return mate_score_to_cp(value), value
         raise ValueError(f"unsupported UCI score type: {kind}")
 
-    def _analyze(self, fen, depth, multipv, searchmove=None):
+    def _analyze(self, fen, depth, multipv, searchmoves=None):
         self._set_multipv(multipv)
         self._send(f"position fen {fen}")
         command = f"go depth {depth}"
-        if searchmove is not None:
-            command += f" searchmoves {searchmove}"
+        if searchmoves:
+            command += f" searchmoves {' '.join(searchmoves)}"
         self._send(command)
         lines = self._read_until("bestmove")
         by_line = {}
@@ -234,15 +256,28 @@ class PikafishRootLabeler:
             )
 
         scores = dict(high_scores)
-        for move in legal_moves:
-            if move in scores:
-                continue
-            line = self._analyze(fen, self.rest_depth, 1, searchmove=move).get(1)
-            if line is None or line["depth"] < self.rest_depth:
+        remaining_moves = [move for move in legal_moves if move not in scores]
+        if remaining_moves:
+            lower_lines = self._analyze(
+                fen,
+                self.rest_depth,
+                len(remaining_moves),
+                searchmoves=remaining_moves,
+            )
+            for line in lower_lines.values():
+                if line["depth"] < self.rest_depth:
+                    continue
+                if line["move"] not in remaining_moves:
+                    raise RuntimeError(
+                        f"Pikafish returned unexpected forced-root move {line['move']!r}"
+                    )
+                scores[line["move"]] = line
+            missing = set(remaining_moves) - set(scores)
+            if missing:
                 raise RuntimeError(
-                    f"Pikafish did not complete depth {self.rest_depth} for {move}"
+                    f"Pikafish did not complete depth {self.rest_depth} for "
+                    f"{len(missing)} legal moves: {sorted(missing)[:5]}"
                 )
-            scores[move] = line
         ranked_high = sorted(
             high_scores.values(),
             key=lambda score: (-score["score_cp"], score["move"]),
@@ -291,6 +326,32 @@ class PikafishRootLabeler:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
+
+    def provenance(self):
+        engine_path = (
+            self.engine_path[0]
+            if isinstance(self.engine_path, (list, tuple))
+            else self.engine_path
+        )
+        return {
+            "engine": next(
+                (line for line in self.uci_lines if line.startswith("id name ")),
+                "Pikafish (UCI id unavailable)",
+            ),
+            "binary_name": Path(engine_path).name,
+            "binary_sha256": _sha256_file(engine_path),
+            "network_name": (
+                Path(self.network_path).name if self.network_path else None
+            ),
+            "network_sha256": (
+                _sha256_file(self.network_path) if self.network_path else None
+            ),
+            "top_depth": self.top_depth,
+            "top_moves": self.top_moves,
+            "other_move_depth": self.rest_depth,
+            "threads": self.threads,
+            "platform": platform.platform(),
+        }
 
 
 class FakeLabeler:
@@ -537,6 +598,7 @@ def main():
     parser.add_argument("--top-depth", type=int, default=25)
     parser.add_argument("--rest-depth", type=int, default=2)
     parser.add_argument("--top-moves", type=int, default=5)
+    parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--max-candidates", type=int)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--label-smoke", action="store_true")
@@ -546,6 +608,8 @@ def main():
         parser.error(f"input file does not exist: {args.input}")
     if args.network_path and not args.pikafish_path:
         parser.error("--network-path requires --pikafish-path")
+    if args.threads < 1:
+        parser.error("--threads must be positive")
     if args.smoke and args.label_smoke:
         parser.error("--smoke and --label-smoke are mutually exclusive")
     if not args.smoke and not args.pikafish_path:
@@ -566,6 +630,7 @@ def main():
             top_depth=args.top_depth,
             rest_depth=args.rest_depth,
             top_moves=args.top_moves,
+            threads=args.threads,
         ) as labeler:
             suite = build_smoke_suite(
                 candidates,
@@ -576,8 +641,10 @@ def main():
                     "Pikafish; real labels for smoke validation only, not the 500-position suite"
                 ),
             )
+            suite["labeler"] = labeler.provenance()
         suite["top_move_min_depth"] = args.top_depth
         suite["other_move_max_depth"] = args.rest_depth
+        suite["threads"] = args.threads
     else:
         started = time.monotonic()
         with PikafishRootLabeler(
@@ -586,6 +653,7 @@ def main():
             top_depth=args.top_depth,
             rest_depth=args.rest_depth,
             top_moves=args.top_moves,
+            threads=args.threads,
         ) as labeler:
             suite = build_tactics_suite(
                 candidates,
@@ -597,8 +665,10 @@ def main():
                     flush=True,
                 ),
             )
+            suite["labeler"] = labeler.provenance()
         suite["labeling_elapsed_seconds"] = round(time.monotonic() - started, 3)
         suite["other_move_max_depth"] = args.rest_depth
+        suite["threads"] = args.threads
         suite["deviations"] = [
             "Only the MultiPV top moves are labeled at the requested top depth; "
             "remaining legal moves use forced-root searches at the configured lower depth."
