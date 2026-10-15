@@ -7,6 +7,7 @@ adapter. Every game is replay-validated before it is appended to the JSONL evide
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import hashlib
 import json
 import os
@@ -375,6 +376,245 @@ def candidate_score(result, candidate_color):
     return 1.0 if result == f"{candidate_color}_WINS" else 0.0
 
 
+
+
+def partition_openings(openings, workers):
+    """Partition openings deterministically without dropping or duplicating a pair."""
+    if workers < 1:
+        raise ValueError("workers must be at least 1")
+    if not openings:
+        return []
+    return [list(openings[index::min(workers, len(openings))])
+            for index in range(min(workers, len(openings)))]
+
+
+def _build_configured_engine(side, configs, limits):
+    config = configs[side]
+    if config["kind"] == "python":
+        kwargs = config["kwargs"]
+        if "depth" in kwargs:
+            raise ValueError(
+                f"--{side}-config-json must not include depth; "
+                "use --{side}-depth or a depth limit"
+            )
+        return PythonEngine(
+            depth=config["depth"], limit=limits[side], config=kwargs
+        )
+    return ProcessEngine(
+        parse_command(config["command"]),
+        protocol=config["protocol"],
+        limit=limits[side],
+        network_path=config["network_path"],
+    )
+
+
+def _run_fixed_sample_chunk(payload):
+    """Run a chunk of fixed-sample opening pairs in an isolated worker process."""
+    worker_index = payload["worker_index"]
+    configs = payload["configs"]
+    limits = payload["limits"]
+    args = payload["args"]
+    registration = payload["registration"]
+    records = []
+    pair_scores = []
+    counts = {"candidate_wins": 0, "candidate_losses": 0, "draws": 0}
+    errors = []
+    engines = []
+    try:
+        affinity = apply_affinity(worker_index)
+        machine = machine_info()
+        a = _build_configured_engine("a", configs, limits)
+        engines.append(a)
+        b = _build_configured_engine("b", configs, limits)
+        engines.append(b)
+        for opening in payload["openings"]:
+            opening_scores = []
+            for game_offset, candidate_color in enumerate(("RED", "BLACK"), start=1):
+                game_index = int(opening["opening_index"]) * 2 + game_offset
+                red_engine, black_engine = (a, b) if candidate_color == "RED" else (b, a)
+                load_before = system_load()
+                try:
+                    record = play_game(
+                        opening, red_engine, black_engine, args["max_moves"],
+                        f'{args["test_id"]}-{game_index:06d}', candidate_color,
+                    )
+                except Exception as exc:
+                    errors.append({
+                        "worker_index": worker_index,
+                        "opening_index": opening["opening_index"],
+                        "game_index": game_index,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    })
+                    break
+                record["load"] = {"before": load_before, "after": system_load()}
+                record["machine"] = machine
+                record["affinity"] = affinity
+                record["worker_index"] = worker_index
+                record["config_hashes"] = registration["config_hashes"]
+                records.append(record)
+                value = candidate_score(record["result"], candidate_color)
+                opening_scores.append(value)
+                if value == 1.0:
+                    counts["candidate_wins"] += 1
+                elif value == 0.0:
+                    counts["candidate_losses"] += 1
+                else:
+                    counts["draws"] += 1
+            if len(opening_scores) == 2:
+                pair_scores.append({
+                    "opening_index": int(opening["opening_index"]),
+                    "score": opening_scores[0] + opening_scores[1],
+                })
+            if errors:
+                break
+    except Exception as exc:
+        errors.append({
+            "worker_index": worker_index,
+            "error": f"{type(exc).__name__}: {exc}",
+        })
+    finally:
+        for engine in engines:
+            if isinstance(engine, ProcessEngine):
+                try:
+                    engine.close()
+                except Exception as exc:
+                    errors.append({
+                        "worker_index": worker_index,
+                        "error": f"engine cleanup {type(exc).__name__}: {exc}",
+                    })
+    return {
+        "worker_index": worker_index,
+        "records": records,
+        "pair_scores": pair_scores,
+        "counts": counts,
+        "errors": errors,
+    }
+
+
+
+def run_parallel_fixed_sample(args, run_openings, configs, limits, registration,
+                              output, manifest_path, registry_path):
+    """Parallel fixed-sample execution; sequential SPRT deliberately stays serial.
+
+    Parallel completion order must not change a Wald SPRT's stopping boundary.
+    Therefore this worker pool is available only when --fixed-pairs is requested,
+    where no sequential acceptance decision is claimed.
+    """
+    calibration = {"nodes": None, "elapsed_seconds": None, "nps": None}
+    try:
+        probe = SearchEngine(depth=2)
+        started = time.monotonic()
+        probe_result = probe.choose_move(Board(), Color.RED)
+        elapsed = max(time.monotonic() - started, 1e-9)
+        nodes = getattr(probe_result, "nodes_evaluated", 0)
+        calibration = {
+            "nodes": nodes, "elapsed_seconds": elapsed, "nps": nodes / elapsed
+        }
+    except Exception as exc:
+        calibration = {"error": str(exc), "nps": None}
+
+    chunks = partition_openings(run_openings, args.workers)
+    payloads = [
+        {
+            "worker_index": index,
+            "openings": chunk,
+            "configs": configs,
+            "limits": limits,
+            "args": {"test_id": args.test_id, "max_moves": args.max_moves},
+            "registration": registration,
+        }
+        for index, chunk in enumerate(chunks)
+    ]
+    all_pair_scores = []
+    counts = {"candidate_wins": 0, "candidate_losses": 0, "draws": 0}
+    errors = []
+    with output.open("x", encoding="utf-8") as records_file:
+        with ProcessPoolExecutor(max_workers=len(payloads)) as executor:
+            futures = {executor.submit(_run_fixed_sample_chunk, payload): payload["worker_index"]
+                       for payload in payloads}
+            for future in as_completed(futures):
+                worker_index = futures[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    errors.append({
+                        "worker_index": worker_index,
+                        "error": f"worker crashed: {type(exc).__name__}: {exc}",
+                    })
+                    continue
+                errors.extend(result["errors"])
+                all_pair_scores.extend(result["pair_scores"])
+                for key in counts:
+                    counts[key] += result["counts"][key]
+                for record in result["records"]:
+                    records_file.write(json.dumps(record, separators=(",", ":")) + "\n")
+                records_file.flush()
+
+    all_pair_scores.sort(key=lambda item: item["opening_index"])
+    pair_values = [item["score"] for item in all_pair_scores]
+    total_games = sum(counts.values())
+    score_rate = (
+        (counts["candidate_wins"] + 0.5 * counts["draws"]) / total_games
+        if total_games else None
+    )
+    engine_hashes = {}
+    for side in ("a", "b"):
+        command = configs[side]["command"]
+        executable = parse_command(command)[0] if configs[side]["kind"] == "process" and command else None
+        engine_hashes[side] = (
+            sha256_file(executable) if executable and Path(executable).is_file() else None
+        )
+    manifest = {
+        "test_id": args.test_id,
+        "registration": registration,
+        "gate": GATES[args.gate].__dict__,
+        "limits": limits,
+        "seed": args.seed,
+        "fixed_sample_mode": True,
+        "workers": args.workers,
+        "worker_count_used": len(payloads),
+        "openings": run_openings,
+        "engine_configs": configs,
+        "candidate_score_rate": score_rate,
+        "observed_pair_scores": pair_values,
+        "pair_score_opening_indices": [item["opening_index"] for item in all_pair_scores],
+        "engine_hashes": engine_hashes,
+        "machine": machine_info(),
+        "affinity": "per-worker process affinity where supported",
+        "nps_calibration": calibration,
+        "counts": counts,
+        "sprt": {
+            "state": "NOT_RUN_FIXED_SAMPLE",
+            "llr": None,
+            "lower_bound": None,
+            "upper_bound": None,
+            "pairs": len(pair_values),
+            "games": total_games,
+            "pair_counts": None,
+            "reason": "fixed-sample parallel mode; no sequential acceptance claim",
+        },
+        "records": str(output),
+        "errors": errors,
+        "generated_at_unix": time.time(),
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    final_status = "FIXED_SAMPLE" if not errors and len(pair_values) == len(run_openings) else "FAILED_PARTIAL"
+    with registry_path.open("a", encoding="utf-8") as registry:
+        registry.write(json.dumps({
+            "registration_id": registration["registration_id"],
+            "status": final_status,
+            "finished_at_unix": time.time(),
+        }) + "\n")
+    print(json.dumps({"candidate_score_rate": score_rate, "sprt": manifest["sprt"],
+                      "errors": errors}, indent=2))
+    if errors or len(pair_values) != len(run_openings):
+        raise RuntimeError(
+            f"parallel fixed-sample run incomplete: {len(pair_values)}/"
+            f"{len(run_openings)} pairs completed; see {manifest_path}"
+        )
+
+
+
 def run(args):
     gate = GATES[args.gate]
     if args.workers > machine_info()["physical_cores"]:
@@ -382,8 +622,13 @@ def run(args):
             f"--workers {args.workers} exceeds detected physical cores "
             f"({machine_info()['physical_cores']})"
         )
-    if args.workers != 1:
-        raise ValueError("this initial runner serializes games; use --workers 1 until parallel workers land")
+    if args.workers < 1:
+        raise ValueError("--workers must be at least 1")
+    if args.workers > 1 and not args.fixed_pairs:
+        raise ValueError(
+            "--workers > 1 is supported only with --fixed-pairs; sequential SPRT "
+            "remains serial so completion order cannot alter Wald stopping semantics"
+        )
     if args.a_kind == "process" and not args.a_command:
         raise ValueError("--a-command is required when --a-kind process")
     if args.b_kind == "process" and not args.b_command:
@@ -477,6 +722,13 @@ def run(args):
             raise ValueError("node limits require UCI process engines; UCCI node limits are unsupported")
         if item["kind"] not in {"movetime", "depth", "nodes"} or item["value"] < 1:
             raise ValueError(f"invalid limit for engine {side}: {item}")
+
+    if args.workers > 1:
+        run_parallel_fixed_sample(
+            args, run_openings, configs, limits, registration,
+            output, manifest_path, registry_path,
+        )
+        return
 
     engines = []
     try:
@@ -613,7 +865,10 @@ def build_parser():
     parser.add_argument("--seed", type=int, default=20261013)
     parser.add_argument("--draw-rate", type=float, default=0.2)
     parser.add_argument("--max-moves", type=int, default=150)
-    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--workers", type=int, default=1,
+        help="physical-core-limited worker count; >1 requires --fixed-pairs",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--limit-kind", choices=["movetime", "depth", "nodes"], default="movetime")
     parser.add_argument("--limit-value", type=int, default=500)
