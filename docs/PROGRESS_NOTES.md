@@ -895,8 +895,10 @@ Authoritative acceptance criteria: `docs/v0.11.0.md` §6–7.
 - Legacy symbols `TimedSearch` and `_config_for_depth` now live in `tools/legacy_compat.py`;
   the six comparison entry points are each 20 lines. Comparison-script line count was measured
   from `main` versus this branch as 1,879 → 120 lines (93.6% reduction).
-- Added `.github/workflows/tests.yml` to run the full pytest suite on development branches and
-  pull requests.
+- Added `.github/workflows/tests.yml` to run the full pytest suite and a two-worker fixed-sample
+  smoke test on development branches and pull requests. Linux full pytest passed **421 tests in
+  137.42s** at commit `c7ebd162f483d86ed3f5bb4d5fd7f38f4cbdce14`; the new worker smoke step is
+  pending on the latest workflow run. Windows worker behavior still requires owner-side smoke testing.
 
 ### Acceptance table
 
