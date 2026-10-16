@@ -416,7 +416,8 @@ def _validate_labels(legal_moves, labels, required_top_depth=None):
     return by_move
 
 
-def _category_for(position, labels, remaining):
+def _qualifying_categories(position, labels):
+    """Return every category matched, before quota availability is considered."""
     by_move = _validate_labels(position["legal_moves"], labels)
     high_moves = labels["top_moves"]
     best_move = labels["best_move"]
@@ -428,7 +429,6 @@ def _category_for(position, labels, remaining):
         for piece in row
         if piece is not None and piece.type != PieceType.KING
     )
-
     qualifies = {
         "mate_in_1_3": any(
             by_move[move].get("mate_in") is not None
@@ -450,11 +450,14 @@ def _category_for(position, labels, remaining):
         "win_material": best_score >= 300,
         "endgame": non_king_count <= 8,
     }
-    split = split_for_fen(position["fen"])
-    for category in CATEGORY_ORDER:
-        if qualifies[category] and remaining.get(category, {}).get(split, 0) > 0:
-            return category, split
-    return None, split
+    return [category for category in CATEGORY_ORDER if qualifies[category]]
+
+
+def _category_for(position, qualifying_categories, split, remaining):
+    for category in qualifying_categories:
+        if remaining.get(category, {}).get(split, 0) > 0:
+            return category
+    return None
 
 
 def _record_labeled_position(position, labels, category=None, split=None):
@@ -479,6 +482,74 @@ def _record_labeled_position(position, labels, category=None, split=None):
     }
 
 
+def _checkpoint_metadata(candidates, labeler, targets, required_top_depth):
+    """Identity of every input that can affect stored labels or selection."""
+    return {
+        "format": "alphazeta-az-tac-checkpoint-v1",
+        "candidate_count": len(candidates),
+        "candidate_fingerprint": hashlib.sha256(
+            "\\n".join(
+                f"{item['position_hash']}:{item['fen']}" for item in candidates
+            ).encode("utf-8")
+        ).hexdigest(),
+        "targets": targets,
+        "required_top_depth": required_top_depth,
+        "labeler": labeler.provenance() if hasattr(labeler, "provenance") else {
+            "class": type(labeler).__qualname__
+        },
+    }
+
+
+def _load_checkpoint(path, metadata):
+    path = Path(path)
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as target:
+            target.write(json.dumps({"type": "header", "metadata": metadata}, sort_keys=True) + "\\n")
+            target.flush()
+            import os
+            os.fsync(target.fileno())
+        return {}
+
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    records = []
+    valid_bytes = 0
+    for index, line in enumerate(lines):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            if index != len(lines) - 1:
+                raise ValueError(f"Checkpoint has invalid JSON at line {index + 1}: {path}")
+            # A power loss may leave only the final JSONL record incomplete.
+            break
+        records.append(record)
+        valid_bytes += len(line.encode("utf-8"))
+    if not records or records[0].get("type") != "header":
+        raise ValueError(f"Checkpoint header is missing or corrupt: {path}")
+    if records[0].get("metadata") != metadata:
+        raise ValueError(
+            f"Checkpoint does not match current input/engine/search settings: {path}. "
+            "Use --restart only if you intentionally want to discard it."
+        )
+    if valid_bytes != path.stat().st_size:
+        with path.open("r+b") as target:
+            target.truncate(valid_bytes)
+    cached = {}
+    for record in records[1:]:
+        if record.get("type") != "position" or not record.get("position_hash"):
+            raise ValueError(f"Invalid checkpoint record in {path}")
+        cached[record["position_hash"]] = record
+    return cached
+
+
+def _append_checkpoint(path, record):
+    import os
+    with Path(path).open("a", encoding="utf-8") as target:
+        target.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\\n")
+        target.flush()
+        os.fsync(target.fileno())
+
+
 def build_tactics_suite(
     candidates,
     labeler,
@@ -486,6 +557,8 @@ def build_tactics_suite(
     max_candidates=None,
     required_top_depth=25,
     progress_callback=None,
+    checkpoint_path=None,
+    checkpoint_metadata=None,
 ):
     targets = category_split_targets or CATEGORY_SPLIT_TARGETS
     remaining = {
@@ -495,32 +568,78 @@ def build_tactics_suite(
     ordered = sorted(candidates, key=lambda candidate: candidate["position_hash"])
     if max_candidates is not None:
         ordered = ordered[:max_candidates]
+    if checkpoint_path is not None:
+        metadata = checkpoint_metadata or _checkpoint_metadata(
+            ordered, labeler, targets, required_top_depth
+        )
+        cached = _load_checkpoint(checkpoint_path, metadata)
+    else:
+        cached = {}
+
     suite_positions = []
+    qualification_counts = {
+        category: {"dev": 0, "test": 0} for category in CATEGORY_ORDER
+    }
     labeled_count = 0
     for position in ordered:
         if not any(any(counts.values()) for counts in remaining.values()):
             break
         position = dict(position)
         position["legal_moves"] = position.get("legal_moves") or legal_moves_for_position(position)
-        labels = labeler.label_position(position["fen"], position["legal_moves"])
-        _validate_labels(
-            position["legal_moves"], labels, required_top_depth=required_top_depth
-        )
-        category, split = _category_for(position, labels, remaining)
+        position_hash = position["position_hash"]
+        split = split_for_fen(position["fen"])
+        saved = cached.get(position_hash)
+        if saved is not None:
+            if saved.get("split") != split:
+                raise ValueError(f"Checkpoint split mismatch for {position_hash}")
+            qualifying = saved.get("qualifying_categories", [])
+            selected_record = saved.get("selected_record")
+        else:
+            labels = labeler.label_position(position["fen"], position["legal_moves"])
+            _validate_labels(
+                position["legal_moves"], labels, required_top_depth=required_top_depth
+            )
+            qualifying = _qualifying_categories(position, labels)
+            selected_category = _category_for(position, qualifying, split, remaining)
+            selected_record = (
+                _record_labeled_position(position, labels, selected_category, split)
+                if selected_category is not None else None
+            )
+            if checkpoint_path is not None:
+                _append_checkpoint(checkpoint_path, {
+                    "type": "position",
+                    "position_hash": position_hash,
+                    "split": split,
+                    "qualifying_categories": qualifying,
+                    "selected_record": selected_record,
+                })
         labeled_count += 1
+        for category in qualifying:
+            qualification_counts[category][split] += 1
+        if saved is not None:
+            # Replay the original deterministic selection against the remaining quotas.
+            selected_category = _category_for(position, qualifying, split, remaining)
+            if selected_category is not None:
+                if selected_record is None or selected_record.get("category") != selected_category:
+                    raise ValueError(
+                        f"Checkpoint selection is inconsistent for {position_hash}; "
+                        "use --restart to rebuild it."
+                    )
+                suite_positions.append(selected_record)
+                remaining[selected_category][split] -= 1
+        elif selected_record is not None:
+            selected_category = selected_record["category"]
+            suite_positions.append(selected_record)
+            remaining[selected_category][split] -= 1
         if progress_callback is not None and labeled_count % 50 == 0:
             progress_callback(labeled_count, len(suite_positions), len(ordered))
-        if category is None:
-            continue
-        suite_positions.append(
-            _record_labeled_position(position, labels, category, split)
-        )
-        remaining[category][split] -= 1
 
     if any(any(counts.values()) for counts in remaining.values()):
         raise RuntimeError(
             "Could not fill the fixed AZ-TAC category/split targets; "
-            f"labeled {labeled_count} candidates, remaining={remaining}"
+            f"processed {labeled_count} candidates, remaining={remaining}; "
+            f"qualification_counts={qualification_counts}; "
+            f"checkpoint={checkpoint_path or 'disabled'}"
         )
     suite_positions.sort(key=lambda position: position["position_hash"])
     return {
@@ -530,6 +649,7 @@ def build_tactics_suite(
         "top_move_min_depth": required_top_depth,
         "category_split_targets": targets,
         "candidate_positions_labeled": labeled_count,
+        "qualification_counts": qualification_counts,
         "positions": suite_positions,
     }
 
@@ -600,6 +720,8 @@ def main():
     parser.add_argument("--top-moves", type=int, default=5)
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--max-candidates", type=int)
+    parser.add_argument("--checkpoint", type=Path, help="JSONL checkpoint path (defaults to OUTPUT.checkpoint.jsonl)")
+    parser.add_argument("--restart", action="store_true", help="delete an existing checkpoint and start over")
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--label-smoke", action="store_true")
     parser.add_argument("--smoke-count", type=int, default=20)
@@ -647,6 +769,9 @@ def main():
         suite["threads"] = args.threads
     else:
         started = time.monotonic()
+        checkpoint_path = args.checkpoint or Path(str(output) + ".checkpoint.jsonl")
+        if args.restart and checkpoint_path.exists():
+            checkpoint_path.unlink()
         with PikafishRootLabeler(
             args.pikafish_path,
             args.network_path,
@@ -655,18 +780,28 @@ def main():
             top_moves=args.top_moves,
             threads=args.threads,
         ) as labeler:
+            checkpoint_metadata = _checkpoint_metadata(
+                candidates[:args.max_candidates] if args.max_candidates else candidates,
+                labeler,
+                CATEGORY_SPLIT_TARGETS,
+                args.top_depth,
+            )
             suite = build_tactics_suite(
                 candidates,
                 labeler,
                 max_candidates=args.max_candidates,
                 required_top_depth=args.top_depth,
+                checkpoint_path=checkpoint_path,
+                checkpoint_metadata=checkpoint_metadata,
                 progress_callback=lambda labeled, selected, total: print(
-                    f"Labeled {labeled}/{total} candidates; selected {selected}/500",
+                    f"Processed {labeled}/{total} candidates; selected {selected}/500 "
+                    f"(checkpoint: {checkpoint_path})",
                     flush=True,
                 ),
             )
             suite["labeler"] = labeler.provenance()
         suite["labeling_elapsed_seconds"] = round(time.monotonic() - started, 3)
+        suite["checkpoint_path"] = str(checkpoint_path)
         suite["other_move_max_depth"] = args.rest_depth
         suite["threads"] = args.threads
         suite["deviations"] = [
