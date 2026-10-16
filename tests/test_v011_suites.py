@@ -195,11 +195,16 @@ def test_tactics_builder_resumes_from_durable_checkpoint(tmp_path):
 
 
 def test_tactics_checkpoint_rejects_changed_search_metadata(tmp_path):
-    candidates = positions_from_records([_game(41, plies=12)], min_ply=10, max_ply=10)
+    candidates = positions_from_records(
+        [_game(seed, plies=12) for seed in range(8)], min_ply=10, max_ply=10
+    )
+    candidate = next(
+        item for item in candidates if split_for_fen(item["fen"]) == "dev"
+    )
     checkpoint = tmp_path / "az_tac.checkpoint.jsonl"
     target = {"win_material": {"dev": 1, "test": 0}}
     build_tactics_suite(
-        candidates,
+        [candidate],
         _HighMaterialFakeLabeler(),
         category_split_targets=target,
         checkpoint_path=checkpoint,
