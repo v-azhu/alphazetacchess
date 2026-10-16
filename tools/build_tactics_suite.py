@@ -488,7 +488,7 @@ def _checkpoint_metadata(candidates, labeler, targets, required_top_depth):
         "format": "alphazeta-az-tac-checkpoint-v1",
         "candidate_count": len(candidates),
         "candidate_fingerprint": hashlib.sha256(
-            "\\n".join(
+            "\n".join(
                 f"{item['position_hash']}:{item['fen']}" for item in candidates
             ).encode("utf-8")
         ).hexdigest(),
@@ -505,7 +505,7 @@ def _load_checkpoint(path, metadata):
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as target:
-            target.write(json.dumps({"type": "header", "metadata": metadata}, sort_keys=True) + "\\n")
+            target.write(json.dumps({"type": "header", "metadata": metadata}, sort_keys=True) + "\n")
             target.flush()
             import os
             os.fsync(target.fileno())
@@ -545,7 +545,7 @@ def _load_checkpoint(path, metadata):
 def _append_checkpoint(path, record):
     import os
     with Path(path).open("a", encoding="utf-8") as target:
-        target.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\\n")
+        target.write(json.dumps(record, separators=(",", ":"), ensure_ascii=False) + "\n")
         target.flush()
         os.fsync(target.fileno())
 
