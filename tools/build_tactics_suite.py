@@ -486,10 +486,12 @@ def _checkpoint_metadata(candidates, labeler, targets, required_top_depth):
     """Identity of every input that can affect stored labels or selection."""
     return {
         "format": "alphazeta-az-tac-checkpoint-v1",
+        "classifier_version": "az-tac-exclusive-categories-v1",
         "candidate_count": len(candidates),
         "candidate_fingerprint": hashlib.sha256(
             "\n".join(
-                f"{item['position_hash']}:{item['fen']}" for item in candidates
+                f"{item['position_hash']}:{item['fen']}:{item.get('source_game')}:{item.get('ply')}"
+                for item in candidates
             ).encode("utf-8")
         ).hexdigest(),
         "targets": targets,
