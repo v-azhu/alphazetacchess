@@ -2,6 +2,20 @@
 
 Status: **READY** — companion to [`v0.11.0.md`](v0.11.0.md); standing rules are in [`../AGENTS.md`](../AGENTS.md).
 
+## Prompt 1B status note (2026-10-15)
+
+- Opening suite and AZ-FALLBACK-25 remain complete as documented in `docs/v0.11.1.md`.
+- AZ-TAC-500 remains **PENDING OWNER RUN**. The prior failed run's labels are treated as lost.
+- `tools/build_tactics_suite.py` now writes a durable JSONL checkpoint after each candidate and
+  resumes when re-run with identical inputs and engine/search settings. The checkpoint stores
+  qualification categories for diagnostics and full move labels only for selected positions.
+- A quota failure now reports category/split qualification counts and preserves the checkpoint.
+  If the fixed quotas are infeasible under the proposed category rules, rerunning will reuse
+  cached results and report the same feasibility issue; review diagnostics before changing rules.
+- Tests were added for successful resume and rejecting incompatible checkpoint metadata. These
+  changes have been committed to `dev/v0.11.1-suites`; local test execution has not yet been
+  performed by this agent session.
+
 ## 使用说明（中文）
 
 1. 先把仓库根目录的 `AGENTS.md` 合并到 `main`（Claude Code 请复制为 `CLAUDE.md`），agent 会自动读取。
