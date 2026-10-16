@@ -154,6 +154,67 @@ def test_tactics_builder_uses_hash_split_and_fake_labeler():
     }
 
 
+def test_tactics_builder_resumes_from_durable_checkpoint(tmp_path):
+    candidates = positions_from_records(
+        [_game(seed, plies=18) for seed in range(8)], min_ply=10, max_ply=18
+    )
+    candidate = next(
+        item for item in candidates if split_for_fen(item["fen"]) == "dev"
+    )
+    checkpoint = tmp_path / "az_tac.checkpoint.jsonl"
+
+    class CountingLabeler(_HighMaterialFakeLabeler):
+        def __init__(self):
+            self.calls = 0
+
+        def label_position(self, fen, legal_moves):
+            self.calls += 1
+            return super().label_position(fen, legal_moves)
+
+    first_labeler = CountingLabeler()
+    first = build_tactics_suite(
+        [candidate],
+        first_labeler,
+        category_split_targets={"win_material": {"dev": 1, "test": 0}},
+        checkpoint_path=checkpoint,
+    )
+    assert len(first["positions"]) == 1
+    assert first_labeler.calls == 1
+    assert checkpoint.exists()
+    assert len(checkpoint.read_text(encoding="utf-8").splitlines()) == 2
+
+    resumed_labeler = CountingLabeler()
+    resumed = build_tactics_suite(
+        [candidate],
+        resumed_labeler,
+        category_split_targets={"win_material": {"dev": 1, "test": 0}},
+        checkpoint_path=checkpoint,
+    )
+    assert resumed["positions"] == first["positions"]
+    assert resumed_labeler.calls == 0
+
+
+def test_tactics_checkpoint_rejects_changed_search_metadata(tmp_path):
+    candidates = positions_from_records([_game(41, plies=12)], min_ply=10, max_ply=10)
+    checkpoint = tmp_path / "az_tac.checkpoint.jsonl"
+    target = {"win_material": {"dev": 1, "test": 0}}
+    build_tactics_suite(
+        candidates,
+        _HighMaterialFakeLabeler(),
+        category_split_targets=target,
+        checkpoint_path=checkpoint,
+        checkpoint_metadata={"run": "first"},
+    )
+    with pytest.raises(ValueError, match="does not match current input"):
+        build_tactics_suite(
+            candidates,
+            _HighMaterialFakeLabeler(),
+            category_split_targets=target,
+            checkpoint_path=checkpoint,
+            checkpoint_metadata={"run": "changed"},
+        )
+
+
 def test_tactics_builder_rejects_incomplete_fake_labels():
     candidate = positions_from_records([_game(31, plies=12)], min_ply=10, max_ply=10)[0]
 
