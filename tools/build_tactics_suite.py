@@ -781,7 +781,7 @@ def main():
             threads=args.threads,
         ) as labeler:
             checkpoint_metadata = _checkpoint_metadata(
-                candidates[:args.max_candidates] if args.max_candidates else candidates,
+                candidates[:args.max_candidates] if args.max_candidates is not None else candidates,
                 labeler,
                 CATEGORY_SPLIT_TARGETS,
                 args.top_depth,
